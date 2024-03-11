@@ -1,7 +1,6 @@
 use chrono::NaiveDateTime;
 use serde::Deserialize;
 
-
 #[derive(Debug, Deserialize)]
 pub struct ConsensusStateResponse {
     pub result: Option<ConsensusStateResult>,
@@ -94,6 +93,27 @@ pub struct TendermintBlockResult {
 #[derive(Debug, Deserialize)]
 pub struct TendermintBlock {
     pub header: TendermintBlockHeader,
+    pub data: TendermintBlockData,
+    pub last_commit: TendermintBlockLastCommit,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintBlockData {
+    pub txs: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintBlockLastCommit {
+    pub height: String,
+    pub signatures: Vec<TendermintBlockSignature>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintBlockSignature {
+    pub validator_address: String,
+    pub signature: Option<String>,
+    #[serde(with = "serde_naive_datetime")]
+    pub timestamp: NaiveDateTime,
 }
 
 #[derive(Debug, Deserialize)]

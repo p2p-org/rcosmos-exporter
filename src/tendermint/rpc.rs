@@ -121,7 +121,14 @@ impl RPC {
             format!("{}/block", endpoint)
         };
         let response = self.client.get(&url).send().await?;
-        let block_response = response.json::<TendermintBlockResponse>().await?;
+        let block_response_result = response.json::<TendermintBlockResponse>().await;
+        let block_response = match block_response_result {
+            Ok(res) => res,
+            Err(err) => {
+                MessageLog!("Error converting JSON: {}", err);
+                return Err(err.into());
+            }
+        };
         MessageLog!("Get block request");
         Ok(block_response)
     }
