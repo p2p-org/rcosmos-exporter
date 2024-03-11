@@ -7,6 +7,8 @@ use std::time::Duration;
 use reqwest::{Client, Error as ReqwestError};
 use crate::{config, MessageLog, internal::logger::JsonLog, tendermint::types::*, tendermint::manager::*};
 
+const TIMEOUT: u64 = 5;
+
 #[derive(Debug)]
 pub struct RPC {
     client: Client,
@@ -45,7 +47,7 @@ impl RPC {
         let endpoint_manager_clone = endpoint_manager.clone();
 
         tokio::spawn(async move {
-            endpoint_manager_clone.run_health_checks(Duration::from_secs(5)).await;
+            endpoint_manager_clone.run_health_checks(Duration::from_secs(TIMEOUT)).await;
         });
 
         Ok(RPC { client, endpoint_manager })
