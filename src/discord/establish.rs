@@ -39,10 +39,9 @@ pub async fn discord_client() -> Client {
     framework.configure(Configuration::new().prefix("$"));
 
     let token = match settings {
-        // Ok(settings) => settings.discord_token,
         Ok(settings) => get_discord_token(&settings).to_string(),
         Err(err) => {
-            eprintln!("Error parsing settings: {:?}", err);
+            MessageLog!("Error parsing settings: {:?}", err);
             "default_token".to_string()
         }
     };

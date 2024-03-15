@@ -5,13 +5,16 @@ use serenity::{
     prelude::*,
 };
 use discord_bot::tendermint::rpc::*;
+use discord_bot::MessageLog;
+use discord_bot::internal::logger::JsonLog;
+use crate::WATCHER_CLIENT;
 
 const DESCRIPTION: &str = r#"Discord Bot for Anoma Namada-Shielded Expedition
 This bot provides assistance and information related to the Anoma Namada-Shielded Expedition uptime by your validator.
 It offers few main commands:
 
 - `$height`: Checks the current height of the Chain.
-- `$uptime VALIDATOR_ADDRESS`: Show the current uptime for registered Validator address.
+- `$uptime`: Show the current uptime for registered Validator address.
 - `$status`: Shout yay if the bot is alive.
 - `$help`: Displays a multi-line description of the discard bot."#;
 
@@ -65,14 +68,23 @@ pub async fn height(ctx: &Context, msg: &Message) -> CommandResult {
 
 #[command]
 pub async fn uptime(ctx: &Context, msg: &Message) -> CommandResult {
-    let user_id = msg.author.id.get() as i64;
-    let msg_parts: Vec<&str> = msg.content.split_whitespace().collect();
+    let msg_channel_id = msg.channel_id;
+    let watcher_arc = {
+        let watcher = WATCHER_CLIENT.lock().unwrap();
+        match &*watcher {
+            Some(watcher_instance) => {
+                Some(Arc::clone(watcher_instance))
+            },
+            None => {
+                MessageLog!("Watcher is not initialized");
+                return Err("Watcher client is not initialized".into());
+            }
+        }
+    };
 
-    if let Some(proposal_id) = msg_parts.get(1) {
-        msg.channel_id.say(&ctx.http, "Your Uptime: ***100%***").await?;
-    } else {
-        msg.channel_id.say(&ctx.http, "Something went wrong, please try again `$uptime ADDRESS`").await?;
+    if let Some(watcher) = watcher_arc {
+        let uptime = watcher.get_uptime();
+        msg_channel_id.say(&ctx.http, format!("Your Uptime: ***{:.2}%***", uptime)).await?;
     }
     Ok(())
 }
-

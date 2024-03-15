@@ -8,6 +8,6 @@ macro_rules! MessageLog {
     ($fmt:expr, $($arg:tt)*) => {
         println!("{:?}", JsonLog {
             message: format!($fmt, $($arg)*),
-        });
+        })
     };
 }

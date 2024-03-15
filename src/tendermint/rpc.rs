@@ -1,13 +1,16 @@
-//use lazy_static::lazy_static;
 use std::sync::Mutex;
 use std::sync::Arc;
 use std::error::Error as StdError;
 use std::time::Duration;
 
 use reqwest::{Client, Error as ReqwestError};
-use crate::{config, MessageLog, internal::logger::JsonLog, tendermint::types::*, tendermint::manager::*};
-
-const TIMEOUT: u64 = 5;
+use crate::{
+    config,
+    MessageLog,
+    internal::logger::JsonLog,
+    tendermint::types::*,
+    tendermint::manager::*,
+};
 
 #[derive(Debug)]
 pub struct RPC {

@@ -1,6 +1,8 @@
 use chrono::NaiveDateTime;
 use serde::Deserialize;
 
+pub const TIMEOUT: u64 = 5;
+
 #[derive(Debug, Deserialize)]
 pub struct ConsensusStateResponse {
     pub result: Option<ConsensusStateResult>,
@@ -102,13 +104,13 @@ pub struct TendermintBlockData {
     pub txs: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct TendermintBlockLastCommit {
     pub height: String,
     pub signatures: Vec<TendermintBlockSignature>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct TendermintBlockSignature {
     pub validator_address: String,
     pub signature: Option<String>,
