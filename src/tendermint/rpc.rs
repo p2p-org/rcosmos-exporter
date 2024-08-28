@@ -119,13 +119,32 @@ impl RPC {
     }
 
     pub async fn get_block(&self, height: i64) -> Result<TendermintBlockResponse, ReqwestError> {
-        let endpoint = self.choose_endpoint().await?;
+        let endpoint = match self.choose_endpoint().await {
+            Ok(ep) => {
+                MessageLog!("Chosen endpoint: {}", ep);
+                ep
+            },
+            Err(err) => {
+                MessageLog!("Error choosing endpoint: {}", err);
+                return Err(err.into());
+            }
+        };
         let url = if height != 0 {
             format!("{}/block?height={}", endpoint, height)
         } else {
             format!("{}/block", endpoint)
         };
-        let response = self.client.get(&url).send().await?;
+        let response_result = self.client.get(&url).send().await;
+        let response = match response_result {
+            Ok(resp) => {
+                MessageLog!("Received response with status: {}", resp.status());
+                resp
+            },
+            Err(err) => {
+                MessageLog!("Error sending request: {}", err);
+                return Err(err);
+            }
+        };
         let block_response_result = response.json::<TendermintBlockResponse>().await;
         let block_response = match block_response_result {
             Ok(res) => res,

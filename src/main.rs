@@ -1,20 +1,17 @@
 extern crate dotenv;
 
 mod config;
-mod discord;
 
-use discord::establish::discord_client;
-use discord_bot::tendermint::rpc::initialize_rpc_client;
-use discord_bot::tendermint::watcher::{initialize_watcher_client, WATCHER_CLIENT};
+use tokio::time::Duration;
+use tokio::time::sleep;
+use rcosmos_exporter::tendermint::rpc::initialize_rpc_client;
+use rcosmos_exporter::tendermint::watcher::initialize_watcher_client;
+use rcosmos_exporter::tendermint::metrics::{register_custom_metrics, serve_metrics};
 
 #[tokio::main]
 async fn main() {
     initialize_rpc_client().await;
     initialize_watcher_client().await.expect("Failed to initialize watcher client");
-    let mut client = discord_client().await;
-
-    if let Err(why) = client.start().await {
-        eprintln!("An error occurred while running the client: {:?}", why);
-    }
+    register_custom_metrics();
+    serve_metrics().await;
 }
-

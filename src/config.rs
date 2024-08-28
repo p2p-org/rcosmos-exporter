@@ -5,7 +5,8 @@ use std::env;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Settings {
-    discord_token: String,
+    pub prometheus_ip: String,
+    pub prometheus_port: u16,
     pub rpc_endpoints: String,
     pub validator_address: String,
 }
@@ -24,28 +25,29 @@ impl std::fmt::Display for ConfigError {
     }
 }
 
-
 impl Settings {
+    #[allow(dead_code)]
     pub(crate) fn new() -> Result<Self, ConfigError> {
         dotenv::dotenv().ok();
-        // Discord config
-        let discord_token = env::var("DISCORD_TOKEN")
-            .map_err(|err| ConfigError::EnvVarError(format!("DISCORD_TOKEN: {}", err)))?;
+        // Prometheus config
+        let prometheus_ip = env::var("PROMETHEUS_IP")
+            .unwrap_or_else(|_| "127.0.0.1".to_string());
+        let prometheus_port = env::var("PROMETHEUS_PORT")
+            .unwrap_or_else(|_| "9100".to_string())
+            .parse::<u16>()
+            .map_err(|err| ConfigError::EnvVarError(format!("Invalid format for PROMETHEUS_PORT: {}", err)))?;
 
         // Tendermint config
         let rpc_endpoints = env::var("RPC_ENDPOINTS")
-            .map_err(|err| ConfigError::EnvVarError(format!("RPC_ENDPOINTS: {}", err)))?;
+            .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid RPC_ENDPOINTS: {}", err)))?;
         let validator_address = env::var("VALIDATOR_ADDRESS")
-        .map_err(|err| ConfigError::EnvVarError(format!("VALIDATOR_ADDRESS: {}", err)))?;
+            .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid VALIDATOR_ADDRESS: {}", err)))?;
 
         Ok(Settings {
-            discord_token,
+            prometheus_ip,
+            prometheus_port,
             rpc_endpoints,
             validator_address,
         })
-    }
-    #[allow(dead_code)]
-    pub(crate) fn discord_token(&self) -> &str {
-        &self.discord_token
     }
 }
