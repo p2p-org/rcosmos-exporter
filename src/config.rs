@@ -9,6 +9,7 @@ pub struct Settings {
     pub prometheus_port: u16,
     pub rpc_endpoints: String,
     pub validator_address: String,
+    pub block_window: u16,
 }
 
 #[derive(Debug)]
@@ -42,12 +43,17 @@ impl Settings {
             .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid RPC_ENDPOINTS: {}", err)))?;
         let validator_address = env::var("VALIDATOR_ADDRESS")
             .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid VALIDATOR_ADDRESS: {}", err)))?;
+        let block_window = env::var("BLOCK_WINDOW")
+            .unwrap_or_else(|_| "500".to_string())
+            .parse::<u16>()
+            .map_err(|err| ConfigError::EnvVarError(format!("Invalid format for BLOCK_WINDOW: {}", err)))?;
 
         Ok(Settings {
             prometheus_ip,
             prometheus_port,
             rpc_endpoints,
             validator_address,
+            block_window,
         })
     }
 }

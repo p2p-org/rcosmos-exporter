@@ -4,7 +4,15 @@ use reqwest::{ClientBuilder, StatusCode};
 use tokio::time::interval;
 use tokio::sync::RwLock;
 
-use crate::{config, MessageLog, internal::logger::JsonLog};
+use crate::{
+    config,
+    MessageLog,
+    internal::logger::JsonLog,
+    tendermint::metrics::{
+        TENDERMINT_EXPORTER_HEALTH_CHECK_REQUESTS,
+        TENDERMINT_EXPORTER_HEALTH_CHECK_FAILURES
+    }
+};
 
 #[derive(Debug)]
 pub struct EndpointManager {
@@ -28,6 +36,7 @@ impl EndpointManager {
 
         loop {
             interval.tick().await;
+            TENDERMINT_EXPORTER_HEALTH_CHECK_REQUESTS.inc();
 
             let mut new_endpoints = Vec::new();
 
@@ -37,6 +46,8 @@ impl EndpointManager {
 
                 if self.check_health(endpoint).await {
                     new_endpoints.push(endpoint.clone());
+                } else {
+                    TENDERMINT_EXPORTER_HEALTH_CHECK_FAILURES.inc();
                 }
             }
 
@@ -78,4 +89,3 @@ impl EndpointManager {
         Arc::clone(&self.config)
     }
 }
-

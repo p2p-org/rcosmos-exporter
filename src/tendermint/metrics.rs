@@ -1,51 +1,41 @@
-use prometheus::{Encoder, TextEncoder, IntCounter, IntGauge, Histogram, HistogramOpts, Registry};
+use prometheus::{Encoder, TextEncoder, IntCounter, IntGauge, Registry, GaugeVec, Opts};
 use lazy_static::lazy_static;
 use hyper::{Body, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
 use std::net::SocketAddr;
-use crate::{
-    config::Settings,
-    internal::logger::JsonLog,
-    MessageLog,
-};
+use crate::{config::Settings, internal::logger::JsonLog, MessageLog};
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
-    
-    // EndpointManager metrics
-    pub static ref HEALTH_CHECK_TOTAL: IntCounter = IntCounter::new("health_check_total", "Total number of health checks run").unwrap();
-    pub static ref HEALTHY_ENDPOINTS: IntGauge = IntGauge::new("healthy_endpoints", "Number of healthy endpoints").unwrap();
-    pub static ref UNHEALTHY_ENDPOINTS: IntGauge = IntGauge::new("unhealthy_endpoints", "Number of unhealthy endpoints").unwrap();
-    pub static ref HEALTH_CHECK_SUCCESS: IntCounter = IntCounter::new("health_check_success", "Number of successful health checks").unwrap();
-    pub static ref HEALTH_CHECK_FAILURE: IntCounter = IntCounter::new("health_check_failure", "Number of failed health checks").unwrap();
-    pub static ref HEALTH_CHECK_LATENCY: Histogram = Histogram::with_opts(HistogramOpts::new("health_check_latency", "Latency of health check requests")).unwrap();
-    pub static ref LAST_HEALTH_CHECK_TIMESTAMP: IntGauge = IntGauge::new("last_health_check_timestamp", "Timestamp of the last health check").unwrap();
-    
-    // Watcher metrics
-    pub static ref BLOCKS_PROCESSED: IntCounter = IntCounter::new("blocks_processed_total", "Total number of blocks processed by the watcher").unwrap();
-    pub static ref SIGNATURES_PROCESSED: IntCounter = IntCounter::new("signatures_processed_total", "Total number of signatures processed by the watcher").unwrap();
-    pub static ref SIGNATURE_WINDOW_SIZE: IntGauge = IntGauge::new("signature_window_size", "Current size of the signature window").unwrap();
-    pub static ref WATCHER_UPTIME: IntGauge = IntGauge::new("watcher_uptime_percentage", "Uptime percentage based on valid signatures in the signature window").unwrap();
-    pub static ref BLOCK_FETCH_ERRORS: IntCounter = IntCounter::new("block_fetch_errors_total", "Number of errors encountered while fetching blocks").unwrap();
-    pub static ref WATCHER_COMMITTED_HEIGHT: IntGauge = IntGauge::new("watcher_committed_height", "Last committed block height processed by the watcher").unwrap();
+
+    pub static ref TENDERMINT_CURRENT_BLOCK_HEIGHT: IntGauge = IntGauge::new("tendermint_current_block_height", "Current block height of the Tendermint node").unwrap();
+    pub static ref TENDERMINT_CURRENT_BLOCK_TIME: IntGauge = IntGauge::new("tendermint_current_block_time", "Current block time of the Tendermint node").unwrap();
+    pub static ref TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_my_validator_missed_blocks", "Number of blocks missed by my validator"),
+        &["address"]
+    ).unwrap();
+    pub static ref TENDERMINT_VALIDATOR_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_validator_missed_blocks", "Number of blocks missed by the validator"),
+        &["address"]
+    ).unwrap();
+    // pub static ref TENDERMINT_CURRENT_VOTING_POWER: IntGauge = IntGauge::new("tendermint_current_voting_power", "Current voting power of the validator").unwrap();
+
+    pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURES: IntCounter = IntCounter::new("tendermint_exporter_length_signatures_total", "Total number of blocks processed by exporter").unwrap();
+    pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR: IntGauge = IntGauge::new("tendermint_exporter_length_signature_vector", "Total number of blocks processed in vector").unwrap();
+    pub static ref TENDERMINT_EXPORTER_HEALTH_CHECK_REQUESTS: IntCounter = IntCounter::new("tendermint_exporter_health_check_requests_total", "Total number of health check requests made").unwrap();
+    pub static ref TENDERMINT_EXPORTER_HEALTH_CHECK_FAILURES: IntCounter = IntCounter::new("tendermint_exporter_health_check_failures_total", "Total number of health check failures").unwrap();
 }
 
 pub fn register_custom_metrics() {
-    REGISTRY.register(Box::new(HEALTH_CHECK_TOTAL.clone())).unwrap();
-    REGISTRY.register(Box::new(HEALTHY_ENDPOINTS.clone())).unwrap();
-    REGISTRY.register(Box::new(UNHEALTHY_ENDPOINTS.clone())).unwrap();
-    REGISTRY.register(Box::new(HEALTH_CHECK_SUCCESS.clone())).unwrap();
-    REGISTRY.register(Box::new(HEALTH_CHECK_FAILURE.clone())).unwrap();
-    REGISTRY.register(Box::new(HEALTH_CHECK_LATENCY.clone())).unwrap();
-    REGISTRY.register(Box::new(LAST_HEALTH_CHECK_TIMESTAMP.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_CURRENT_BLOCK_HEIGHT.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_CURRENT_BLOCK_TIME.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_VALIDATOR_MISSED_BLOCKS.clone())).unwrap();
 
-    // Register watcher metrics
-    REGISTRY.register(Box::new(BLOCKS_PROCESSED.clone())).unwrap();
-    REGISTRY.register(Box::new(SIGNATURES_PROCESSED.clone())).unwrap();
-    REGISTRY.register(Box::new(SIGNATURE_WINDOW_SIZE.clone())).unwrap();
-    REGISTRY.register(Box::new(WATCHER_UPTIME.clone())).unwrap();
-    REGISTRY.register(Box::new(BLOCK_FETCH_ERRORS.clone())).unwrap();
-    REGISTRY.register(Box::new(WATCHER_COMMITTED_HEIGHT.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_HEALTH_CHECK_REQUESTS.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_HEALTH_CHECK_FAILURES.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_LENGTH_SIGNATURES.clone())).unwrap();
 }
 
 pub async fn serve_metrics() {

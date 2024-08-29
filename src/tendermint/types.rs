@@ -74,12 +74,29 @@ pub struct TendermintStatusResponse {
 #[derive(Debug, Deserialize)]
 pub struct TendermintStatusResult {
     pub node_info: TendermintNodeInfo,
+    pub sync_info: TendermintSyncInfo,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct TendermintNodeInfo {
     pub version: String,
     pub network: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintSyncInfo {
+    pub latest_block_height: i64,
+    pub latest_block_time: BlockTime,
+    pub catching_up: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BlockTime(String);
+impl BlockTime {
+    pub fn timestamp(&self) -> Result<i64, chrono::ParseError> {
+        let naive_datetime = NaiveDateTime::parse_from_str(&self.0, "%Y-%m-%dT%H:%M:%S")?;
+        Ok(naive_datetime.and_utc().timestamp())
+    }
 }
 
 #[derive(Debug, Deserialize)]
