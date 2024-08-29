@@ -8,25 +8,36 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      BINARY_NAME: rcosmos_exporter
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
+
     - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
         override: true
+
     - name: Get the version
       id: get_version
-      run: echo ::set-output name=VERSION::$(echo ${GITHUB_REF#refs/tags/} | tr '.' '_')
+      run: echo "VERSION=$(echo ${GITHUB_REF#refs/tags/} | tr '.' '_')" >> $GITHUB_ENV
+
     - name: Build Release
       uses: actions-rs/cargo@v1
       with:
         command: build
         args: --release
+
+    - name: Rename binary with version
+      run: |
+        mv ./target/release/${{ env.BINARY_NAME }} ./target/release/${{ env.BINARY_NAME }}_${{ env.VERSION }}
+
     - name: Compress binary
       run: |
-        tar czvf discord_bot_${{ steps.get_version.outputs.VERSION }}.tar.gz ./target/release/discord_bot
+        tar -czvf ${{ env.BINARY_NAME }}_${{ env.VERSION }}.tar.gz -C ./target/release ${{ env.BINARY_NAME }}_${{ env.VERSION }}
+
     - name: Create Release
       id: create_release
       uses: actions/create-release@v1
@@ -37,14 +48,14 @@ jobs:
         release_name: Release ${{ github.ref }}
         draft: false
         prerelease: false
+
     - name: Upload Release Asset
-      id: upload-release-asset 
+      id: upload-release-asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./discord_bot_${{ steps.get_version.outputs.VERSION }}.tar.gz
-        asset_name: discord_bot_${{ steps.get_version.outputs.VERSION }}.tar.gz
+        asset_path: ./${{ env.BINARY_NAME }}_${{ env.VERSION }}.tar.gz
+        asset_name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}.tar.gz
         asset_content_type: application/gzip
-
