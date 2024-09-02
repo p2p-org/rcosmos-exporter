@@ -7,6 +7,7 @@ use std::env;
 pub struct Settings {
     pub prometheus_ip: String,
     pub prometheus_port: u16,
+    pub rest_endpoints: String,
     pub rpc_endpoints: String,
     pub validator_address: String,
     pub block_window: u16,
@@ -39,6 +40,8 @@ impl Settings {
             .map_err(|err| ConfigError::EnvVarError(format!("Invalid format for PROMETHEUS_PORT: {}", err)))?;
 
         // Tendermint config
+        let rest_endpoints = env::var("REST_ENDPOINTS")
+        .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid REST_ENDPOINTS: {}", err)))?;
         let rpc_endpoints = env::var("RPC_ENDPOINTS")
             .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid RPC_ENDPOINTS: {}", err)))?;
         let validator_address = env::var("VALIDATOR_ADDRESS")
@@ -51,6 +54,7 @@ impl Settings {
         Ok(Settings {
             prometheus_ip,
             prometheus_port,
+            rest_endpoints,
             rpc_endpoints,
             validator_address,
             block_window,

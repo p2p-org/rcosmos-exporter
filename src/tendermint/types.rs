@@ -142,6 +142,65 @@ pub struct TendermintBlockHeader {
     pub time: NaiveDateTime,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TendermintRESTResponse {
+    pub validators: Vec<TendermintRESTValidator>,
+    pub pagination: TendermintRESTPagination,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintRESTValidator {
+    pub operator_address: String,
+    pub consensus_pubkey: TendermintRESTConsensusPubKey,
+    pub jailed: bool,
+    pub status: String,
+    pub tokens: String,
+    pub delegator_shares: String,
+    pub description: TendermintRESTDescription,
+    pub unbonding_height: String,
+    pub unbonding_time: String,
+    pub commission: TendermintRESTCommission,
+    pub min_self_delegation: String,
+    pub unbonding_on_hold_ref_count: String,
+    pub unbonding_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintRESTConsensusPubKey {
+    #[serde(rename = "@type")]
+    pub key_type: String,
+    pub key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintRESTDescription {
+    pub moniker: String,
+    pub identity: String,
+    pub website: String,
+    pub security_contact: String,
+    pub details: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintRESTCommission {
+    pub commission_rates: TendermintRESTCommissionRates,
+    pub update_time: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintRESTCommissionRates {
+    pub rate: String,
+    pub max_rate: String,
+    pub max_change_rate: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintRESTPagination {
+    pub next_key: Option<String>,
+    pub total: String,
+}
+
+
 mod serde_naive_datetime {
     use chrono::NaiveDateTime;
     use serde::{self, Deserialize, Deserializer};

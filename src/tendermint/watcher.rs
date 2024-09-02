@@ -1,25 +1,33 @@
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
 use tokio::sync::Mutex as AsyncMutex;
-use crate::tendermint::rpc::RPC;
-use crate::tendermint::types::TendermintBlockSignature;
-use crate::config;
-use crate::MessageLog;
-use crate::internal::logger::JsonLog;
-use crate::tendermint::rpc::RPC_CLIENT;
 
-use crate::tendermint::metrics::{
-    TENDERMINT_EXPORTER_LENGTH_SIGNATURES,
-    TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS,
-    TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR,
-    TENDERMINT_VALIDATOR_MISSED_BLOCKS,
-    TENDERMINT_CURRENT_BLOCK_HEIGHT,
-    TENDERMINT_CURRENT_BLOCK_TIME,
+use crate::{
+    config,
+    MessageLog,
+    internal::logger::JsonLog,
+    tendermint::{
+        rpc::RPC_CLIENT,
+        rpc::RPC,
+        rest::REST_CLIENT,
+        rest::REST,
+        types::TendermintBlockSignature,
+        metrics::{
+            TENDERMINT_EXPORTER_LENGTH_SIGNATURES,
+            TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS,
+            TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR,
+            TENDERMINT_VALIDATOR_MISSED_BLOCKS,
+            TENDERMINT_CURRENT_BLOCK_HEIGHT,
+            TENDERMINT_CURRENT_BLOCK_TIME,
+            TENDERMINT_CURRENT_VOTING_POWER,
+        }
+    }
 };
 
 #[derive(Debug, Clone)]
 pub struct Watcher {
     rpc_client: Option<Arc<RPC>>,
+    rest_client: Option<Arc<REST>>,
     pub validator_address: String,
     pub signatures: Arc<Mutex<VecDeque<(u64, Option<TendermintBlockSignature>)>>>,
     pub commited_height: u64,
@@ -34,6 +42,7 @@ impl Watcher {
 
         let watcher = Watcher {
             rpc_client: RPC_CLIENT.lock().unwrap().clone(),
+            rest_client: REST_CLIENT.lock().unwrap().clone(),
             validator_address: config.validator_address.clone(),
             signatures,
             commited_height: 0,
@@ -42,6 +51,25 @@ impl Watcher {
         };
 
         Ok(watcher)
+    }
+
+    pub async fn update_active_validator_metrics(&self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(rest_client) = &self.rest_client {
+            let rest_client = Arc::clone(rest_client);
+
+            let active_validators = rest_client.get_active_validators().await?;
+            for validator in active_validators {
+                let pub_key = &validator.consensus_pubkey.key;
+                let name = &validator.description.moniker;
+                let voting_power: f64 = validator.tokens.parse().unwrap_or(0.0);
+                TENDERMINT_CURRENT_VOTING_POWER
+                    .with_label_values(&[name, pub_key])
+                    .set(voting_power);
+            }
+        } else {
+            MessageLog!("REST client not initialized.");
+        }
+        Ok(())
     }
 
     pub async fn update_signatures(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -135,18 +163,13 @@ impl Watcher {
                 TENDERMINT_EXPORTER_LENGTH_SIGNATURES.inc();
                 TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR.set(signatures.len().try_into().unwrap());
             }
-
-            MessageLog!(
-                "Processed block at height {}. Waiting for the next update...",
-                commited_height
-            );
         }
 
         self.commited_height += 1;
         Ok(())
     }
 
-    pub async fn start_watcher(watcher: Arc<AsyncMutex<Watcher>>) {
+    pub async fn start_rpc_watcher(watcher: Arc<AsyncMutex<Watcher>>) {
         loop {
             {
                 let mut watcher_guard = watcher.lock().await;
@@ -157,16 +180,36 @@ impl Watcher {
                     }
                 }
             }
+        }
+    }
 
-            // let delay = tokio::time::Duration::from_secs(5);
-            // tokio::time::sleep(delay).await;
+    pub async fn start_rest_watcher(watcher: Arc<AsyncMutex<Watcher>>) {
+        loop {
+            {
+                let watcher_guard = watcher.lock().await;
+                match watcher_guard.update_active_validator_metrics().await {
+                    Ok(_) => {}
+                    Err(err) => {
+                        MessageLog!("Error updating voting power: {:?}", err);
+                    }
+                }
+            }
+
+            let delay = tokio::time::Duration::from_secs(10);
+            tokio::time::sleep(delay).await;
         }
     }
 }
 
 pub fn spawn_watcher(watcher: Arc<AsyncMutex<Watcher>>) {
+    let rpc_watcher = Arc::clone(&watcher);
+    let rest_watcher = Arc::clone(&watcher);
+
     tokio::spawn(async move {
-        Watcher::start_watcher(watcher).await;
+        Watcher::start_rpc_watcher(rpc_watcher).await;
+    });
+    tokio::spawn(async move {
+        Watcher::start_rest_watcher(rest_watcher).await;
     });
 }
 

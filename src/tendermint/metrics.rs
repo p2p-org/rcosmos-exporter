@@ -18,12 +18,15 @@ lazy_static! {
         Opts::new("tendermint_validator_missed_blocks", "Number of blocks missed by the validator"),
         &["address"]
     ).unwrap();
-    // pub static ref TENDERMINT_CURRENT_VOTING_POWER: IntGauge = IntGauge::new("tendermint_current_voting_power", "Current voting power of the validator").unwrap();
+    pub static ref TENDERMINT_CURRENT_VOTING_POWER: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_current_voting_power", "Current voting power of the validator"),
+        &["name", "pub_key"]
+    ).unwrap();
 
     pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURES: IntCounter = IntCounter::new("tendermint_exporter_length_signatures_total", "Total number of blocks processed by exporter").unwrap();
     pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR: IntGauge = IntGauge::new("tendermint_exporter_length_signature_vector", "Total number of blocks processed in vector").unwrap();
-    pub static ref TENDERMINT_EXPORTER_HEALTH_CHECK_REQUESTS: IntCounter = IntCounter::new("tendermint_exporter_health_check_requests_total", "Total number of health check requests made").unwrap();
-    pub static ref TENDERMINT_EXPORTER_HEALTH_CHECK_FAILURES: IntCounter = IntCounter::new("tendermint_exporter_health_check_failures_total", "Total number of health check failures").unwrap();
+    pub static ref TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_REQUESTS: IntCounter = IntCounter::new("tendermint_exporter_rpc_health_check_requests_total", "Total number of rpc health check requests made").unwrap();
+    pub static ref TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_FAILURES: IntCounter = IntCounter::new("tendermint_exporter_rpc_health_check_failures_total", "Total number of rpc health check failures").unwrap();
 }
 
 pub fn register_custom_metrics() {
@@ -31,9 +34,10 @@ pub fn register_custom_metrics() {
     REGISTRY.register(Box::new(TENDERMINT_CURRENT_BLOCK_TIME.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_VALIDATOR_MISSED_BLOCKS.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_CURRENT_VOTING_POWER.clone())).unwrap();
 
-    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_HEALTH_CHECK_REQUESTS.clone())).unwrap();
-    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_HEALTH_CHECK_FAILURES.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_REQUESTS.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_FAILURES.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_EXPORTER_LENGTH_SIGNATURES.clone())).unwrap();
 }
