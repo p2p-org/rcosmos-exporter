@@ -96,13 +96,24 @@ impl Watcher {
 
             let block = rpc_client.get_block(next_block_height.try_into().unwrap()).await?;
             let current_block_time = block.result.block.header.time;
-            let commited_height = block.result.block.header.height.parse::<u64>().map_err(|e| {
-                MessageLog!("Error: Failed to parse block height: {:?}", e);
-                e
-            })?;
-
-            TENDERMINT_CURRENT_BLOCK_HEIGHT.set(commited_height.try_into().unwrap());
-            TENDERMINT_CURRENT_BLOCK_TIME.set(current_block_time.and_utc().timestamp());
+            let commited_height = block.result.block.header.height.parse::<u64>();
+            match commited_height {
+                Ok(parsed_height) => {
+                    TENDERMINT_CURRENT_BLOCK_HEIGHT.set(parsed_height.try_into().unwrap());
+                    TENDERMINT_CURRENT_BLOCK_TIME.set(current_block_time.and_utc().timestamp());
+                    self.commited_height = parsed_height.try_into().unwrap();
+                    MessageLog!(
+                        "Commited height of blockchain is {}",
+                        parsed_height,
+                    );
+                }
+                Err(e) => {
+                    MessageLog!("Error: Failed to parse block height: {:?}", e);
+                    tokio::time::sleep(
+                        tokio::time::Duration::from_secs(3)
+                    ).await;
+                }
+            }
 
             let all_signatures = block.result.block.last_commit.signatures;
             let mut found_my_validator = false;
@@ -154,18 +165,11 @@ impl Watcher {
                 if len >= self.block_window.try_into().unwrap() {
                     signatures.pop_front();
                 }
-                MessageLog!(
-                    "Commited height: {}, current length of signatures: {}",
-                    commited_height,
-                    len
-                );
                 signatures.push_back((self.commited_height, my_validator_signature));
                 TENDERMINT_EXPORTER_LENGTH_SIGNATURES.inc();
                 TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR.set(signatures.len().try_into().unwrap());
             }
         }
-
-        self.commited_height += 1;
         Ok(())
     }
 
@@ -194,9 +198,6 @@ impl Watcher {
                     }
                 }
             }
-
-            let delay = tokio::time::Duration::from_secs(10);
-            tokio::time::sleep(delay).await;
         }
     }
 }
