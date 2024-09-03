@@ -118,4 +118,58 @@ impl RPC {
         MessageLog!("Get block request");
         Ok(block_response)
     }
+
+    pub async fn get_validators(&self) -> Result<Vec<TendermintValidator>, Box<dyn StdError + Send + Sync>> {
+        let mut page = 1;
+        let mut validators = Vec::new();
+        loop {
+            let response = self.get_validators_at_page(page).await?;
+            let total = response.result.as_ref().map_or(0, |result| {
+                result.total.parse::<i64>().unwrap_or_default()
+            });
+            if let Some(result) = response.result {
+                validators.extend(result.validators);
+            } else {
+                return Err("malformed response from node".into());
+            }
+            if validators.len() as i64 >= total {
+                break;
+            }
+            page += 1;
+        }
+        Ok(validators)
+    }
+
+    // pub async fn get_validators(&self) -> Result<Vec<TendermintValidator>, Box<dyn StdError>> {
+    //     let mut page = 1;
+    //     let mut validators = Vec::new();
+    //     loop {
+    //         let response = self.get_validators_at_page(page).await?;
+    //         let total = response.result.as_ref().map_or(0, |result| {
+    //             result.total.parse::<i64>().unwrap_or_default()
+    //         });
+    //         if let Some(result) = response.result {
+    //             validators.extend(result.validators);
+    //         } else {
+    //             return Err("malformed response from node".into());
+    //         }
+    //         if validators.len() as i64 >= total {
+    //             break;
+    //         }
+    //         page += 1;
+    //     }
+    //     Ok(validators)
+    // }
+
+    pub async fn get_validators_at_page(
+        &self,
+        page: i32,
+    ) -> Result<ValidatorsResponse, ReqwestError> {
+        let endpoint = self.choose_endpoint().await?;
+        let url = format!("{}/validators?page={}&per_page=1", endpoint, page);
+        let response = self.client.get(&url).send().await?;
+        let validator_response = response.json::<ValidatorsResponse>().await?;
+        MessageLog!("Get validators at page request");
+        Ok(validator_response)
+    }
 }

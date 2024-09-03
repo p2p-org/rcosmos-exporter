@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use serde::ser::StdError;
 use std::collections::VecDeque;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Duration;
@@ -54,18 +55,31 @@ impl Watcher {
         Ok(watcher)
     }
 
-    pub async fn update_active_validator_metrics(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update_active_validator_metrics(&self) -> Result<(), Box<dyn StdError + Send + Sync>> {
         if let Some(rest_client) = &self.rest_client {
             let rest_client = Arc::clone(rest_client);
-
             let active_validators = rest_client.get_active_validators().await?;
-            for validator in active_validators {
-                let pub_key = &validator.consensus_pubkey.key;
-                let name = &validator.description.moniker;
-                let voting_power: f64 = validator.tokens.parse().unwrap_or(0.0);
-                TENDERMINT_CURRENT_VOTING_POWER
-                    .with_label_values(&[name, pub_key])
-                    .set(voting_power);
+            if let Some(rpc_client) = &self.rpc_client {
+                let rpc_client = Arc::clone(rpc_client);
+                let rpc_validators = rpc_client.get_validators().await?;
+                let pubkey_to_address: std::collections::HashMap<String, String> = rpc_validators
+                    .into_iter()
+                    .map(|validator| (validator.pub_key.value.clone(), validator.address))
+                    .collect();
+                for validator in active_validators {
+                    let pub_key = &validator.consensus_pubkey.key;
+                    let name = &validator.description.moniker;
+                    let voting_power: f64 = validator.tokens.parse().unwrap_or(0.0);
+                    if let Some(address) = pubkey_to_address.get(pub_key) {
+                        TENDERMINT_CURRENT_VOTING_POWER
+                            .with_label_values(&[address, name, pub_key])
+                            .set(voting_power);
+                    } else {
+                        MessageLog!("No matching address found for pub_key: {}", pub_key);
+                    }
+                }
+            } else {
+                MessageLog!("RPC client not initialized.");
             }
         } else {
             MessageLog!("REST client not initialized.");
@@ -197,7 +211,7 @@ impl Watcher {
                     MessageLog!("Error updating voting power of validators: {:?}", err);
                 }
             }
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            tokio::time::sleep(Duration::from_secs(100)).await;
         }
     }
 }

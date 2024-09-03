@@ -20,7 +20,7 @@ lazy_static! {
     ).unwrap();
     pub static ref TENDERMINT_CURRENT_VOTING_POWER: GaugeVec = GaugeVec::new(
         Opts::new("tendermint_current_voting_power", "Current voting power of the validator"),
-        &["name", "pub_key"]
+        &["address", "name", "pub_key"]
     ).unwrap();
 
     pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURES: IntCounter = IntCounter::new("tendermint_exporter_length_signatures_total", "Total number of blocks processed by exporter").unwrap();

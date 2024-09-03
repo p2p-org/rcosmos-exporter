@@ -61,8 +61,16 @@ pub struct ValidatorsResult {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PubKey {
+    #[serde(rename = "type")]
+    pub key_type: String,
+    pub value: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct TendermintValidator {
     pub address: String,
+    pub pub_key: PubKey,
     pub voting_power: String,
 }
 

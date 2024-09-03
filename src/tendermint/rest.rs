@@ -64,7 +64,7 @@ impl REST {
         Ok(endpoint_url.clone())
     }
 
-    pub async fn get_active_validators(&self) -> Result<Vec<TendermintRESTValidator>, Box<dyn StdError>> {
+    pub async fn get_active_validators(&self) -> Result<Vec<TendermintRESTValidator>, Box<dyn StdError + Send + Sync>> {
         let endpoint = self.choose_endpoint().await?;
         let url = format!("{}/cosmos/staking/v1beta1/validators", endpoint);
         let response = self.client.get(&url).send().await?;
