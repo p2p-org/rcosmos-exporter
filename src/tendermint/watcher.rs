@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::time::Duration;
 
 use crate::{
     config,
@@ -177,11 +178,10 @@ impl Watcher {
         loop {
             {
                 let mut watcher_guard = watcher.lock().await;
-                match watcher_guard.update_signatures().await {
-                    Ok(_) => {}
-                    Err(err) => {
-                        MessageLog!("Error updating signatures: {:?}", err);
-                    }
+                let result = watcher_guard.update_signatures().await;
+                drop(watcher_guard);
+                if let Err(err) = result {
+                    MessageLog!("Error updating signatures: {:?}", err);
                 }
             }
         }
@@ -191,13 +191,13 @@ impl Watcher {
         loop {
             {
                 let watcher_guard = watcher.lock().await;
-                match watcher_guard.update_active_validator_metrics().await {
-                    Ok(_) => {}
-                    Err(err) => {
-                        MessageLog!("Error updating voting power: {:?}", err);
-                    }
+                let result = watcher_guard.update_active_validator_metrics().await;
+                drop(watcher_guard);
+                if let Err(err) = result {
+                    MessageLog!("Error updating voting power of validators: {:?}", err);
                 }
             }
+            tokio::time::sleep(Duration::from_secs(10)).await;
         }
     }
 }
