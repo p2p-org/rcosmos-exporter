@@ -6,7 +6,7 @@ use std::time::Duration;
 use reqwest::{Client, Error as ReqwestError};
 use crate::{
     MessageLog,
-    internal::logger::JsonLog,
+    config::Settings,
     tendermint::types::*,
     tendermint::manager::*,
 };
@@ -29,13 +29,13 @@ pub async fn initialize_rest_client() {
             match REST::new(endpoint_manager).await {
                 Ok(rest) => Some(Arc::new(rest)),
                 Err(err) => {
-                    MessageLog!("Failed to create REST client: {:?}", err);
+                    MessageLog!("ERROR", "Failed to create REST client: {:?}", err);
                     None
                 }
             }
         }
         Err(err) => {
-            MessageLog!("Failed to initialize EndpointManager: {:?}", err);
+            MessageLog!("ERROR", "Failed to initialize EndpointManager: {:?}", err);
             None
         },
     };
@@ -55,7 +55,7 @@ impl REST {
         let endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rest)).await;
 
         if endpoints.is_empty() {
-            MessageLog!("No healthy endpoints available");
+            MessageLog!("ERROR","No healthy endpoints available");
         }
 
         let endpoint_index = rand::random::<usize>() % endpoints.len();

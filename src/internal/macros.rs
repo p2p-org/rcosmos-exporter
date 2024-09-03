@@ -1,13 +1,37 @@
+// use crate::config::Settings;
+
 #[macro_export]
 macro_rules! MessageLog {
-    ($message:expr) => {
-        println!("{:?}", JsonLog {
-            message: format!("{}", $message),
-        });
+    ($level:expr, $message:expr) => {
+        {
+            let settings = Settings::new().unwrap();
+
+            if settings.logging_level == "DEBUG"
+                || (settings.logging_level == "INFO" && ($level == "INFO" || $level == "ERROR"))
+                || (settings.logging_level == "ERROR" && $level == "ERROR")
+            {
+                println!(
+                    "{{ \"type\": \"{}\", \"message\": \"{}\" }}", // Output type first
+                    $level,
+                    $message
+                );
+            }
+        }
     };
-    ($fmt:expr, $($arg:tt)*) => {
-        println!("{:?}", JsonLog {
-            message: format!($fmt, $($arg)*),
-        })
+    ($level:expr, $fmt:expr, $($arg:tt)*) => {
+        {
+            let settings = Settings::new().unwrap();
+
+            if settings.logging_level == "DEBUG"
+                || (settings.logging_level == "INFO" && ($level == "INFO" || $level == "ERROR"))
+                || (settings.logging_level == "ERROR" && $level == "ERROR")
+            {
+                println!(
+                    "{{ \"type\": \"{}\", \"message\": \"{}\" }}", // Output type first
+                    $level,
+                    format!($fmt, $($arg)*)
+                );
+            }
+        }
     };
 }

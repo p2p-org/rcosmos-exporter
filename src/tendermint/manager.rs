@@ -13,8 +13,8 @@ use tokio::{
 
 use crate::{
     config,
+    config::Settings,
     MessageLog,
-    internal::logger::JsonLog,
     tendermint::metrics::{
         TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_REQUESTS,
         TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_FAILURES
@@ -66,7 +66,7 @@ pub async fn get_endpoint_manager() -> Result<Arc<EndpointManager>, Box<dyn StdE
 
 impl EndpointManager {
     pub fn new(config: Arc<config::Settings>) -> Self {
-        MessageLog!("EndpointManager has been created");
+        MessageLog!("DEBUG","EndpointManager has been created");
         EndpointManager {
             config,
             healthy_rpc_endpoints: Arc::new(RwLock::new(Vec::new())),
@@ -82,7 +82,7 @@ impl EndpointManager {
             let mut new_rest_endpoints = Vec::new();
             let endpoints = self.get_endpoints(None).await;
             for (endpoint, endpoint_type) in endpoints.iter() {
-                MessageLog!("Checking health for endpoint: {}", endpoint);
+                MessageLog!("DEBUG", "Checking health for endpoint: {}", endpoint);
                 match endpoint_type {
                     EndpointType::Rpc => {
                         TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_REQUESTS.inc();
@@ -107,7 +107,7 @@ impl EndpointManager {
             *self.healthy_rpc_endpoints.write().await = new_rpc_endpoints;
             *self.healthy_rest_endpoints.write().await = new_rest_endpoints;
 
-            MessageLog!("Updated list of healthy RPC and REST endpoints");
+            MessageLog!("DEBUG", "Updated list of healthy RPC and REST endpoints");
         }
     }
 
@@ -122,15 +122,15 @@ impl EndpointManager {
             EndpointType::Rest => format!("{}/node_info", endpoint),
         };
 
-        MessageLog!("Checking health for endpoint: {} with URL: {}", endpoint, health_url);
+        MessageLog!("INFO","Checking health for endpoint: {} with URL: {}", endpoint, health_url);
 
         match client.get(&health_url).send().await {
             Ok(response) => {
-                MessageLog!("Get health response from {}", endpoint);
+                MessageLog!("DEBUG","Get health response from {}", endpoint);
                 response.status() == StatusCode::OK
             }
             Err(_) => {
-                MessageLog!("Failed to get health response from {}", endpoint);
+                MessageLog!("ERROR", "Failed to get health response from {}", endpoint);
                 false
             }
         }
@@ -162,7 +162,7 @@ impl EndpointManager {
     }
 
     pub fn get_config(&self) -> Arc<config::Settings> {
-        MessageLog!("Get config");
+        MessageLog!("DEBUG", "Get config");
         Arc::clone(&self.config)
     }
 }

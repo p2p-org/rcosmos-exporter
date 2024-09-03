@@ -6,8 +6,8 @@ use tokio::time::Duration;
 
 use crate::{
     config,
+    config::Settings,
     MessageLog,
-    internal::logger::JsonLog,
     tendermint::{
         rpc::RPC_CLIENT,
         rpc::RPC,
@@ -75,19 +75,19 @@ impl Watcher {
                             .with_label_values(&[address, name, pub_key])
                             .set(voting_power);
                     } else {
-                        MessageLog!("No matching address found for pub_key: {}", pub_key);
+                        MessageLog!("INFO", "No matching address found for pub_key: {}", pub_key);
                     }
                 }
             } else {
-                MessageLog!("RPC client not initialized.");
+                MessageLog!("ERROR", "RPC client not initialized.");
             }
         } else {
-            MessageLog!("REST client not initialized.");
+            MessageLog!("ERROR", "REST client not initialized.");
         }
         Ok(())
     }
 
-    pub async fn update_signatures(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update_signatures(&mut self) -> Result<(), Box<dyn StdError + Send + Sync>> {
         if let Some(rpc_client) = &self.rpc_client {
             let rpc_client = Arc::clone(rpc_client);
             if self.commited_height == 0 {
@@ -99,7 +99,7 @@ impl Watcher {
                     .height
                     .parse::<u64>()
                     .map_err(|e| {
-                        MessageLog!("Error: Failed to parse the latest block height: {:?}", e);
+                        MessageLog!("ERROR", "Failed to parse the latest block height: {:?}", e);
                         e
                     })?;
                 TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS
@@ -118,12 +118,13 @@ impl Watcher {
                     TENDERMINT_CURRENT_BLOCK_TIME.set(current_block_time.and_utc().timestamp());
                     self.commited_height = parsed_height.try_into().unwrap();
                     MessageLog!(
+                        "INFO",
                         "Commited height of blockchain is {}",
                         parsed_height,
                     );
                 }
                 Err(e) => {
-                    MessageLog!("Error: Failed to parse block height: {:?}", e);
+                    MessageLog!("ERROR", "Failed to parse block height: {:?}", e);
                     tokio::time::sleep(
                         tokio::time::Duration::from_secs(3)
                     ).await;
@@ -142,7 +143,7 @@ impl Watcher {
                     let validator_address = &sig.validator_address;
                     if !validator_address.is_empty() && !discovered_validators.contains(validator_address) {
                         discovered_validators.push(validator_address.clone());
-                        MessageLog!("Discovered new validator: {}", validator_address);
+                        MessageLog!("INFO", "Discovered new validator: {}", validator_address);
                     }
                 }
                 for validator_address in discovered_validators.iter() {
@@ -152,6 +153,7 @@ impl Watcher {
     
                     if !signed {
                         MessageLog!(
+                            "ERROR",
                             "No matching signature found for validator address: {}.",
                             validator_address
                         );
@@ -195,7 +197,10 @@ impl Watcher {
                 let result = watcher_guard.update_signatures().await;
                 drop(watcher_guard);
                 if let Err(err) = result {
-                    MessageLog!("Error updating signatures: {:?}", err);
+                    MessageLog!("ERROR", "Failed update signatures: {:?}", err);
+                    tokio::time::sleep(
+                        tokio::time::Duration::from_secs(5)
+                    ).await;
                 }
             }
         }
@@ -208,7 +213,7 @@ impl Watcher {
                 let result = watcher_guard.update_active_validator_metrics().await;
                 drop(watcher_guard);
                 if let Err(err) = result {
-                    MessageLog!("Error updating voting power of validators: {:?}", err);
+                    MessageLog!("ERROR", "Failed update voting power of validators: {:?}", err);
                 }
             }
             tokio::time::sleep(Duration::from_secs(100)).await;

@@ -6,7 +6,7 @@ use std::time::Duration;
 use reqwest::{Client, Error as ReqwestError};
 use crate::{
     MessageLog,
-    internal::logger::JsonLog,
+    config::Settings,
     tendermint::types::*,
     tendermint::manager::*,
 };
@@ -29,13 +29,13 @@ pub async fn initialize_rpc_client() {
             match RPC::new(endpoint_manager).await {
                 Ok(rpc) => Some(Arc::new(rpc)),
                 Err(err) => {
-                    MessageLog!("Failed to create RPC client: {:?}", err);
+                    MessageLog!("ERROR", "Failed to create RPC client: {:?}", err);
                     None
                 }
             }
         }
         Err(err) => {
-            MessageLog!("Failed to initialize EndpointManager: {:?}", err);
+            MessageLog!("ERROR", "Failed to initialize EndpointManager: {:?}", err);
             None
         },
     };
@@ -54,7 +54,7 @@ impl RPC {
     async fn choose_endpoint(&self) -> Result<String, ReqwestError> {
         let endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rpc)).await;
         if endpoints.is_empty() {
-            MessageLog!("No healthy endpoints available");
+            MessageLog!("ERROR", "No healthy endpoints available");
         }
         let endpoint_index = rand::random::<usize>() % endpoints.len();
         let (endpoint_url, _endpoint_type) = &endpoints[endpoint_index];
@@ -67,7 +67,7 @@ impl RPC {
         let url = format!("{}/consensus_state", endpoint);
         let response = self.client.get(&url).send().await?;
         let consensus_state_response = response.json::<ConsensusStateResponse>().await?;
-        MessageLog!("Get consensus state request");
+        MessageLog!("INFO", "Get consensus state request");
         Ok(consensus_state_response)
     }
 
@@ -76,18 +76,18 @@ impl RPC {
         let url = format!("{}/status", endpoint);
         let response = self.client.get(&url).send().await?;
         let status_response = response.json::<TendermintStatusResponse>().await?;
-        MessageLog!("Get status request");
+        MessageLog!("INFO", "Get status request");
         Ok(status_response)
     }
 
     pub async fn get_block(&self, height: i64) -> Result<TendermintBlockResponse, ReqwestError> {
         let endpoint = match self.choose_endpoint().await {
             Ok(ep) => {
-                MessageLog!("Chosen endpoint: {}", ep);
+                MessageLog!("DEBUG", "Chosen endpoint: {}", ep);
                 ep
             },
             Err(err) => {
-                MessageLog!("Error choosing endpoint: {}", err);
+                MessageLog!("ERROR", "Error choosing endpoint: {}", err);
                 return Err(err.into());
             }
         };
@@ -99,11 +99,11 @@ impl RPC {
         let response_result = self.client.get(&url).send().await;
         let response = match response_result {
             Ok(resp) => {
-                MessageLog!("Received response with status: {}", resp.status());
+                MessageLog!("DEBUG", "Received response with status: {}", resp.status());
                 resp
             },
             Err(err) => {
-                MessageLog!("Error sending request: {}", err);
+                MessageLog!("ERROR", "Error sending request: {}", err);
                 return Err(err);
             }
         };
@@ -111,11 +111,11 @@ impl RPC {
         let block_response = match block_response_result {
             Ok(res) => res,
             Err(err) => {
-                MessageLog!("Error converting JSON: {}", err);
+                MessageLog!("ERROR", "Error converting JSON: {}", err);
                 return Err(err.into());
             }
         };
-        MessageLog!("Get block request");
+        MessageLog!("DEBUG", "Get block request");
         Ok(block_response)
     }
 
@@ -140,27 +140,6 @@ impl RPC {
         Ok(validators)
     }
 
-    // pub async fn get_validators(&self) -> Result<Vec<TendermintValidator>, Box<dyn StdError>> {
-    //     let mut page = 1;
-    //     let mut validators = Vec::new();
-    //     loop {
-    //         let response = self.get_validators_at_page(page).await?;
-    //         let total = response.result.as_ref().map_or(0, |result| {
-    //             result.total.parse::<i64>().unwrap_or_default()
-    //         });
-    //         if let Some(result) = response.result {
-    //             validators.extend(result.validators);
-    //         } else {
-    //             return Err("malformed response from node".into());
-    //         }
-    //         if validators.len() as i64 >= total {
-    //             break;
-    //         }
-    //         page += 1;
-    //     }
-    //     Ok(validators)
-    // }
-
     pub async fn get_validators_at_page(
         &self,
         page: i32,
@@ -169,7 +148,7 @@ impl RPC {
         let url = format!("{}/validators?page={}&per_page=1", endpoint, page);
         let response = self.client.get(&url).send().await?;
         let validator_response = response.json::<ValidatorsResponse>().await?;
-        MessageLog!("Get validators at page request");
+        MessageLog!("DEBUG", "Get validators at page request");
         Ok(validator_response)
     }
 }

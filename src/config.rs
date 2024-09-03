@@ -11,6 +11,7 @@ pub struct Settings {
     pub rpc_endpoints: String,
     pub validator_address: String,
     pub block_window: u16,
+    pub logging_level: String,
 }
 
 #[derive(Debug)]
@@ -51,6 +52,8 @@ impl Settings {
             .parse::<u16>()
             .map_err(|err| ConfigError::EnvVarError(format!("Invalid format for BLOCK_WINDOW: {}", err)))?;
 
+        let logging_level = env::var("LOGGING_LEVEL").unwrap_or_else(|_| "INFO".to_string());
+
         Ok(Settings {
             prometheus_ip,
             prometheus_port,
@@ -58,6 +61,7 @@ impl Settings {
             rpc_endpoints,
             validator_address,
             block_window,
+            logging_level,
         })
     }
 }

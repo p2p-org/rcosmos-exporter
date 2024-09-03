@@ -3,7 +3,7 @@ use lazy_static::lazy_static;
 use hyper::{Body, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
 use std::net::SocketAddr;
-use crate::{config::Settings, internal::logger::JsonLog, MessageLog};
+use crate::{config::Settings, MessageLog};
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
@@ -65,8 +65,8 @@ pub async fn serve_metrics() {
 
     let server = Server::bind(&addr).serve(make_svc);
 
-    MessageLog!("Prometheus metrics are being served at http://{}", addr);
+    MessageLog!("INFO","Prometheus metrics are being served at http://{}", addr);
     if let Err(e) = server.await {
-        MessageLog!("Server error: {}", e);
+        MessageLog!("ERROR", "Server error: {}", e);
     }
 }
