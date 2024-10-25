@@ -197,10 +197,16 @@ impl Watcher {
                 let result = watcher_guard.update_signatures().await;
                 drop(watcher_guard);
                 if let Err(err) = result {
-                    MessageLog!("ERROR", "Failed update signatures: {:?}", err);
-                    tokio::time::sleep(
-                        tokio::time::Duration::from_secs(5)
-                    ).await;
+                    if is_timeout_error(&err) {
+                        MessageLog!("ERROR", "Unhealthy endpoint to update signatures: {:?}", err);
+                    } else if is_missing_result_error(&err) {
+                        MessageLog!("ERROR", "No new blocks here, wait 5 secs");
+                        tokio::time::sleep(
+                            tokio::time::Duration::from_secs(5)
+                        ).await;
+                    } else {
+                        MessageLog!("ERROR", "Failed to update signatures: {:?}", err);
+                    }
                 }
             }
         }
@@ -219,6 +225,18 @@ impl Watcher {
             tokio::time::sleep(Duration::from_secs(100)).await;
         }
     }
+}
+
+pub fn is_timeout_error(error: &Box<dyn StdError + Send + Sync>) -> bool {
+    if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
+        reqwest_error.is_timeout()
+    } else {
+        false
+    }
+}
+
+pub fn is_missing_result_error(err: &Box<dyn StdError + Send + Sync>) -> bool {
+    err.to_string().contains("missing field `result`")
 }
 
 pub fn spawn_watcher(watcher: Arc<AsyncMutex<Watcher>>) {
