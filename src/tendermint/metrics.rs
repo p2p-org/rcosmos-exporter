@@ -1,4 +1,4 @@
-use prometheus::{Encoder, TextEncoder, IntCounter, IntGauge, Registry, GaugeVec, Opts};
+use prometheus::{Encoder, TextEncoder, IntCounter, IntGauge, Registry, GaugeVec, Opts, Gauge, opts};
 use lazy_static::lazy_static;
 use hyper::{Body, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
@@ -9,7 +9,9 @@ lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
 
     pub static ref TENDERMINT_CURRENT_BLOCK_HEIGHT: IntGauge = IntGauge::new("tendermint_current_block_height", "Current block height of the Tendermint node").unwrap();
-    pub static ref TENDERMINT_CURRENT_BLOCK_TIME: IntGauge = IntGauge::new("tendermint_current_block_time", "Current block time of the Tendermint node").unwrap();
+    pub static ref TENDERMINT_CURRENT_BLOCK_TIME: Gauge = Gauge::with_opts(
+        opts!("tendermint_current_block_time", "Current block time of the Tendermint node")
+    ).unwrap();
     pub static ref TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
         Opts::new("tendermint_my_validator_missed_blocks", "Number of blocks missed by my validator"),
         &["address"]
@@ -25,8 +27,10 @@ lazy_static! {
 
     pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURES: IntCounter = IntCounter::new("tendermint_exporter_length_signatures_total", "Total number of blocks processed by exporter").unwrap();
     pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR: IntGauge = IntGauge::new("tendermint_exporter_length_signature_vector", "Total number of blocks processed in vector").unwrap();
-    pub static ref TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_REQUESTS: IntCounter = IntCounter::new("tendermint_exporter_rpc_health_check_requests_total", "Total number of rpc health check requests made").unwrap();
-    pub static ref TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_FAILURES: IntCounter = IntCounter::new("tendermint_exporter_rpc_health_check_failures_total", "Total number of rpc health check failures").unwrap();
+    pub static ref TENDERMINT_EXPORTER_RPC_FAILURES: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_exporter_rpc_failures", "Number of rpc failures for certain endpoint"),
+        &["endpoint"]
+    ).unwrap();
 }
 
 pub fn register_custom_metrics() {
@@ -36,8 +40,7 @@ pub fn register_custom_metrics() {
     REGISTRY.register(Box::new(TENDERMINT_VALIDATOR_MISSED_BLOCKS.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_CURRENT_VOTING_POWER.clone())).unwrap();
 
-    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_REQUESTS.clone())).unwrap();
-    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_FAILURES.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_EXPORTER_RPC_FAILURES.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_EXPORTER_LENGTH_SIGNATURES.clone())).unwrap();
 }

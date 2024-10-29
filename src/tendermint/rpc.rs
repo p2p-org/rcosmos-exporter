@@ -3,12 +3,14 @@ use std::sync::Arc;
 use std::error::Error as StdError;
 use std::time::Duration;
 
+use serde_json::from_str;
 use reqwest::{Client, Error as ReqwestError};
 use crate::{
     MessageLog,
     config::Settings,
     tendermint::types::*,
     tendermint::manager::*,
+    tendermint::metrics::TENDERMINT_EXPORTER_RPC_FAILURES,
 };
 
 
@@ -52,13 +54,14 @@ impl RPC {
     }
 
     async fn choose_endpoint(&self) -> Result<String, ReqwestError> {
-        let endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rpc)).await;
-        if endpoints.is_empty() {
-            MessageLog!("ERROR", "No healthy endpoints available");
+        let mut healthy_endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rpc), true).await;
+        if healthy_endpoints.is_empty() {
+            MessageLog!("ERROR", "No healthy endpoints available, non-stable using");
+            healthy_endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rpc), false).await;
         }
-        let endpoint_index = rand::random::<usize>() % endpoints.len();
-        let (endpoint_url, _endpoint_type) = &endpoints[endpoint_index];
-
+        let endpoint_index = rand::random::<usize>() % healthy_endpoints.len();
+        let (endpoint_url, _endpoint_type) = &healthy_endpoints[endpoint_index];
+        
         Ok(endpoint_url.clone())
     }
 
@@ -80,15 +83,23 @@ impl RPC {
         Ok(status_response)
     }
 
-    pub async fn get_block(&self, height: i64) -> Result<TendermintBlockResponse, ReqwestError> {
+    pub async fn get_block(&self, height: i64) -> Result<TendermintBlockResponse, RpcBlockErrorResponse> {
         let endpoint = match self.choose_endpoint().await {
             Ok(ep) => {
                 MessageLog!("DEBUG", "Chosen endpoint: {}", ep);
                 ep
             },
             Err(err) => {
-                MessageLog!("ERROR", "Error choosing endpoint: {}", err);
-                return Err(err.into());
+                MessageLog!("ERROR", "Error choosing endpoint: {:?}", err);
+                return Err(RpcBlockErrorResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: -1,
+                    error: RpcError {
+                        code: -1,
+                        message: format!("Error choosing endpoint: {:?}", err),
+                        data: None,
+                    },
+                });
             }
         };
         let url = if height != 0 {
@@ -99,24 +110,85 @@ impl RPC {
         let response_result = self.client.get(&url).send().await;
         let response = match response_result {
             Ok(resp) => {
-                MessageLog!("DEBUG", "Received response with status: {}", resp.status());
+                MessageLog!("DEBUG", "The response has been received, with status: {}", resp.status());
                 resp
-            },
+            }
             Err(err) => {
-                MessageLog!("ERROR", "Error sending request: {}", err);
-                return Err(err);
+                MessageLog!("ERROR", "Couldn't get a response: {:?}", err);
+                self.endpoint_manager.update_endpoint_health(&endpoint, EndpointType::Rpc, false).await;
+                TENDERMINT_EXPORTER_RPC_FAILURES.with_label_values(&[&endpoint]).inc();
+                return Err(RpcBlockErrorResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: -1,
+                    error: RpcError {
+                        code: -2,
+                        message: format!("Couldn't get a response: {:?}", err),
+                        data: None,
+                    },
+                });
             }
         };
-        let block_response_result = response.json::<TendermintBlockResponse>().await;
-        let block_response = match block_response_result {
-            Ok(res) => res,
+        let response_text = match response.text().await {
+            Ok(text) => text,
             Err(err) => {
-                MessageLog!("ERROR", "Error converting JSON: {}", err);
-                return Err(err.into());
+                MessageLog!("ERROR", "Failed to read response text: {:?}", err);
+                self.endpoint_manager.update_endpoint_health(&endpoint, EndpointType::Rpc, false).await;
+                return Err(RpcBlockErrorResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: -1,
+                    error: RpcError {
+                        code: -3,
+                        message: format!("Failed to read response text: {:?}", err),
+                        data: None,
+                    },
+                });
             }
         };
-        MessageLog!("DEBUG", "Get block request");
-        Ok(block_response)
+        match from_str::<TendermintBlockResponse>(&response_text) {
+            Ok(block_response) => {
+                MessageLog!("DEBUG", "Block {} was fetched", height);
+                self.endpoint_manager.update_endpoint_health(&endpoint, EndpointType::Rpc, true).await;
+                Ok(block_response)
+            }
+            Err(parse_error) => {
+                match from_str::<RpcBlockErrorResponse>(&response_text) {
+                    Ok(error_response) => {
+                        MessageLog!(
+                            "ERROR",
+                            "Received RPC error: code = {}, message = {}, data = {:?}",
+                            error_response.error.code,
+                            error_response.error.message,
+                            error_response.error.data
+                        );
+                        if error_response.error.code != -32603
+                        || !error_response
+                            .error
+                            .data
+                            .as_deref()
+                            .unwrap_or("")
+                            .contains("must be less")
+                        {
+                            self.endpoint_manager.update_endpoint_health(&endpoint, EndpointType::Rpc, false).await;
+                        }
+                        Err(error_response)
+                    }
+                    Err(_) => {
+                        MessageLog!("ERROR", "Error converting JSON to either block response or RPC error: {:?}", parse_error);
+                        self.endpoint_manager.update_endpoint_health(&endpoint, EndpointType::Rpc, false).await;
+                        TENDERMINT_EXPORTER_RPC_FAILURES.with_label_values(&[&endpoint]).inc();
+                        Err(RpcBlockErrorResponse {
+                            jsonrpc: "2.0".to_string(),
+                            id: -1,
+                            error: RpcError {
+                                code: -4,
+                                message: format!("Error converting JSON: {:?}", parse_error),
+                                data: Some(response_text),
+                            },
+                        })
+                    }
+                }
+            }
+        }
     }
 
     pub async fn get_validators(&self) -> Result<Vec<TendermintValidator>, Box<dyn StdError + Send + Sync>> {

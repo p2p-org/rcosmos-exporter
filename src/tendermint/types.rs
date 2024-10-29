@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::NaiveDateTime;
 use serde::Deserialize;
 
@@ -106,6 +108,28 @@ impl BlockTime {
         Ok(naive_datetime.and_utc().timestamp())
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub struct RpcBlockErrorResponse {
+    pub jsonrpc: String,
+    pub id: i64,
+    pub error: RpcError,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RpcError {
+    pub code: i64,
+    pub message: String,
+    pub data: Option<String>,
+}
+
+impl fmt::Display for RpcBlockErrorResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RPC Error: code = {}, message = {}", self.error.code, self.error.message)
+    }
+}
+
+impl std::error::Error for RpcBlockErrorResponse {}
 
 #[derive(Debug, Deserialize)]
 pub struct TendermintBlockResponse {

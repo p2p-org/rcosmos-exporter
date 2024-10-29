@@ -52,15 +52,14 @@ impl REST {
     }
 
     async fn choose_endpoint(&self) -> Result<String, ReqwestError> {
-        let endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rest)).await;
-
-        if endpoints.is_empty() {
-            MessageLog!("ERROR","No healthy endpoints available");
+        let mut healthy_endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rest), true).await;
+        if healthy_endpoints.is_empty() {
+            MessageLog!("ERROR", "No healthy endpoints available, non-stable");
+            healthy_endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rest), false).await;
         }
-
-        let endpoint_index = rand::random::<usize>() % endpoints.len();
-        let (endpoint_url, _endpoint_type) = &endpoints[endpoint_index];
-
+        let endpoint_index = rand::random::<usize>() % healthy_endpoints.len();
+        let (endpoint_url, _endpoint_type) = &healthy_endpoints[endpoint_index];
+        
         Ok(endpoint_url.clone())
     }
 

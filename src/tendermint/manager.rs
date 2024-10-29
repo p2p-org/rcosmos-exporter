@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use reqwest::{ClientBuilder, StatusCode};
@@ -15,13 +16,10 @@ use crate::{
     config,
     config::Settings,
     MessageLog,
-    tendermint::metrics::{
-        TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_REQUESTS,
-        TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_FAILURES
-    }
+    tendermint::metrics::TENDERMINT_EXPORTER_RPC_FAILURES,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EndpointType {
     Rpc,
     Rest,
@@ -31,8 +29,7 @@ pub enum EndpointType {
 #[derive(Debug)]
 pub struct EndpointManager {
     config: Arc<config::Settings>,
-    healthy_rpc_endpoints: Arc<RwLock<Vec<String>>>,
-    healthy_rest_endpoints: Arc<RwLock<Vec<String>>>,
+    endpoints: Arc<RwLock<HashMap<String, (EndpointType, bool)>>>,
 }
 
 pub static ENDPOINT_MANAGER: Mutex<Option<Arc<EndpointManager>>> = Mutex::new(None);
@@ -66,11 +63,33 @@ pub async fn get_endpoint_manager() -> Result<Arc<EndpointManager>, Box<dyn StdE
 
 impl EndpointManager {
     pub fn new(config: Arc<config::Settings>) -> Self {
-        MessageLog!("DEBUG","EndpointManager has been created");
+        MessageLog!("DEBUG", "EndpointManager has been created");
+        let mut initial_endpoints = HashMap::new();
+        for endpoint in config.rpc_endpoints.split(',') {
+            let url = endpoint.trim().to_string();
+            if !url.is_empty() {
+                initial_endpoints.insert(url, (EndpointType::Rpc, true));
+            }
+        }
+        for endpoint in config.rest_endpoints.split(',') {
+            let url = endpoint.trim().to_string();
+            if !url.is_empty() {
+                initial_endpoints.insert(url, (EndpointType::Rest, true));
+            }
+        }
+
         EndpointManager {
             config,
-            healthy_rpc_endpoints: Arc::new(RwLock::new(Vec::new())),
-            healthy_rest_endpoints: Arc::new(RwLock::new(Vec::new())),
+            endpoints: Arc::new(RwLock::new(initial_endpoints)),
+        }
+    }
+
+    pub async fn is_endpoint_healthy(&self, url: &str) -> bool {
+        let endpoints = self.endpoints.read().await;
+        if let Some((_, is_healthy)) = endpoints.get(url) {
+            *is_healthy
+        } else {
+            false
         }
     }
 
@@ -78,36 +97,18 @@ impl EndpointManager {
         let mut interval = interval(interval_duration);
         loop {
             interval.tick().await;
-            let mut new_rpc_endpoints = Vec::new();
-            let mut new_rest_endpoints = Vec::new();
-            let endpoints = self.get_endpoints(None).await;
+            let endpoints = self.get_endpoints(None, false).await;
             for (endpoint, endpoint_type) in endpoints.iter() {
-                MessageLog!("DEBUG", "Checking health for endpoint: {}", endpoint);
-                match endpoint_type {
-                    EndpointType::Rpc => {
-                        TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_REQUESTS.inc();
-                        if self.check_health(endpoint, endpoint_type).await {
-                            new_rpc_endpoints.push(endpoint.clone());
-                        } else {
-                            TENDERMINT_EXPORTER_RPC_HEALTH_CHECK_FAILURES.inc();
-                        }
-                    }
-                    EndpointType::Rest => {
-                        // !NOTE, haven't found any health check for rest endpoints
-                        // TENDERMINT_EXPORTER_REST_HEALTH_CHECK_REQUESTS.inc();
-                        // if self.check_health(endpoint, endpoint_type).await {
-                        //     new_rest_endpoints.push(endpoint.clone());
-                        // } else {
-                        //     TENDERMINT_EXPORTER_REST_HEALTH_CHECK_FAILURES.inc();
-                        // }
-                        new_rest_endpoints.push(endpoint.clone());
-                    }
+                let is_healthy = self.check_health(endpoint, endpoint_type).await;
+                if !is_healthy {
+                    TENDERMINT_EXPORTER_RPC_FAILURES
+                    .with_label_values(&[endpoint])
+                    .inc();
+                } else {
+                    MessageLog!("DEBUG", "Updated health status for unhealthy endpoint, {:?}", endpoint);
+                    self.update_endpoint_health(endpoint, endpoint_type.clone(), is_healthy).await;
                 }
             }
-            *self.healthy_rpc_endpoints.write().await = new_rpc_endpoints;
-            *self.healthy_rest_endpoints.write().await = new_rest_endpoints;
-
-            MessageLog!("DEBUG", "Updated list of healthy RPC and REST endpoints");
         }
     }
 
@@ -122,11 +123,11 @@ impl EndpointManager {
             EndpointType::Rest => format!("{}/node_info", endpoint),
         };
 
-        MessageLog!("INFO","Checking health for endpoint: {} with URL: {}", endpoint, health_url);
+        MessageLog!("INFO", "Checking health for endpoint: {}", endpoint);
 
         match client.get(&health_url).send().await {
             Ok(response) => {
-                MessageLog!("DEBUG","Get health response from {}", endpoint);
+                MessageLog!("DEBUG", "Get health response from {}", endpoint);
                 response.status() == StatusCode::OK
             }
             Err(_) => {
@@ -136,29 +137,30 @@ impl EndpointManager {
         }
     }
 
-    pub async fn get_endpoints(&self, filter: Option<EndpointType>) -> Vec<(String, EndpointType)> {
-        let mut endpoints: Vec<(String, EndpointType)> = Vec::new();
-    
-        let rpc_endpoints = self.config.rpc_endpoints.clone();
-        for endpoint in rpc_endpoints.split(',') {
-            let url = endpoint.trim().to_string();
-            if !url.is_empty() {
-                endpoints.push((url, EndpointType::Rpc));
-            }
-        }
-    
-        let rest_endpoints = self.config.rest_endpoints.clone();
-        for endpoint in rest_endpoints.split(',') {
-            let url = endpoint.trim().to_string();
-            if !url.is_empty() {
-                endpoints.push((url, EndpointType::Rest));
-            }
-        }
-        if let Some(endpoint_type) = filter {
-            endpoints.into_iter().filter(|(_, etype)| *etype == endpoint_type).collect()
-        } else {
-            endpoints
-        }
+    pub async fn get_endpoints(
+        &self,
+        filter: Option<EndpointType>,
+        healthy: bool
+    ) -> Vec<(String, EndpointType)> {
+        let endpoints = self.endpoints.read().await;
+        endpoints
+            .iter()
+            .filter(|(_, (etype, health_status))| {
+                filter.as_ref().map_or(true, |f| *etype == *f) && *health_status == healthy
+            })
+            .map(|(url, (etype, _))| (url.clone(), etype.clone()))
+            .collect()
+    }
+
+    pub async fn update_endpoint_health(&self, endpoint: &str, endpoint_type: EndpointType, is_healthy: bool) {
+        let mut endpoints = self.endpoints.write().await;
+        endpoints.insert(endpoint.to_string(), (endpoint_type, is_healthy));
+        MessageLog!(
+            "DEBUG",
+            "Updated endpoint: {:?} to health status: {}",
+            endpoint,
+            if is_healthy { "healthy" } else { "unhealthy" }
+        );
     }
 
     pub fn get_config(&self) -> Arc<config::Settings> {

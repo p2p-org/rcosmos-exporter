@@ -28,13 +28,19 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct Watcher {
+    // Configuration Fields
+    pub validator_address: String,
+    pub block_window: u16,
+
+    // Client Instances
     rpc_client: Option<Arc<RPC>>,
     rest_client: Option<Arc<REST>>,
-    pub validator_address: String,
+
+    // State Fields
     pub signatures: Arc<Mutex<VecDeque<(u64, Option<TendermintBlockSignature>)>>>,
     pub commited_height: u64,
-    pub block_window: u16,
     pub discovered_validators: Arc<Mutex<Vec<String>>>,
+    pub avg_time_block: f64,
 }
 
 impl Watcher {
@@ -50,6 +56,7 @@ impl Watcher {
             commited_height: 0,
             block_window: config.block_window,
             discovered_validators,
+            avg_time_block: 6.0,
         };
 
         Ok(watcher)
@@ -105,40 +112,45 @@ impl Watcher {
                 TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS
                 .with_label_values(&[&self.validator_address])
                 .set(0.0);
+                TENDERMINT_CURRENT_BLOCK_TIME.set(
+                    latest_block
+                    .result
+                    .block
+                    .header
+                    .time
+                    .and_utc().timestamp() as f64
+                );
                 self.commited_height = latest_block_height;
             }
             let next_block_height = self.commited_height + 1;
 
-            let block = rpc_client.get_block(next_block_height.try_into().unwrap()).await?;
-            let current_block_time = block.result.block.header.time;
-            let commited_height = block.result.block.header.height.parse::<u64>();
-            match commited_height {
-                Ok(parsed_height) => {
-                    TENDERMINT_CURRENT_BLOCK_HEIGHT.set(parsed_height.try_into().unwrap());
-                    TENDERMINT_CURRENT_BLOCK_TIME.set(current_block_time.and_utc().timestamp());
-                    self.commited_height = parsed_height.try_into().unwrap();
-                    MessageLog!(
-                        "INFO",
-                        "Commited height of blockchain is {}",
-                        parsed_height,
-                    );
-                }
-                Err(e) => {
-                    MessageLog!("ERROR", "Failed to parse block height: {:?}", e);
-                    tokio::time::sleep(
-                        tokio::time::Duration::from_secs(3)
-                    ).await;
-                }
-            }
+            let prev_block_time = TENDERMINT_CURRENT_BLOCK_TIME.get();
+            let specific_block = rpc_client.get_block(next_block_height.try_into().unwrap()).await?;
+            let current_block_time = specific_block.result.block.header.time;
+            let parsed_height = specific_block.result.block.header.height.parse::<u64>().map_err(|e| {
+                MessageLog!("ERROR", "Failed to parse block height: {:?}", e);
+                e
+            })?;
 
-            let all_signatures = block.result.block.last_commit.signatures;
+            TENDERMINT_CURRENT_BLOCK_HEIGHT.set(parsed_height.try_into().unwrap());
+            TENDERMINT_CURRENT_BLOCK_TIME.set(current_block_time.and_utc().timestamp() as f64);
+            self.commited_height = parsed_height;
+
+            self.avg_time_block = current_block_time.and_utc().timestamp() as f64 - prev_block_time;
+            MessageLog!(
+                "INFO",
+                "Updated committed height to {} with average block time: {:.4}",
+                self.commited_height,
+                self.avg_time_block,
+            );
+
+            let all_signatures = specific_block.result.block.last_commit.signatures;
             let mut found_my_validator = false;
             let mut my_validator_signature: Option<TendermintBlockSignature> = None;
-
             {
                 let mut signatures = self.signatures.lock().expect("Failed to acquire lock");
                 let mut discovered_validators = self.discovered_validators.lock().expect("Failed to acquire lock on validators");
-
+    
                 for sig in &all_signatures {
                     let validator_address = &sig.validator_address;
                     if !validator_address.is_empty() && !discovered_validators.contains(validator_address) {
@@ -147,39 +159,29 @@ impl Watcher {
                     }
                 }
                 for validator_address in discovered_validators.iter() {
-                    let signed = all_signatures.iter().any(|sig| {
-                        sig.validator_address == *validator_address
-                    });
-    
+                    let signed = all_signatures.iter().any(|sig| sig.validator_address == *validator_address);
                     if !signed {
                         MessageLog!(
                             "ERROR",
                             "No matching signature found for validator address: {}.",
                             validator_address
                         );
-    
-                        TENDERMINT_VALIDATOR_MISSED_BLOCKS
-                            .with_label_values(&[validator_address])
-                            .inc();
+                        TENDERMINT_VALIDATOR_MISSED_BLOCKS.with_label_values(&[validator_address]).inc();
                     }
                 }
                 for sig in &all_signatures {
-                    let validator_address = &sig.validator_address;
-                    if validator_address == &self.validator_address {
+                    if &sig.validator_address == &self.validator_address {
                         found_my_validator = true;
                         my_validator_signature = Some(sig.clone());
                         break;
                     }
                 }
-
                 if !found_my_validator {
                     TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS
                         .with_label_values(&[&self.validator_address])
                         .inc();
                 }
-
-                let len = signatures.len();
-                if len >= self.block_window.try_into().unwrap() {
+                if signatures.len() >= self.block_window as usize {
                     signatures.pop_front();
                 }
                 signatures.push_back((self.commited_height, my_validator_signature));
@@ -188,7 +190,7 @@ impl Watcher {
             }
         }
         Ok(())
-    }
+    }    
 
     pub async fn start_rpc_watcher(watcher: Arc<AsyncMutex<Watcher>>) {
         loop {
@@ -200,10 +202,9 @@ impl Watcher {
                     if is_timeout_error(&err) {
                         MessageLog!("ERROR", "Unhealthy endpoint to update signatures: {:?}", err);
                     } else if is_missing_result_error(&err) {
-                        MessageLog!("ERROR", "No new blocks here, wait 5 secs");
-                        tokio::time::sleep(
-                            tokio::time::Duration::from_secs(5)
-                        ).await;
+                        MessageLog!("ERROR", "No new blocks here, wait for average block time");
+                        let avg_time_block = watcher.lock().await.avg_time_block;
+                        tokio::time::sleep(tokio::time::Duration::from_secs_f64(avg_time_block)).await;
                     } else {
                         MessageLog!("ERROR", "Failed to update signatures: {:?}", err);
                     }

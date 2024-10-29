@@ -75,8 +75,9 @@ The following Prometheus metrics are exposed by the Tendermint metrics exporter:
   Tracks the total number of RPC health check requests made by the exporter.
   **Description**: Useful for monitoring the health check frequency of the Tendermint RPC endpoints.
 
-- **`tendermint_exporter_rpc_health_check_failures_total`** (`IntCounter`):
+- **`tendermint_current_voting_power`** (`GaugeVec`):
   Shows the total number of RPC health check failures.
+  **Labels**: `["endpoint"]`
   **Description**: Critical for identifying issues with Tendermint RPC endpoints.
 
 ## Configuration
