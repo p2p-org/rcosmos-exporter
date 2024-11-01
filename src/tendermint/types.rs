@@ -117,7 +117,16 @@ pub struct RpcError {
 
 impl fmt::Display for RpcBlockErrorResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RPC Error: code = {}, message = {}", self.error.code, self.error.message)
+        write!(
+            f,
+            "RPC Error: code = {}, message = {}, data = {}",
+            self.error.code,
+            self.error.message,
+            match &self.error.data {
+                Some(data) => data.as_str(),
+                None => "None",
+            }
+        )
     }
 }
 

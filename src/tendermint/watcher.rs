@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
-use serde::ser::StdError;
 use std::collections::VecDeque;
+
+use regex::Regex;
+use serde::ser::StdError;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Duration;
 
@@ -14,6 +16,7 @@ use crate::{
         rest::REST_CLIENT,
         rest::REST,
         types::TendermintBlockSignature,
+        types::RpcBlockErrorResponse,
         metrics::{
             TENDERMINT_EXPORTER_LENGTH_SIGNATURES,
             TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS,
@@ -25,6 +28,8 @@ use crate::{
         }
     }
 };
+
+pub static WATCHER_CLIENT: Mutex<Option<Arc<AsyncMutex<Watcher>>>> = Mutex::new(None);
 
 #[derive(Debug, Clone)]
 pub struct Watcher {
@@ -201,9 +206,9 @@ impl Watcher {
                 if let Err(err) = result {
                     if is_timeout_error(&err) {
                         MessageLog!("ERROR", "Unhealthy endpoint to update signatures: {:?}", err);
-                    } else if is_missing_result_error(&err) {
-                        MessageLog!("ERROR", "No new blocks here, wait for average block time");
+                    } else if check_block_err(&err) {
                         let avg_time_block = watcher.lock().await.avg_time_block;
+                        MessageLog!("DEBUG", "No new blocks here, wait {:?}s", avg_time_block);
                         tokio::time::sleep(tokio::time::Duration::from_secs_f64(avg_time_block)).await;
                     } else {
                         MessageLog!("ERROR", "Failed to update signatures: {:?}", err);
@@ -236,8 +241,29 @@ pub fn is_timeout_error(error: &Box<dyn StdError + Send + Sync>) -> bool {
     }
 }
 
-pub fn is_missing_result_error(err: &Box<dyn StdError + Send + Sync>) -> bool {
-    err.to_string().contains("missing field `result`")
+pub fn check_block_err(err: &Box<dyn StdError + Send + Sync>) -> bool {
+    let re = Regex::new(r"height (\d+) must be less than or equal to the current blockchain height (\d+)").unwrap();
+
+    if let Some(rpc_error) = err.downcast_ref::<RpcBlockErrorResponse>() {
+        if let Some(data) = &rpc_error.error.data {
+            if let Some(captures) = re.captures(data) {
+                if let (Some(requested_height_str), Some(current_height_str)) = (captures.get(1), captures.get(2)) {
+                    let requested_height: i64 = requested_height_str.as_str().parse().unwrap_or(-1);
+                    let current_height: i64 = current_height_str.as_str().parse().unwrap_or(-1);
+
+                    return (requested_height - current_height) == 1;
+                }
+            } else {
+                MessageLog!("DEBUG", "Regex pattern did not match the data field.");
+            }
+        } else {
+            MessageLog!("DEBUG", "No data field in RpcError.");
+        }
+    } else {
+        MessageLog!("DEBUG", "Error type: {}", err.to_string());
+    }
+
+    false
 }
 
 pub fn spawn_watcher(watcher: Arc<AsyncMutex<Watcher>>) {
@@ -254,8 +280,8 @@ pub fn spawn_watcher(watcher: Arc<AsyncMutex<Watcher>>) {
 
 pub async fn initialize_watcher_client() -> Result<Arc<AsyncMutex<Watcher>>, Box<dyn std::error::Error>> {
     let config = Arc::new(config::Settings::new()?);
-    let watcher = Watcher::new(config).await?;
-    let watcher_arc = Arc::new(AsyncMutex::new(watcher));
+    let watcher_client = Arc::new(AsyncMutex::new(Watcher::new(config).await?));
 
-    Ok(watcher_arc)
+    *WATCHER_CLIENT.lock().unwrap() = Some(watcher_client.clone());
+    Ok(watcher_client)
 }
