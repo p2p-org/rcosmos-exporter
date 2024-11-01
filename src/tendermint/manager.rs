@@ -7,9 +7,7 @@ use std::sync::Mutex;
 use tokio::{
     spawn,
     time::interval,
-    sync::{
-        RwLock
-    }
+    sync::RwLock,
 };
 
 use crate::{

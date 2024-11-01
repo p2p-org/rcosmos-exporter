@@ -28,12 +28,12 @@ pub struct ConsensusStateRoundState {
 #[derive(Debug, Deserialize)]
 pub struct ConsensusHeightVoteSet {
     pub round: i32,
-    pub prevotes: Vec<ConsensusVote>,
-    pub precommits: Vec<ConsensusVote>,
+    pub prevotes: Vec<String>,
+    pub precommits: Vec<String>,
     #[serde(rename = "prevotes_bit_array")]
-    pub prevotes_bit_array: ConsensusVoteBitArray,
+    pub prevotes_bit_array: String,
     #[serde(rename = "precommits_bit_array")]
-    pub precommits_bit_array: ConsensusVoteBitArray,
+    pub precommits_bit_array: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,14 +41,6 @@ pub struct ConsensusStateProposer {
     pub address: String,
     pub index: i32,
 }
-
-#[derive(Debug, Deserialize)]
-#[serde(transparent)]
-pub struct ConsensusVote(String);
-
-#[derive(Debug, Deserialize)]
-#[serde(transparent)]
-pub struct ConsensusVoteBitArray(String);
 
 #[derive(Debug, Deserialize)]
 pub struct ValidatorsResponse {
