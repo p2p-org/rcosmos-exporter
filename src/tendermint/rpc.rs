@@ -53,38 +53,112 @@ impl RPC {
         Ok(RPC { client, endpoint_manager })
     }
 
-    async fn choose_endpoint(&self) -> Result<String, ReqwestError> {
+    async fn choose_endpoint(&self, exclude_endpoint: Option<&str>) -> Result<String, ReqwestError> {
         let mut healthy_endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rpc), true).await;
         if healthy_endpoints.is_empty() {
             MessageLog!("ERROR", "No healthy endpoints available, non-stable using");
             healthy_endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rpc), false).await;
         }
+        if let Some(exclude) = exclude_endpoint {
+            healthy_endpoints.retain(|(url, _)| url != exclude);
+        }    
+        if healthy_endpoints.is_empty() {
+            MessageLog!("ERROR", "No endpoints available after exclusion");
+        }
         let endpoint_index = rand::random::<usize>() % healthy_endpoints.len();
         let (endpoint_url, _endpoint_type) = &healthy_endpoints[endpoint_index];
-        
+    
         Ok(endpoint_url.clone())
     }
 
     pub async fn get_consensus_state(&self) -> Result<ConsensusStateResponse, ReqwestError> {
-        let endpoint = self.choose_endpoint().await?;
-        let url = format!("{}/consensus_state", endpoint);
-        let response = self.client.get(&url).send().await?;
-        let consensus_state_response = response.json::<ConsensusStateResponse>().await?;
-        MessageLog!("INFO", "Get consensus state request");
-        Ok(consensus_state_response)
+        let mut exclude_endpoint: Option<String> = None;
+    
+        loop {
+            let endpoint = match self.choose_endpoint(exclude_endpoint.as_deref()).await {
+                Ok(endpoint) => endpoint,
+                Err(err) => {
+                    MessageLog!("ERROR", "Failed to choose an endpoint: {:?}", err);
+                    return Err(err);
+                }
+            };
+    
+            let url = format!("{}/consensus_state", endpoint);
+            match self.client.get(&url).send().await {
+                Ok(response) => match response.json::<ConsensusStateResponse>().await {
+                    Ok(consensus_state_response) => {
+                        MessageLog!("INFO", "Get consensus state request successful");
+                        return Ok(consensus_state_response);
+                    }
+                    Err(err) => {
+                        MessageLog!(
+                            "ERROR",
+                            "Failed to parse JSON response from {}: {:?}, excluding this endpoint",
+                            url,
+                            err
+                        );
+                        exclude_endpoint = Some(endpoint);
+                        continue;
+                    }
+                },
+                Err(err) => {
+                    MessageLog!(
+                        "ERROR",
+                        "Failed to fetch consensus state from {}: {:?}, excluding this endpoint",
+                        url,
+                        err
+                    );
+                    exclude_endpoint = Some(endpoint);
+                    continue;
+                }
+            };
+        }
     }
 
     pub async fn get_status(&self) -> Result<TendermintStatusResponse, ReqwestError> {
-        let endpoint = self.choose_endpoint().await?;
-        let url = format!("{}/status", endpoint);
-        let response = self.client.get(&url).send().await?;
-        let status_response = response.json::<TendermintStatusResponse>().await?;
-        MessageLog!("INFO", "Get status request");
-        Ok(status_response)
+        let mut exclude_endpoint: Option<String> = None;
+        loop {
+            let endpoint = match self.choose_endpoint(exclude_endpoint.as_deref()).await {
+                Ok(endpoint) => endpoint,
+                Err(err) => {
+                    MessageLog!("ERROR", "Failed to choose an endpoint: {:?}", err);
+                    return Err(err);
+                }
+            };
+            let url = format!("{}/status", endpoint);
+            match self.client.get(&url).send().await {
+                Ok(response) => match response.json::<TendermintStatusResponse>().await {
+                    Ok(status_response) => {
+                        MessageLog!("INFO", "Get status request successful");
+                        return Ok(status_response);
+                    }
+                    Err(err) => {
+                        MessageLog!(
+                            "ERROR",
+                            "Failed to parse JSON response from {}: {:?}, excluding this endpoint",
+                            url,
+                            err
+                        );
+                        exclude_endpoint = Some(endpoint);
+                        continue;
+                    }
+                },
+                Err(err) => {
+                    MessageLog!(
+                        "ERROR",
+                        "Failed to fetch status from {}: {:?}, excluding this endpoint",
+                        url,
+                        err
+                    );
+                    exclude_endpoint = Some(endpoint);
+                    continue;
+                }
+            };
+        }
     }
 
     pub async fn get_block(&self, height: i64) -> Result<TendermintBlockResponse, RpcBlockErrorResponse> {
-        let endpoint = match self.choose_endpoint().await {
+        let endpoint = match self.choose_endpoint(None).await {
             Ok(ep) => {
                 MessageLog!("DEBUG", "Chosen endpoint: {}", ep);
                 ep
@@ -216,11 +290,47 @@ impl RPC {
         &self,
         page: i32,
     ) -> Result<ValidatorsResponse, ReqwestError> {
-        let endpoint = self.choose_endpoint().await?;
-        let url = format!("{}/validators?page={}&per_page=1", endpoint, page);
-        let response = self.client.get(&url).send().await?;
-        let validator_response = response.json::<ValidatorsResponse>().await?;
-        MessageLog!("DEBUG", "Get validators at page request");
-        Ok(validator_response)
+        let mut exclude_endpoint: Option<String> = None;
+        loop {
+            let endpoint = match self.choose_endpoint(exclude_endpoint.as_deref()).await {
+                Ok(endpoint) => endpoint,
+                Err(err) => {
+                    MessageLog!("ERROR", "Failed to choose an endpoint: {:?}", err);
+                    return Err(err);
+                }
+            };
+    
+            let url = format!("{}/validators?page={}&per_page=1", endpoint, page);
+            match self.client.get(&url).send().await {
+                Ok(response) => match response.json::<ValidatorsResponse>().await {
+                    Ok(validator_response) => {
+                        MessageLog!("DEBUG", "Get validators at page {} request successful", page);
+                        return Ok(validator_response);
+                    }
+                    Err(err) => {
+                        MessageLog!(
+                            "ERROR",
+                            "Failed to parse JSON response from {}: {:?}, excluding this endpoint",
+                            url,
+                            err
+                        );
+                        exclude_endpoint = Some(endpoint);
+                        continue;
+                    }
+                },
+                Err(err) => {
+                    MessageLog!(
+                        "ERROR",
+                        "Failed to fetch validators at page {} from {}: {:?}, excluding this endpoint",
+                        page,
+                        url,
+                        err
+                    );
+                    exclude_endpoint = Some(endpoint);
+                    continue;
+                }
+            };
+        }
     }
+    
 }

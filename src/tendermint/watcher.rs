@@ -228,7 +228,7 @@ impl Watcher {
                     MessageLog!("ERROR", "Failed update voting power of validators: {:?}", err);
                 }
             }
-            tokio::time::sleep(Duration::from_secs(100)).await;
+            tokio::time::sleep(Duration::from_secs(120)).await;
         }
     }
 }
