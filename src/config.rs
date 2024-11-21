@@ -41,10 +41,12 @@ impl Settings {
             .map_err(|err| ConfigError::EnvVarError(format!("Invalid format for PROMETHEUS_PORT: {}", err)))?;
 
         // Tendermint config
-        let rest_endpoints = env::var("REST_ENDPOINTS")
-        .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid REST_ENDPOINTS: {}", err)))?;
-        let rpc_endpoints = env::var("RPC_ENDPOINTS")
-            .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid RPC_ENDPOINTS: {}", err)))?;
+        // let rest_endpoints = env::var("REST_ENDPOINTS")
+        // .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid REST_ENDPOINTS: {}", err)))?;
+        // let rpc_endpoints = env::var("RPC_ENDPOINTS")
+        //     .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid RPC_ENDPOINTS: {}", err)))?;
+        let rest_endpoints = env::var("REST_ENDPOINTS").unwrap_or_else(|_| "".to_string());
+        let rpc_endpoints = env::var("RPC_ENDPOINTS").unwrap_or_else(|_| "".to_string());
         let validator_address = env::var("VALIDATOR_ADDRESS")
             .map_err(|err| ConfigError::EnvVarError(format!("Missing or invalid VALIDATOR_ADDRESS: {}", err)))?;
         let block_window = env::var("BLOCK_WINDOW")

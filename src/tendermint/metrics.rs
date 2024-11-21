@@ -24,6 +24,17 @@ lazy_static! {
         Opts::new("tendermint_current_voting_power", "Current voting power of the validator"),
         &["address", "name", "pub_key"]
     ).unwrap();
+    pub static ref TENDERMINT_ACTIVE_PROPOSAL: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_active_proposal",
+            "Current active proposals with voting period"
+        ),
+        &["id", "type", "title", "description", "status", "height"]
+    ).unwrap();
+    pub static ref TENDERMINT_UPGRADE_STATUS: IntGauge = IntGauge::new(
+            "tendermint_upgrade_status",
+            "Indicates whether an upgrade is in progress (1 for upgrade time, 0 otherwise)"
+    ).unwrap();
 
     pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURES: IntCounter = IntCounter::new("tendermint_exporter_length_signatures_total", "Total number of blocks processed by exporter").unwrap();
     pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR: IntGauge = IntGauge::new("tendermint_exporter_length_signature_vector", "Total number of blocks processed in vector").unwrap();
@@ -39,6 +50,8 @@ pub fn register_custom_metrics() {
     REGISTRY.register(Box::new(TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_VALIDATOR_MISSED_BLOCKS.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_CURRENT_VOTING_POWER.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_ACTIVE_PROPOSAL.clone())).unwrap();
+    REGISTRY.register(Box::new(TENDERMINT_UPGRADE_STATUS.clone())).unwrap();
 
     REGISTRY.register(Box::new(TENDERMINT_EXPORTER_RPC_FAILURES.clone())).unwrap();
     REGISTRY.register(Box::new(TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR.clone())).unwrap();

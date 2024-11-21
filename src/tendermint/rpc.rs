@@ -24,24 +24,30 @@ pub struct RPC {
 }
 
 
-pub async fn initialize_rpc_client() {
+pub async fn initialize_rpc_client() -> Result<(), String> {
     let manager = get_endpoint_manager().await;
     let rpc_client = match manager {
         Ok(endpoint_manager) => {
             match RPC::new(endpoint_manager).await {
-                Ok(rpc) => Some(Arc::new(rpc)),
+                Ok(rpc) => {
+                    MessageLog!("INFO", "RPC client created successfully");
+                    Some(Arc::new(rpc))
+                }
                 Err(err) => {
-                    MessageLog!("ERROR", "Failed to create RPC client: {:?}", err);
-                    None
+                    let err_msg = format!("Failed to create RPC client: {:?}", err);
+                    MessageLog!("ERROR", "{}", err_msg);
+                    return Err(err_msg);
                 }
             }
         }
         Err(err) => {
-            MessageLog!("ERROR", "Failed to initialize EndpointManager: {:?}", err);
-            None
-        },
+            let err_msg = format!("Failed to initialize EndpointManager: {:?}", err);
+            MessageLog!("ERROR", "{}", err_msg);
+            return Err(err_msg);
+        }
     };
     *RPC_CLIENT.lock().unwrap() = rpc_client;
+    Ok(())
 }
 
 

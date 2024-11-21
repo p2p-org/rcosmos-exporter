@@ -3,7 +3,7 @@ use std::fmt;
 use chrono::NaiveDateTime;
 use serde::Deserialize;
 
-pub const TIMEOUT: u64 = 5;
+pub const DEFAULT_ESTIMATED_BLOCK_TIME: f64 = 6.1;
 
 #[derive(Debug, Deserialize)]
 pub struct ConsensusStateResponse {
@@ -194,8 +194,8 @@ pub struct TendermintRESTValidator {
     pub unbonding_time: String,
     pub commission: TendermintRESTCommission,
     pub min_self_delegation: String,
-    pub unbonding_on_hold_ref_count: String,
-    pub unbonding_ids: Vec<String>,
+    pub unbonding_on_hold_ref_count: Option<String>,
+    pub unbonding_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -233,6 +233,56 @@ pub struct TendermintRESTPagination {
     pub total: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TendermintProposalsResponse {
+    pub proposals: Vec<Proposal>,
+    pub pagination: TendermintRESTPagination,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProposalStatus {
+    ProposalStatusDepositPeriod,
+    ProposalStatusVotingPeriod,
+    ProposalStatusPassed,
+    ProposalStatusRejected,
+    ProposalStatusFailed,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Proposal {
+    pub id: String,
+    pub messages: Vec<ProposalMessage>,
+    pub status: ProposalStatus,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalMessage {
+    #[serde(rename = "@type")]
+    pub msg_type: String,
+    pub content: Option<ProposalContent>,
+    pub authority: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalContent {
+    #[serde(rename = "@type")]
+    pub content_type: String,
+    pub title: String,
+    pub description: String,
+    pub plan: Option<ProposalPlan>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalPlan {
+    pub info: String,
+    pub height: String,
+}
 
 mod serde_naive_datetime {
     use chrono::NaiveDateTime;
