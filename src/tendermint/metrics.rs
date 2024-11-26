@@ -29,7 +29,7 @@ lazy_static! {
             "tendermint_active_proposal",
             "Current active proposals with voting period"
         ),
-        &["id", "type", "title", "description", "status", "height"]
+        &["id", "type", "title", "status", "height"]
     ).unwrap();
     pub static ref TENDERMINT_UPGRADE_STATUS: IntGauge = IntGauge::new(
             "tendermint_upgrade_status",

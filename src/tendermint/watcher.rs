@@ -94,7 +94,6 @@ impl Watcher {
                                     &proposal.id,
                                     &content.content_type,
                                     &content.title,
-                                    &content.description,
                                     &format!("{:?}", proposal.status),
                                 ]);
                             }
@@ -124,7 +123,6 @@ impl Watcher {
                                                         &proposal.id,
                                                         &content.content_type,
                                                         &content.title,
-                                                        &content.description,
                                                         "Upgrade",
                                                         &plan.height,
                                                     ])
@@ -136,7 +134,6 @@ impl Watcher {
                                                         &proposal.id,
                                                         &content.content_type,
                                                         &content.title,
-                                                        &content.description,
                                                         "Upgrade",
                                                         &plan.height,
                                                     ]);
@@ -162,15 +159,12 @@ impl Watcher {
                     
                         let mut proposal_type = "unknown".to_string();
                         let mut title = proposal.title.clone().unwrap_or_else(|| "No title".to_string()); // Unwrap `Option<String>` or provide a default
-                        let mut description = "No description".to_string();
                         let mut height = "0".to_string();
                     
                         if let Some(first_message) = proposal.messages.get(0) {
                             proposal_type = first_message.msg_type.clone();
                     
                             if let Some(content) = &first_message.content {
-                                description = content.description.clone();
-                    
                                 if let Some(plan) = &content.plan {
                                     height = plan.height.clone();
                                 }
@@ -188,7 +182,6 @@ impl Watcher {
                                 &proposal.id,
                                 &proposal_type,
                                 &title,
-                                &description,
                                 &format!("{:?}", proposal.status),
                                 &height,
                             ])
