@@ -173,6 +173,7 @@ pub struct TendermintBlockHeader {
     pub height: String,
     #[serde(with = "serde_naive_datetime")]
     pub time: NaiveDateTime,
+    pub chain_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -298,3 +299,14 @@ mod serde_naive_datetime {
         NaiveDateTime::parse_from_str(&s, DATE_FORMAT).map_err(serde::de::Error::custom)
     }
 }
+
+#[derive(Debug)]
+pub struct EndpointError(pub String);
+
+impl fmt::Display for EndpointError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for EndpointError {}

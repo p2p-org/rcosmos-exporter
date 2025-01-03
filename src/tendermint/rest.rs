@@ -1,9 +1,10 @@
+use urlencoding::encode;
 use std::sync::Mutex;
 use std::sync::Arc;
 use std::error::Error as StdError;
 use std::time::Duration;
 
-use reqwest::{Client, Error as ReqwestError};
+use reqwest::Client;
 use crate::{
     MessageLog,
     config::Settings,
@@ -33,14 +34,14 @@ pub async fn initialize_rest_client() -> Result<(), String> {
                 }
                 Err(err) => {
                     let err_msg = format!("Failed to create REST client: {:?}", err);
-                    MessageLog!("ERROR", "{}", err_msg);
+                    MessageLog!("DEBUG", "{}", err_msg);
                     return Err(err_msg);
                 }
             }
         }
         Err(err) => {
             let err_msg = format!("Failed to initialize EndpointManager: {:?}", err);
-            MessageLog!("ERROR", "{}", err_msg);
+            MessageLog!("DEBUG", "{}", err_msg);
             return Err(err_msg);
         }
     };
@@ -59,7 +60,7 @@ impl REST {
         Ok(REST { client, endpoint_manager })
     }
 
-    async fn choose_endpoint(&self, exclude_endpoint: Option<&str>) -> Result<String, ReqwestError> {
+    async fn choose_endpoint(&self, exclude_endpoint: Option<&str>) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let mut healthy_endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rest), true).await;    
         if healthy_endpoints.is_empty() {
             MessageLog!("ERROR", "No healthy endpoints available, non-stable");
@@ -71,6 +72,7 @@ impl REST {
         }
         if healthy_endpoints.is_empty() {
             MessageLog!("ERROR", "No endpoints available after exclusion");
+            return Err(Box::new(EndpointError("No endpoints available.".to_string())));
         }
         let endpoint_index = rand::random::<usize>() % healthy_endpoints.len();
         let (endpoint_url, _endpoint_type) = &healthy_endpoints[endpoint_index];    
@@ -86,7 +88,8 @@ impl REST {
             let endpoint = self.choose_endpoint(exclude_endpoint.as_deref()).await?;
             let mut url = format!("{}/cosmos/staking/v1beta1/validators", endpoint);
             if let Some(key) = &pagination_key {
-                url = format!("{}?pagination.key={}", url, key);
+                let encoded_key = encode(key);
+                url = format!("{}?pagination.key={}", url, encoded_key);
             }
     
             let response = match self.client.get(&url).send().await {

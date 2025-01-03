@@ -90,7 +90,7 @@ impl Watcher {
                     for proposal in active_proposals.iter() {
                         if let Some(first_message) = proposal.messages.get(0) {
                             if let Some(content) = &first_message.content {
-                                let _ = TENDERMINT_ACTIVE_PROPOSAL.remove_label_values(&[
+                                let _ =  TENDERMINT_ACTIVE_PROPOSAL.remove_label_values(&[
                                     &proposal.id,
                                     &content.content_type,
                                     &content.title,
@@ -199,7 +199,7 @@ impl Watcher {
     }    
     
 
-    pub async fn update_active_validator_metrics(&self) -> Result<(), Box<dyn StdError + Send + Sync>> {
+    pub async fn update_voting_power(&self) -> Result<(), Box<dyn StdError + Send + Sync>> {
         if let Some(rest_client) = &self.rest_client {
             let rest_client = Arc::clone(rest_client);
             let active_validators = rest_client.get_active_validators().await?;
@@ -293,15 +293,15 @@ impl Watcher {
                 for sig in &all_signatures {
                     let validator_address = &sig.validator_address;
                     if !validator_address.is_empty() && !discovered_validators.contains(validator_address) {
+                        MessageLog!("DEBUG", "Discovered new validator: {}", validator_address);
                         discovered_validators.push(validator_address.clone());
-                        MessageLog!("INFO", "Discovered new validator: {}", validator_address);
                     }
                 }
                 for validator_address in discovered_validators.iter() {
                     let signed = all_signatures.iter().any(|sig| sig.validator_address == *validator_address);
                     if !signed {
                         MessageLog!(
-                            "ERROR",
+                            "DEBUG",
                             "No matching signature found for validator address: {}.",
                             validator_address
                         );
@@ -360,7 +360,7 @@ impl Watcher {
                         MessageLog!("ERROR", "Unhealthy endpoint to update signatures: {:?}", err);
                     } else if check_block_err(&err) {
                         let estimated_time_block = watcher.lock().await.estimated_time_block;
-                        MessageLog!("DEBUG", "The chain hasn't moved to the new block, wait {:.3}s", estimated_time_block);
+                        MessageLog!("INFO", "The chain hasn't moved to the new block, wait {:.3}s", estimated_time_block);
                         tokio::time::sleep(tokio::time::Duration::from_secs_f64(estimated_time_block)).await;
                     } else {
                         MessageLog!("ERROR", "Failed to update signatures: {:?}", err);
@@ -374,7 +374,7 @@ impl Watcher {
         loop {
             {
                 let mut watcher_guard = watcher.lock().await;
-                let active_validator_res = watcher_guard.update_active_validator_metrics().await;
+                let active_validator_res = watcher_guard.update_voting_power().await;
                 let active_proposal_res = watcher_guard.update_active_proposals().await;
                 drop(watcher_guard);
 

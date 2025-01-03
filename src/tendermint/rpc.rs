@@ -4,7 +4,7 @@ use std::error::Error as StdError;
 use std::time::Duration;
 
 use serde_json::from_str;
-use reqwest::{Client, Error as ReqwestError};
+use reqwest::Client;
 use crate::{
     MessageLog,
     config::Settings,
@@ -59,7 +59,7 @@ impl RPC {
         Ok(RPC { client, endpoint_manager })
     }
 
-    async fn choose_endpoint(&self, exclude_endpoint: Option<&str>) -> Result<String, ReqwestError> {
+    async fn choose_endpoint(&self, exclude_endpoint: Option<&str>) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let mut healthy_endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rpc), true).await;
         if healthy_endpoints.is_empty() {
             MessageLog!("ERROR", "No healthy endpoints available, non-stable using");
@@ -69,7 +69,8 @@ impl RPC {
             healthy_endpoints.retain(|(url, _)| url != exclude);
         }    
         if healthy_endpoints.is_empty() {
-            MessageLog!("ERROR", "No endpoints available after exclusion");
+            MessageLog!("DEBUG", "No endpoints available after exclusion");
+            return Err(Box::new(EndpointError("No endpoints available.".to_string())));
         }
         let endpoint_index = rand::random::<usize>() % healthy_endpoints.len();
         let (endpoint_url, _endpoint_type) = &healthy_endpoints[endpoint_index];
@@ -77,7 +78,7 @@ impl RPC {
         Ok(endpoint_url.clone())
     }
 
-    pub async fn get_consensus_state(&self) -> Result<ConsensusStateResponse, ReqwestError> {
+    pub async fn get_consensus_state(&self) -> Result<ConsensusStateResponse, Box<dyn std::error::Error + Send + Sync>>  {
         let mut exclude_endpoint: Option<String> = None;
     
         loop {
@@ -121,7 +122,7 @@ impl RPC {
         }
     }
 
-    pub async fn get_status(&self) -> Result<TendermintStatusResponse, ReqwestError> {
+    pub async fn get_status(&self) -> Result<TendermintStatusResponse, Box<dyn std::error::Error + Send + Sync>> {
         let mut exclude_endpoint: Option<String> = None;
         loop {
             let endpoint = match self.choose_endpoint(exclude_endpoint.as_deref()).await {
@@ -295,7 +296,7 @@ impl RPC {
     pub async fn get_validators_at_page(
         &self,
         page: i32,
-    ) -> Result<ValidatorsResponse, ReqwestError> {
+    ) -> Result<ValidatorsResponse, Box<dyn std::error::Error + Send + Sync>> {
         let mut exclude_endpoint: Option<String> = None;
         loop {
             let endpoint = match self.choose_endpoint(exclude_endpoint.as_deref()).await {
