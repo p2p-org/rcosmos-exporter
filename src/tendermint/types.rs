@@ -266,6 +266,7 @@ pub struct ProposalMessage {
     pub msg_type: String,
     pub content: Option<ProposalContent>,
     pub authority: Option<String>,
+    pub plan: Option<ProposalPlan>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -273,7 +274,7 @@ pub struct ProposalMessage {
 pub struct ProposalContent {
     #[serde(rename = "@type")]
     pub content_type: String,
-    pub title: String,
+    pub title: Option<String>,
     pub description: String,
     pub plan: Option<ProposalPlan>,
 }

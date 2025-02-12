@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::collections::VecDeque;
 
 use regex::Regex;
@@ -34,7 +35,7 @@ use crate::{
     }
 };
 
-pub static WATCHER_CLIENT: Mutex<Option<Arc<AsyncMutex<Watcher>>>> = Mutex::new(None);
+pub static WATCHER_CLIENT: Mutex<Option<Arc<AsyncMutex<Watcher>>>> = Mutex::const_new(None);
 
 #[derive(Debug, Clone)]
 pub struct Watcher {
@@ -83,72 +84,130 @@ impl Watcher {
     pub async fn update_active_proposals(&mut self) -> Result<(), Box<dyn StdError + Send + Sync>> {
         if let Some(rest_client) = &self.rest_client {
             let rest_client = Arc::clone(rest_client);
-    
+
             match rest_client.get_proposals().await {
                 Ok(proposals) => {
-                    let mut active_proposals = self.active_proposals.lock().expect("Failed to acquire lock");
+                    let mut active_proposals = self.active_proposals.lock().await;
+
                     for proposal in active_proposals.iter() {
                         if let Some(first_message) = proposal.messages.get(0) {
                             if let Some(content) = &first_message.content {
-                                let _ =  TENDERMINT_ACTIVE_PROPOSAL.remove_label_values(&[
+                                let extracted_title = content.title.clone().unwrap_or_else(
+                                    || proposal.title.clone().unwrap_or_else(|| "Not Found".to_string()),
+                                );
+
+                                let _ = TENDERMINT_ACTIVE_PROPOSAL.remove_label_values(&[
                                     &proposal.id,
                                     &content.content_type,
-                                    &content.title,
+                                    extracted_title.as_str(),
                                     &format!("{:?}", proposal.status),
                                 ]);
                             }
                         }
                     }
-    
+
                     let filtered_proposals: Vec<Proposal> = proposals
                         .clone()
                         .into_iter()
                         .filter(|proposal| proposal.status == ProposalStatus::ProposalStatusVotingPeriod)
                         .collect();
-    
+
                     for proposal in proposals.iter() {
-                        if proposal.status == ProposalStatus::ProposalStatusPassed {
-                            if let Some(first_message) = proposal.messages.get(0) {
-                                if let Some(content) = &first_message.content {
-                                    if content.content_type.to_lowercase().contains("upgrade") {
-                                        if let Some(plan) = &content.plan {
-                                            if let Ok(plan_height) = plan.height.parse::<u64>() {
-                                                if self.commited_height == 0 {
-                                                    continue;
-                                                }
-                                                if self.commited_height == plan_height {
-                                                    TENDERMINT_UPGRADE_STATUS.set(1);
-                                                } else if self.commited_height < plan_height {
-                                                    TENDERMINT_ACTIVE_PROPOSAL.with_label_values(&[
-                                                        &proposal.id,
-                                                        &content.content_type,
-                                                        &content.title,
-                                                        "Upgrade",
-                                                        &plan.height,
-                                                    ])
-                                                    .set(0.0);
-                                                    TENDERMINT_UPGRADE_STATUS.set(1);
-                                                    self.plan_height = plan_height;
-                                                } else {
-                                                    let _ = TENDERMINT_ACTIVE_PROPOSAL.remove_label_values(&[
-                                                        &proposal.id,
-                                                        &content.content_type,
-                                                        &content.title,
-                                                        "Upgrade",
-                                                        &plan.height,
-                                                    ]);
-                                                    TENDERMINT_UPGRADE_STATUS.set(0);
+                        if proposal.status != ProposalStatus::ProposalStatusPassed {
+                            continue;
+                        }
+
+                        if let Some(first_message) = proposal.messages.get(0) {
+                            if let Some(content) = &first_message.content {
+                                // Handle upgrade proposals
+                                if first_message.msg_type.to_lowercase().contains("upgrade") {
+                                    MessageLog!("INFO", "Processing upgrading proposal {}", proposal.id);
+
+                                    if let Some(plan) = &content.plan {
+                                        let extracted_title = content.title.clone().unwrap_or_else(
+                                            || proposal.title.clone().unwrap_or_else(|| "Not Found".to_string()),
+                                        );
+                                        if let Ok(plan_height) = plan.height.parse::<u64>() {
+                                            if self.commited_height == 0 {
+                                                // Fetch the latest block height if it's not set
+                                                if let Some(rpc_client) = &self.rpc_client {
+                                                    let rpc_client = Arc::clone(rpc_client);
+                                                    let latest_block = rpc_client.get_block(0).await?;
+                                                    let latest_block_height = latest_block
+                                                        .result
+                                                        .block
+                                                        .header
+                                                        .height
+                                                        .parse::<u64>()
+                                                        .map_err(|e| {
+                                                            MessageLog!(
+                                                                "ERROR",
+                                                                "Failed to parse the latest block height: {:?}",
+                                                                e
+                                                            );
+                                                            e
+                                                        })?;
+                                                    self.commited_height = latest_block_height;
                                                 }
                                             }
+
+                                            if plan_height < self.commited_height {
+                                                let _ = TENDERMINT_ACTIVE_PROPOSAL.remove_label_values(&[
+                                                    &proposal.id,
+                                                    &content.content_type,
+                                                    extracted_title.as_str(),
+                                                    "Upgrade",
+                                                    &plan.height,
+                                                ]);
+                                                MessageLog!(
+                                                    "DEBUG",
+                                                    "Removing outdated upgrade proposal {} with height {} (current height: {})",
+                                                    proposal.id,
+                                                    plan_height,
+                                                    self.commited_height
+                                                );
+                                                TENDERMINT_UPGRADE_STATUS.set(0);
+                                            } else {
+                                                TENDERMINT_ACTIVE_PROPOSAL.with_label_values(&[
+                                                    &proposal.id,
+                                                    &content.content_type,
+                                                    extracted_title.as_str(),
+                                                    "Upgrade",
+                                                    &plan.height,
+                                                ])
+                                                .set(0.0);
+                                                TENDERMINT_UPGRADE_STATUS.set(1);
+                                                self.plan_height = plan_height;
+                                                MessageLog!(
+                                                    "INFO",
+                                                    "Processing active upgrade proposal {} with height {}",
+                                                    proposal.id,
+                                                    plan_height
+                                                );
+                                            }
+                                        } else {
+                                            MessageLog!(
+                                                "ERROR",
+                                                "Failed to parse plan height for proposal {} with raw height: {}",
+                                                proposal.id,
+                                                plan.height
+                                            );
                                         }
+                                    } else {
+                                        MessageLog!(
+                                            "WARN",
+                                            "No plan found for proposal {} of type {}",
+                                            proposal.id,
+                                            content.content_type
+                                        );
                                     }
                                 }
                             }
                         }
                     }
-    
+
                     *active_proposals = filtered_proposals.clone();
-    
+
                     for proposal in filtered_proposals.iter() {
                         MessageLog!(
                             "DEBUG",
@@ -156,27 +215,47 @@ impl Watcher {
                             proposal.id,
                             proposal.status
                         );
-                    
-                        let mut proposal_type = "unknown".to_string();
-                        let mut title = proposal.title.clone().unwrap_or_else(|| "No title".to_string()); // Unwrap `Option<String>` or provide a default
+                            MessageLog!(
+                            "DEBUG",
+                            "Proposal {} in {:?} status",
+                            proposal.id,
+                            proposal.status
+                        );
+
+                        let mut proposal_type = "Not found".to_string();
+                        let mut title = proposal.title.clone().unwrap_or_else(|| "Not found".to_string());
                         let mut height = "0".to_string();
-                    
+
+                        // Check the first message for both structures
                         if let Some(first_message) = proposal.messages.get(0) {
                             proposal_type = first_message.msg_type.clone();
-                    
+
+                            // Handle first structure where content is directly in the message
                             if let Some(content) = &first_message.content {
+                                title = content.title.clone().unwrap_or_else(
+                                    || proposal.title.clone().unwrap_or_else(|| "Not Found".to_string()),
+                                );
                                 if let Some(plan) = &content.plan {
                                     height = plan.height.clone();
                                 }
                             }
+
+                            // Handle second structure where content is nested inside plan field
+                            else if let Some(legacy_content) = &first_message.plan {
+                                title = proposal.title.clone().unwrap_or_else(|| "Not Found".to_string());
+
+                                if height == "0" {
+                                    height = legacy_content.height.clone();
+                                }
+                            }
                         }
-                    
-                        if title == "No title" {
+
+                        if title == "Not Found" {
                             if let Some(summary) = &proposal.summary {
                                 title = summary.clone();
                             }
                         }
-                    
+
                         TENDERMINT_ACTIVE_PROPOSAL
                             .with_label_values(&[
                                 &proposal.id,
@@ -186,7 +265,7 @@ impl Watcher {
                                 &height,
                             ])
                             .set(1.0);
-                    }                    
+                    }
                 }
                 Err(err) => {
                     MessageLog!("ERROR", "Failed to fetch proposals: {:?}", err);
@@ -196,8 +275,7 @@ impl Watcher {
             MessageLog!("ERROR", "REST client is not initialized.");
         }
         Ok(())
-    }    
-    
+    }
 
     pub async fn update_voting_power(&self) -> Result<(), Box<dyn StdError + Send + Sync>> {
         if let Some(rest_client) = &self.rest_client {
@@ -234,6 +312,7 @@ impl Watcher {
     pub async fn update_signatures(&mut self) -> Result<(), Box<dyn StdError + Send + Sync>> {
         if let Some(rpc_client) = &self.rpc_client {
             let rpc_client = Arc::clone(rpc_client);
+
             if self.commited_height == 0 {
                 let latest_block = rpc_client.get_block(0).await?;
                 let latest_block_height = latest_block
@@ -247,30 +326,32 @@ impl Watcher {
                         e
                     })?;
                 TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS
-                .with_label_values(&[&self.validator_address])
-                .set(0.0);
+                    .with_label_values(&[&self.validator_address])
+                    .set(0.0);
                 TENDERMINT_CURRENT_BLOCK_TIME.set(
-                    latest_block
-                    .result
-                    .block
-                    .header
-                    .time
-                    .and_utc().timestamp() as f64
+                    latest_block.result.block.header.time.and_utc().timestamp() as f64,
                 );
                 self.commited_height = latest_block_height;
             }
-            let next_block_height = self.commited_height + 1;
 
+            let next_block_height = self.commited_height + 1;
             let specific_block = rpc_client.get_block(next_block_height.try_into().unwrap()).await?;
             let current_block_time = specific_block.result.block.header.time;
-            let parsed_height = specific_block.result.block.header.height.parse::<u64>().map_err(|e| {
-                MessageLog!("ERROR", "Failed to parse block height: {:?}", e);
-                e
-            })?;
+            let parsed_height = specific_block
+                .result
+                .block
+                .header
+                .height
+                .parse::<u64>()
+                .map_err(|e| {
+                    MessageLog!("ERROR", "Failed to parse block height: {:?}", e);
+                    e
+                })?;
 
             TENDERMINT_CURRENT_BLOCK_HEIGHT.set(parsed_height.try_into().unwrap());
             TENDERMINT_CURRENT_BLOCK_TIME.set(current_block_time.and_utc().timestamp() as f64);
             self.commited_height = parsed_height;
+
             if self.plan_height == self.commited_height {
                 TENDERMINT_UPGRADE_STATUS.set(1);
             }
@@ -283,12 +364,11 @@ impl Watcher {
             );
 
             let all_signatures = specific_block.result.block.last_commit.signatures;
-            let mut found_my_validator = false;
-            let mut my_validator_signature: Option<TendermintBlockSignature> = None;
+
             {
-                let mut signatures = self.signatures.lock().expect("Failed to acquire lock of signatures");
-                let mut block_timestamps = self.block_timestamps.lock().expect("Failed to acquire lock of timestamps");
-                let mut discovered_validators = self.discovered_validators.lock().expect("Failed to acquire lock on validators");
+                let mut signatures = self.signatures.lock().await;
+                let mut block_timestamps = self.block_timestamps.lock().await;
+                let mut discovered_validators = self.discovered_validators.lock().await;
 
                 for sig in &all_signatures {
                     let validator_address = &sig.validator_address;
@@ -297,17 +377,25 @@ impl Watcher {
                         discovered_validators.push(validator_address.clone());
                     }
                 }
+
                 for validator_address in discovered_validators.iter() {
-                    let signed = all_signatures.iter().any(|sig| sig.validator_address == *validator_address);
+                    let signed = all_signatures
+                        .iter()
+                        .any(|sig| sig.validator_address == *validator_address);
                     if !signed {
                         MessageLog!(
                             "DEBUG",
                             "No matching signature found for validator address: {}.",
                             validator_address
                         );
-                        TENDERMINT_VALIDATOR_MISSED_BLOCKS.with_label_values(&[validator_address]).inc();
+                        TENDERMINT_VALIDATOR_MISSED_BLOCKS
+                            .with_label_values(&[validator_address])
+                            .inc();
                     }
                 }
+
+                let mut found_my_validator = false;
+                let mut my_validator_signature: Option<TendermintBlockSignature> = None;
                 for sig in &all_signatures {
                     if &sig.validator_address == &self.validator_address {
                         found_my_validator = true;
@@ -315,23 +403,26 @@ impl Watcher {
                         break;
                     }
                 }
+
                 if !found_my_validator {
                     TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS
                         .with_label_values(&[&self.validator_address])
                         .inc();
                 }
+
                 if signatures.len() >= self.block_window as usize {
                     signatures.pop_front();
                 }
                 signatures.push_back((self.commited_height, my_validator_signature));
                 TENDERMINT_EXPORTER_LENGTH_SIGNATURES.inc();
-                TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR.set(signatures.len().try_into().unwrap());
+                TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR
+                    .set(signatures.len().try_into().unwrap());
 
                 if block_timestamps.len() >= self.block_window as usize {
                     block_timestamps.pop_front();
                 }
                 block_timestamps.push_back(current_block_time.and_utc().timestamp() as f64);
-    
+
                 if block_timestamps.len() > 1 {
                     let first = *block_timestamps.front().unwrap();
                     let last = *block_timestamps.back().unwrap();
@@ -347,7 +438,7 @@ impl Watcher {
             }
         }
         Ok(())
-    }    
+    }
 
     pub async fn start_rpc_watcher(watcher: Arc<AsyncMutex<Watcher>>) {
         loop {
@@ -439,6 +530,10 @@ pub async fn initialize_watcher_client() -> Result<Arc<AsyncMutex<Watcher>>, Box
     let config = Arc::new(config::Settings::new()?);
     let watcher_client = Arc::new(AsyncMutex::new(Watcher::new(config).await?));
 
-    *WATCHER_CLIENT.lock().unwrap() = Some(watcher_client.clone());
+    {
+        let mut watcher_client_lock = WATCHER_CLIENT.lock().await;
+        *watcher_client_lock = Some(watcher_client.clone());
+    }
+
     Ok(watcher_client)
 }
