@@ -166,7 +166,9 @@ impl Watcher {
                                                     plan_height,
                                                     self.commited_height
                                                 );
-                                                TENDERMINT_UPGRADE_STATUS.set(0);
+                                                TENDERMINT_UPGRADE_STATUS
+                                                    .with_label_values(&[&self.rpc_client.as_ref().unwrap().chain_id])
+                                                    .set(0);
                                             } else {
                                                 TENDERMINT_ACTIVE_PROPOSAL.with_label_values(&[
                                                     &proposal.id,
@@ -174,15 +176,18 @@ impl Watcher {
                                                     extracted_title.as_str(),
                                                     "Upgrade",
                                                     &plan.height,
+                                                    &self.rpc_client.as_ref().unwrap().chain_id,
                                                 ])
                                                 .set(0.0);
-                                                TENDERMINT_UPGRADE_STATUS.set(1);
+                                                TENDERMINT_UPGRADE_STATUS
+                                                    .with_label_values(&[&self.rpc_client.as_ref().unwrap().chain_id])
+                                                    .set(1);
                                                 self.plan_height = plan_height;
                                                 MessageLog!(
                                                     "INFO",
                                                     "Processing active upgrade proposal {} with height {}",
                                                     proposal.id,
-                                                    plan_height
+                                                    plan_height,
                                                 );
                                             }
                                         } else {
@@ -263,6 +268,7 @@ impl Watcher {
                                 &title,
                                 &format!("{:?}", proposal.status),
                                 &height,
+                                self.rpc_client.as_ref().unwrap().chain_id.as_str(),
                             ])
                             .set(1.0);
                     }
@@ -283,6 +289,7 @@ impl Watcher {
             let active_validators = rest_client.get_active_validators().await?;
             if let Some(rpc_client) = &self.rpc_client {
                 let rpc_client = Arc::clone(rpc_client);
+                let chain_id = rpc_client.chain_id.clone();
                 let rpc_validators = rpc_client.get_validators().await?;
                 let pubkey_to_address: std::collections::HashMap<String, String> = rpc_validators
                     .into_iter()
@@ -294,7 +301,7 @@ impl Watcher {
                     let voting_power: f64 = validator.tokens.parse().unwrap_or(0.0);
                     if let Some(address) = pubkey_to_address.get(pub_key) {
                         TENDERMINT_CURRENT_VOTING_POWER
-                            .with_label_values(&[address, name, pub_key])
+                            .with_label_values(&[address, name, pub_key, &chain_id])
                             .set(voting_power);
                     } else {
                         MessageLog!("INFO", "No matching address found for pub_key: {}", pub_key);
@@ -312,6 +319,7 @@ impl Watcher {
     pub async fn update_signatures(&mut self) -> Result<(), Box<dyn StdError + Send + Sync>> {
         if let Some(rpc_client) = &self.rpc_client {
             let rpc_client = Arc::clone(rpc_client);
+            let chain_id = rpc_client.chain_id.clone();
 
             if self.commited_height == 0 {
                 let latest_block = rpc_client.get_block(0).await?;
@@ -326,11 +334,11 @@ impl Watcher {
                         e
                     })?;
                 TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS
-                    .with_label_values(&[&self.validator_address])
+                    .with_label_values(&[&self.validator_address, &chain_id,])
                     .set(0.0);
-                TENDERMINT_CURRENT_BLOCK_TIME.set(
-                    latest_block.result.block.header.time.and_utc().timestamp() as f64,
-                );
+                TENDERMINT_CURRENT_BLOCK_TIME
+                    .with_label_values(&[&chain_id])
+                    .set(latest_block.result.block.header.time.and_utc().timestamp() as f64);
                 self.commited_height = latest_block_height;
             }
 
@@ -348,12 +356,18 @@ impl Watcher {
                     e
                 })?;
 
-            TENDERMINT_CURRENT_BLOCK_HEIGHT.set(parsed_height.try_into().unwrap());
-            TENDERMINT_CURRENT_BLOCK_TIME.set(current_block_time.and_utc().timestamp() as f64);
+            TENDERMINT_CURRENT_BLOCK_HEIGHT
+                .with_label_values(&[&chain_id])
+                .set(parsed_height.try_into().unwrap());
+            TENDERMINT_CURRENT_BLOCK_TIME
+                .with_label_values(&[&chain_id])
+                .set(current_block_time.and_utc().timestamp() as f64);
             self.commited_height = parsed_height;
 
             if self.plan_height == self.commited_height {
-                TENDERMINT_UPGRADE_STATUS.set(1);
+                TENDERMINT_UPGRADE_STATUS
+                    .with_label_values(&[&chain_id])
+                    .set(1);
             }
 
             MessageLog!(
@@ -389,7 +403,7 @@ impl Watcher {
                             validator_address
                         );
                         TENDERMINT_VALIDATOR_MISSED_BLOCKS
-                            .with_label_values(&[validator_address])
+                            .with_label_values(&[validator_address, &chain_id])
                             .inc();
                     }
                 }
@@ -406,7 +420,7 @@ impl Watcher {
 
                 if !found_my_validator {
                     TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS
-                        .with_label_values(&[&self.validator_address])
+                        .with_label_values(&[&self.validator_address, &chain_id])
                         .inc();
                 }
 

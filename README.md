@@ -71,10 +71,6 @@ The following Prometheus metrics are exposed by the Tendermint metrics exporter:
   Shows the total number of blocks processed in the vector.
   **Description**: Useful for understanding the length of the vector holding signatures.
 
-- **`tendermint_exporter_rpc_health_check_requests_total`** (`IntCounter`):
-  Tracks the total number of RPC health check requests made by the exporter.
-  **Description**: Useful for monitoring the health check frequency of the Tendermint RPC endpoints.
-
 - **`tendermint_current_voting_power`** (`GaugeVec`):
   Shows the total number of RPC health check failures.
   **Labels**: `["endpoint"]`

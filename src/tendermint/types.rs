@@ -87,7 +87,7 @@ pub struct TendermintNodeInfo {
 
 #[derive(Debug, Deserialize)]
 pub struct TendermintSyncInfo {
-    pub latest_block_height: i64,
+    pub latest_block_height: String,
     pub latest_block_time: BlockTime,
     pub catching_up: bool,
 }

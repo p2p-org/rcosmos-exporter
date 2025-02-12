@@ -1,4 +1,4 @@
-use prometheus::{Encoder, TextEncoder, IntCounter, IntGauge, Registry, GaugeVec, Opts, Gauge, opts};
+use prometheus::{Encoder, TextEncoder, IntCounter, IntGauge, IntGaugeVec, Registry, GaugeVec, Opts};
 use lazy_static::lazy_static;
 use hyper::{Body, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
@@ -8,41 +8,66 @@ use crate::{config::Settings, MessageLog};
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
 
-    pub static ref TENDERMINT_CURRENT_BLOCK_HEIGHT: IntGauge = IntGauge::new("tendermint_current_block_height", "Current block height of the Tendermint node").unwrap();
-    pub static ref TENDERMINT_CURRENT_BLOCK_TIME: Gauge = Gauge::with_opts(
-        opts!("tendermint_current_block_time", "Current block time of the Tendermint node")
+    pub static ref TENDERMINT_CURRENT_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("tendermint_current_block_height", "Current block height of the Tendermint node"),
+        &["chain_id"]
     ).unwrap();
+    
+    pub static ref TENDERMINT_CURRENT_BLOCK_TIME: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_current_block_time", "Current block time of the Tendermint node"),
+        &["chain_id"]
+    ).unwrap();
+    
     pub static ref TENDERMINT_MY_VALIDATOR_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
         Opts::new("tendermint_my_validator_missed_blocks", "Number of blocks missed by my validator"),
-        &["address"]
+        &["address", "chain_id"]
     ).unwrap();
+    
     pub static ref TENDERMINT_VALIDATOR_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
         Opts::new("tendermint_validator_missed_blocks", "Number of blocks missed by the validator"),
-        &["address"]
+        &["address", "chain_id"]
     ).unwrap();
+    
     pub static ref TENDERMINT_CURRENT_VOTING_POWER: GaugeVec = GaugeVec::new(
         Opts::new("tendermint_current_voting_power", "Current voting power of the validator"),
-        &["address", "name", "pub_key"]
+        &["address", "name", "pub_key", "chain_id"]
     ).unwrap();
+    
     pub static ref TENDERMINT_ACTIVE_PROPOSAL: GaugeVec = GaugeVec::new(
         Opts::new(
             "tendermint_active_proposal",
             "Current active proposals with voting period"
         ),
-        &["id", "type", "title", "status", "height"]
+        &["id", "type", "title", "status", "height", "chain_id"]
     ).unwrap();
-    pub static ref TENDERMINT_UPGRADE_STATUS: IntGauge = IntGauge::new(
+    
+    pub static ref TENDERMINT_UPGRADE_STATUS: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
             "tendermint_upgrade_status",
             "Indicates whether an upgrade is in progress (1 for upgrade time, 0 otherwise)"
+        ),
+        &["chain_id"]
     ).unwrap();
 
-    pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURES: IntCounter = IntCounter::new("tendermint_exporter_length_signatures_total", "Total number of blocks processed by exporter").unwrap();
-    pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR: IntGauge = IntGauge::new("tendermint_exporter_length_signature_vector", "Total number of blocks processed in vector").unwrap();
+    pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURES: IntCounter = IntCounter::new(
+        "tendermint_exporter_length_signatures_total",
+        "Total number of blocks processed by exporter"
+    ).unwrap();
+    
+    pub static ref TENDERMINT_EXPORTER_LENGTH_SIGNATURE_VECTOR: IntGauge = IntGauge::new(
+        "tendermint_exporter_length_signature_vector",
+        "Total number of blocks processed in vector"
+    ).unwrap();
+    
     pub static ref TENDERMINT_EXPORTER_RPC_FAILURES: GaugeVec = GaugeVec::new(
-        Opts::new("tendermint_exporter_rpc_failures", "Number of rpc failures for certain endpoint"),
+        Opts::new(
+            "tendermint_exporter_rpc_failures",
+            "Number of rpc failures for certain endpoint"
+        ),
         &["endpoint"]
     ).unwrap();
 }
+
 
 pub fn register_custom_metrics() {
     REGISTRY.register(Box::new(TENDERMINT_CURRENT_BLOCK_HEIGHT.clone())).unwrap();

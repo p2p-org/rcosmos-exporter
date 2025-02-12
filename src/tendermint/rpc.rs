@@ -20,6 +20,7 @@ pub static RPC_CLIENT: Mutex<Option<Arc<RPC>>> = Mutex::new(None);
 #[derive(Debug)]
 pub struct RPC {
     client: Client,
+    pub chain_id: String,
     endpoint_manager: Arc<EndpointManager>,
 }
 
@@ -29,8 +30,20 @@ pub async fn initialize_rpc_client() -> Result<(), String> {
     let rpc_client = match manager {
         Ok(endpoint_manager) => {
             match RPC::new(endpoint_manager).await {
-                Ok(rpc) => {
+                Ok(mut rpc) => {
                     MessageLog!("INFO", "RPC client created successfully");
+    
+                    match rpc.get_status().await {
+                        Ok(chain_id) => {
+                            MessageLog!("INFO", "Successfully retrieved chain_id: {}", chain_id);
+                        }
+                        Err(err) => {
+                            let err_msg = format!("Failed to get status: {:?}", err);
+                            MessageLog!("ERROR", "{}", err_msg);
+                            return Err(err_msg);
+                        }
+                    }
+    
                     Some(Arc::new(rpc))
                 }
                 Err(err) => {
@@ -45,18 +58,26 @@ pub async fn initialize_rpc_client() -> Result<(), String> {
             MessageLog!("ERROR", "{}", err_msg);
             return Err(err_msg);
         }
-    };
+    };    
+
     *RPC_CLIENT.lock().unwrap() = rpc_client;
     Ok(())
 }
 
 
+
 impl RPC {
-    pub async fn new(endpoint_manager: Arc<EndpointManager>) -> Result<Self, Box<dyn StdError>> {
+    pub async fn new(endpoint_manager: Arc<EndpointManager>) -> Result<Self, Box<dyn StdError + Send + Sync>> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
             .build()?;
-        Ok(RPC { client, endpoint_manager })
+        
+        let rpc = RPC {
+            client,
+            chain_id: "".to_string(),
+            endpoint_manager,
+        };
+        Ok(rpc)
     }
 
     async fn choose_endpoint(&self, exclude_endpoint: Option<&str>) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -122,22 +143,19 @@ impl RPC {
         }
     }
 
-    pub async fn get_status(&self) -> Result<TendermintStatusResponse, Box<dyn std::error::Error + Send + Sync>> {
-        let mut exclude_endpoint: Option<String> = None;
-        loop {
-            let endpoint = match self.choose_endpoint(exclude_endpoint.as_deref()).await {
-                Ok(endpoint) => endpoint,
-                Err(err) => {
-                    MessageLog!("ERROR", "Failed to choose an endpoint: {:?}", err);
-                    return Err(err);
-                }
-            };
+    pub async fn get_status(&mut self) -> Result<String, Box<dyn StdError + Send + Sync>> {
+        let endpoints = self.endpoint_manager.get_endpoints(Some(EndpointType::Rpc), true).await;
+        let mut last_error: Option<String> = None;
+
+        for endpoint_structure in endpoints {
+            let endpoint = endpoint_structure.0; 
             let url = format!("{}/status", endpoint);
             match self.client.get(&url).send().await {
                 Ok(response) => match response.json::<TendermintStatusResponse>().await {
                     Ok(status_response) => {
-                        MessageLog!("INFO", "Get status request successful");
-                        return Ok(status_response);
+                        MessageLog!("INFO", "Get status request successful from endpoint: {}", url);
+                        self.chain_id = status_response.result.node_info.network.clone();
+                        return Ok(status_response.result.node_info.network);
                     }
                     Err(err) => {
                         MessageLog!(
@@ -146,8 +164,9 @@ impl RPC {
                             url,
                             err
                         );
-                        exclude_endpoint = Some(endpoint);
-                        continue;
+                        self.endpoint_manager.update_endpoint_health(&endpoint, EndpointType::Rpc, false).await;
+                        TENDERMINT_EXPORTER_RPC_FAILURES.with_label_values(&[&endpoint]).inc();
+                        last_error = Some(format!("Failed to parse JSON from {}: {:?}", url, err));
                     }
                 },
                 Err(err) => {
@@ -157,11 +176,18 @@ impl RPC {
                         url,
                         err
                     );
-                    exclude_endpoint = Some(endpoint);
-                    continue;
+                    self.endpoint_manager.update_endpoint_health(&endpoint, EndpointType::Rpc, false).await;
+                    TENDERMINT_EXPORTER_RPC_FAILURES.with_label_values(&[&endpoint]).inc();
+                    last_error = Some(format!("Failed to fetch status from {}: {:?}", url, err));
                 }
-            };
+            }
         }
+
+        if let Some(error) = last_error {
+            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, error)));
+        }
+
+        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "No valid status found")))
     }
 
     pub async fn get_block(&self, height: i64) -> Result<TendermintBlockResponse, RpcBlockErrorResponse> {
