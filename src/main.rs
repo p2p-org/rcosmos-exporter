@@ -1,67 +1,90 @@
-extern crate dotenv;
-
-mod config;
-
-use std::process;
-
-use rcosmos_exporter::MessageLog;
-use crate::config::Settings;
-use rcosmos_exporter::tendermint::{
-    rpc::initialize_rpc_client,
-    rest::initialize_rest_client,
-    watcher::{
-        initialize_watcher_client,
-        spawn_watcher
-    },
-    metrics::{
-        register_custom_metrics,
-        serve_metrics
-    }
+use blockchains::tendermint::tendermint::Tendermint;
+use core::{
+    blockchain::Blockchain, blockchain_client::BlockchainClientBuilder,
+    blockchains::BlockchainType, http_client::HttpClient, metrics::serve_metrics,
 };
+use dotenv::dotenv;
+use std::{env, sync::Arc};
+use tokio::sync::Mutex;
+use tracing::info;
+
+mod blockchains;
+mod core;
 
 #[tokio::main]
 async fn main() {
-    let mut rest_initialized = false;
-    let mut rpc_initialized = false;
-    let config = match config::Settings::new() {
-        Ok(settings) => settings,
-        Err(err) => {
-            MessageLog!("Failed to load configuration: {}", err);
-            process::exit(1);
+    dotenv().ok();
+
+    tracing_subscriber::fmt()
+        .json()
+        .with_target(false)
+        .flatten_event(true)
+        .init();
+
+    let prometheus_ip = env::var("PROMETHEUS_IP").unwrap_or_else(|_| "0.0.0.0".to_string());
+
+    let prometheus_port = env::var("PROMETHEUS_PORT").unwrap_or_else(|_| "9100".to_string());
+
+    let block_window: i64 = env::var("BLOCK_WINDOW")
+        .unwrap_or_else(|_| "500".to_string())
+        .parse()
+        .unwrap();
+
+    let validator_address = env::var("VALIDATOR_ADDRESS").unwrap();
+
+    let rpc_endpoints = env::var("RPC_ENDPOINTS").unwrap();
+    let rest_endpoints = env::var("REST_ENDPOINTS").unwrap();
+
+    let blockchain_type = env::var("BLOCKCHAIN").unwrap();
+
+    info!("RCosmos Exporter");
+    info!(
+        prometheus_ip,
+        prometheus_port,
+        block_window,
+        validator_address,
+        rpc_endpoints,
+        rest_endpoints,
+        blockchain_type
+    );
+
+    let blockchain_type = match BlockchainType::from_str(&blockchain_type) {
+        Some(blockchain) => blockchain,
+        None => panic!("Unsupported blockchain"),
+    };
+
+    let rpc = HttpClient::new(split_urls(rpc_endpoints), None);
+    let rest = HttpClient::new(split_urls(rest_endpoints), None);
+
+    let blockchain = match blockchain_type {
+        BlockchainType::Tendermint => {
+            let client = BlockchainClientBuilder::new(validator_address, block_window)
+                .with_rest(rest)
+                .with_rpc(rpc)
+                .build()
+                .await;
+
+            blockchains::tendermint::metrics::register_custom_metrics();
+            Blockchain::Tendermint(Tendermint {
+                client: Arc::new(Mutex::new(client)),
+            })
         }
     };
 
-    if !config.rest_endpoints.is_empty() {
-        match initialize_rest_client().await {
-            Ok(_) => {
-                rest_initialized = true;
+    blockchain.start_monitoring().await;
+    serve_metrics(prometheus_ip, prometheus_port, blockchain_type).await;
+}
+
+fn split_urls(urls: String) -> Vec<(String, String)> {
+    urls.split(';') // Split on semicolons to get pairs
+        .filter_map(|pair| {
+            let mut parts = pair.split(','); // Split each pair by the comma
+            let url = parts.next().map(|s| s.to_string());
+            let health_url = parts.next().map(|s| s.to_string());
+            match (url, health_url) {
+                (Some(url), Some(health_url)) => Some((url, health_url)),
+                _ => None,
             }
-            Err(err) => MessageLog!("ERROR", "Failed to initialize REST client: {:?}", err),
-        }
-    } else {
-        MessageLog!("INFO", "Skipping REST initialization: Missing or invalid `rest_endpoints` in config");
-    }
-
-    if !config.rpc_endpoints.is_empty() {
-        match initialize_rpc_client().await {
-            Ok(_) => {
-                rpc_initialized = true;
-            }
-            Err(err) => MessageLog!("ERROR", "Failed to initialize RPC client: {:?}", err),
-        }
-    } else {
-        MessageLog!("INFO", "Skipping RPC initialization: Missing or invalid `rpc_endpoints` in config");
-    }
-
-    if !rest_initialized && !rpc_initialized {
-        MessageLog!("ERROR", "Failed to initialize both REST and RPC clients. Exiting...");
-        process::exit(1);
-    }
-
-    let watcher_client = initialize_watcher_client()
-        .await
-        .expect("Failed to initialize watcher client");
-    register_custom_metrics();
-    spawn_watcher(watcher_client.clone());
-    serve_metrics().await;
+        })
+        .collect()
 }

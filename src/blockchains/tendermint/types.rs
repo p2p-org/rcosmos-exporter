@@ -1,46 +1,46 @@
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 use chrono::NaiveDateTime;
 use serde::Deserialize;
 
 pub const DEFAULT_ESTIMATED_BLOCK_TIME: f64 = 6.1;
 
-#[derive(Debug, Deserialize)]
-pub struct ConsensusStateResponse {
-    pub result: Option<ConsensusStateResult>,
-}
+// #[derive(Debug, Deserialize)]
+// pub struct ConsensusStateResponse {
+//     pub result: Option<ConsensusStateResult>,
+// }
 
-#[derive(Debug, Deserialize)]
-pub struct ConsensusStateResult {
-    pub round_state: Option<ConsensusStateRoundState>,
-}
+// #[derive(Debug, Deserialize)]
+// pub struct ConsensusStateResult {
+//     pub round_state: Option<ConsensusStateRoundState>,
+// }
 
-#[derive(Debug, Deserialize)]
-pub struct ConsensusStateRoundState {
-    #[serde(rename = "height/round/step")]
-    pub height_round_step: String,
-    #[serde(with = "serde_naive_datetime")]
-    pub start_time: NaiveDateTime,
-    pub height_vote_set: Vec<ConsensusHeightVoteSet>,
-    pub proposer: ConsensusStateProposer,
-}
+// #[derive(Debug, Deserialize)]
+// pub struct ConsensusStateRoundState {
+//     #[serde(rename = "height/round/step")]
+//     pub height_round_step: String,
+//     #[serde(with = "serde_naive_datetime")]
+//     pub start_time: NaiveDateTime,
+//     pub height_vote_set: Vec<ConsensusHeightVoteSet>,
+//     pub proposer: ConsensusStateProposer,
+// }
 
-#[derive(Debug, Deserialize)]
-pub struct ConsensusHeightVoteSet {
-    pub round: i32,
-    pub prevotes: Vec<String>,
-    pub precommits: Vec<String>,
-    #[serde(rename = "prevotes_bit_array")]
-    pub prevotes_bit_array: String,
-    #[serde(rename = "precommits_bit_array")]
-    pub precommits_bit_array: String,
-}
+// #[derive(Debug, Deserialize)]
+// pub struct ConsensusHeightVoteSet {
+//     pub round: i32,
+//     pub prevotes: Vec<String>,
+//     pub precommits: Vec<String>,
+//     #[serde(rename = "prevotes_bit_array")]
+//     pub prevotes_bit_array: String,
+//     #[serde(rename = "precommits_bit_array")]
+//     pub precommits_bit_array: String,
+// }
 
-#[derive(Debug, Deserialize)]
-pub struct ConsensusStateProposer {
-    pub address: String,
-    pub index: i32,
-}
+// #[derive(Debug, Deserialize)]
+// pub struct ConsensusStateProposer {
+//     pub address: String,
+//     pub index: i32,
+// }
 
 #[derive(Debug, Deserialize)]
 pub struct ValidatorsResponse {
@@ -66,6 +66,7 @@ pub struct TendermintValidator {
     pub address: String,
     pub pub_key: PubKey,
     pub voting_power: String,
+    pub proposer_priority: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +78,7 @@ pub struct TendermintStatusResponse {
 pub struct TendermintStatusResult {
     pub node_info: TendermintNodeInfo,
     pub sync_info: TendermintSyncInfo,
+    // pub validator_info: TendermintValidatorInfo,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,10 +89,14 @@ pub struct TendermintNodeInfo {
 
 #[derive(Debug, Deserialize)]
 pub struct TendermintSyncInfo {
-    pub latest_block_height: String,
     pub latest_block_time: BlockTime,
     pub catching_up: bool,
 }
+
+// #[derive(Debug, Deserialize)]
+// pub struct TendermintValidatorInfo {
+//     pub voting_power: usize,
+// }
 
 #[derive(Debug, Deserialize)]
 pub struct BlockTime(String);
@@ -100,37 +106,6 @@ impl BlockTime {
         Ok(naive_datetime.and_utc().timestamp())
     }
 }
-
-#[derive(Debug, Deserialize)]
-pub struct RpcBlockErrorResponse {
-    pub jsonrpc: String,
-    pub id: i64,
-    pub error: RpcError,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RpcError {
-    pub code: i64,
-    pub message: String,
-    pub data: Option<String>,
-}
-
-impl fmt::Display for RpcBlockErrorResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "RPC Error: code = {}, message = {}, data = {}",
-            self.error.code,
-            self.error.message,
-            match &self.error.data {
-                Some(data) => data.as_str(),
-                None => "None",
-            }
-        )
-    }
-}
-
-impl std::error::Error for RpcBlockErrorResponse {}
 
 #[derive(Debug, Deserialize)]
 pub struct TendermintBlockResponse {
@@ -234,57 +209,57 @@ pub struct TendermintRESTPagination {
     pub total: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct TendermintProposalsResponse {
-    pub proposals: Vec<Proposal>,
-    pub pagination: TendermintRESTPagination,
-}
+// #[derive(Debug, Deserialize)]
+// pub struct TendermintProposalsResponse {
+//     pub proposals: Vec<Proposal>,
+//     pub pagination: TendermintRESTPagination,
+// }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ProposalStatus {
-    ProposalStatusDepositPeriod,
-    ProposalStatusVotingPeriod,
-    ProposalStatusPassed,
-    ProposalStatusRejected,
-    ProposalStatusFailed,
-}
+// #[derive(Clone, Debug, Deserialize, PartialEq)]
+// #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+// pub enum ProposalStatus {
+//     ProposalStatusDepositPeriod,
+//     ProposalStatusVotingPeriod,
+//     ProposalStatusPassed,
+//     ProposalStatusRejected,
+//     ProposalStatusFailed,
+// }
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct Proposal {
-    pub id: String,
-    pub messages: Vec<ProposalMessage>,
-    pub status: ProposalStatus,
-    pub title: Option<String>,
-    pub summary: Option<String>,
-}
+// #[derive(Clone, Debug, Deserialize)]
+// pub struct Proposal {
+//     pub id: String,
+//     pub messages: Vec<ProposalMessage>,
+//     pub status: ProposalStatus,
+//     pub title: Option<String>,
+//     pub summary: Option<String>,
+// }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProposalMessage {
-    #[serde(rename = "@type")]
-    pub msg_type: String,
-    pub content: Option<ProposalContent>,
-    pub authority: Option<String>,
-    pub plan: Option<ProposalPlan>,
-}
+// #[derive(Clone, Debug, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ProposalMessage {
+//     #[serde(rename = "@type")]
+//     pub msg_type: String,
+//     pub content: Option<ProposalContent>,
+//     pub authority: Option<String>,
+//     pub plan: Option<ProposalPlan>,
+// }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProposalContent {
-    #[serde(rename = "@type")]
-    pub content_type: String,
-    pub title: Option<String>,
-    pub description: String,
-    pub plan: Option<ProposalPlan>,
-}
+// #[derive(Clone, Debug, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ProposalContent {
+//     #[serde(rename = "@type")]
+//     pub content_type: String,
+//     pub title: Option<String>,
+//     pub description: String,
+//     pub plan: Option<ProposalPlan>,
+// }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProposalPlan {
-    pub info: String,
-    pub height: String,
-}
+// #[derive(Clone, Debug, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ProposalPlan {
+//     pub info: String,
+//     pub height: String,
+// }
 
 mod serde_naive_datetime {
     use chrono::NaiveDateTime;
@@ -301,13 +276,13 @@ mod serde_naive_datetime {
     }
 }
 
-#[derive(Debug)]
-pub struct EndpointError(pub String);
+// #[derive(Debug)]
+// pub struct EndpointError(pub String);
 
-impl fmt::Display for EndpointError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+// impl fmt::Display for EndpointError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "{}", self.0)
+//     }
+// }
 
-impl std::error::Error for EndpointError {}
+// impl std::error::Error for EndpointError {}
