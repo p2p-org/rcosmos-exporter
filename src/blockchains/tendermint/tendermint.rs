@@ -1,4 +1,4 @@
-use std::{collections::HashMap, i64, sync::Arc, usize};
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::NaiveDateTime;
 use serde_json::from_str;
@@ -6,17 +6,20 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 use urlencoding::encode;
 
-use crate::core::{
-    blockchain::{
-        BlockHeight, BlockScrapper, BlockchainMetrics, BlockchainMonitor, NetworkScrapper,
+use crate::{
+    blockchains::tendermint::types::{Proposal, TendermintProposalsResponse},
+    core::{
+        blockchain::{
+            BlockHeight, BlockScrapper, BlockchainMetrics, BlockchainMonitor, NetworkScrapper,
+        },
+        blockchain_client::BlockchainClient,
+        http_client::HTTPClientErrors,
     },
-    blockchain_client::BlockchainClient,
-    http_client::HTTPClientErrors,
 };
 
 use super::{
     metrics::{
-        TENDERMINT_CURRENT_BLOCK_HEIGHT, TENDERMINT_CURRENT_BLOCK_TIME, TENDERMINT_VALIDATOR,
+        TENDERMINT_CURRENT_BLOCK_HEIGHT, TENDERMINT_CURRENT_BLOCK_TIME, TENDERMINT_UPGRADE_STATUS,
         TENDERMINT_VALIDATOR_JAILED, TENDERMINT_VALIDATOR_MISSED_BLOCKS,
         TENDERMINT_VALIDATOR_PROPOSED_BLOCKS, TENDERMINT_VALIDATOR_PROPOSER_PRIORITY,
         TENDERMINT_VALIDATOR_TOKENS, TENDERMINT_VALIDATOR_VOTING_POWER,
@@ -34,7 +37,7 @@ pub struct Tendermint {
     pub block_window: i64,
     pub chain_id: Option<String>,
 
-    pub validators: Vec<String>,
+    pub validators: HashMap<String, String>,
 }
 
 impl Tendermint {
@@ -44,7 +47,7 @@ impl Tendermint {
             proccessed_height: 0,
             block_window: block_window,
             chain_id: None,
-            validators: Vec::new(),
+            validators: HashMap::new(),
         }
     }
 }
@@ -60,6 +63,7 @@ impl BlockchainMonitor for Tendermint {
                 if this.get_chain_id().await {
                     this.process_validators().await;
                     this.process_block_window().await;
+                    this.process_proposals().await;
                 }
             }
         });
@@ -183,31 +187,42 @@ impl BlockScrapper for Tendermint {
 
         for sig in block_signatures.iter() {
             if !sig.validator_address.is_empty()
-                && !self.validators.contains(&sig.validator_address)
+                && !self.validators.contains_key(&sig.validator_address)
             {
-                self.validators.push(sig.validator_address.clone());
-                debug!(
-                    "Found new validator on block signatures: {}",
+                self.validators
+                    .insert(sig.validator_address.clone(), "Unknown".to_string());
+                info!(
+                    "Found signature for unknown validator: {}",
                     sig.validator_address
                 )
             }
         }
 
-        self.set_validator_proposed_blocks(&block_proposer);
+        let validator_name = match self.validators.get(&block_proposer) {
+            Some(name) => name,
+            None => panic!("Block proposer is not on validator map"),
+        };
+
+        self.set_validator_proposed_blocks(&validator_name, &block_proposer);
 
         let validators_missing_block: Vec<String> = self
             .validators
-            .iter()
+            .keys()
             .filter(|validator| {
                 block_signatures
                     .iter()
                     .all(|sig| sig.validator_address != **validator)
             })
-            .cloned() // Clone to own the values
+            .cloned()
             .collect();
 
         for validator in validators_missing_block {
-            self.set_validator_missed_blocks(&validator);
+            let validator_name = match self.validators.get(&validator) {
+                Some(name) => name,
+                None => panic!("Block proposer is not on validator map"),
+            };
+
+            self.set_validator_missed_blocks(&validator_name, &validator);
         }
 
         self.set_current_block_height(block_height);
@@ -230,56 +245,60 @@ impl BlockchainMetrics for Tendermint {
             .set(block_time.and_utc().timestamp() as f64);
     }
 
-    fn set_validator(&self, name: &str, validator_address: &str) {
-        TENDERMINT_VALIDATOR
-            .with_label_values(&[validator_address, name, &self.chain_id.as_ref().unwrap()])
-            .set(1);
-    }
-
-    fn set_validator_missed_blocks(&self, validator_address: &str) {
+    fn set_validator_missed_blocks(&self, name: &str, validator_address: &str) {
         TENDERMINT_VALIDATOR_MISSED_BLOCKS
-            .with_label_values(&[validator_address, &self.chain_id.as_ref().unwrap()])
+            .with_label_values(&[name, validator_address, &self.chain_id.as_ref().unwrap()])
             .inc();
     }
 
-    fn set_validator_voting_power(&self, validator_address: &str, voting_power: i64) {
+    fn set_validator_voting_power(&self, name: &str, validator_address: &str, voting_power: i64) {
         TENDERMINT_VALIDATOR_VOTING_POWER
-            .with_label_values(&[validator_address, &self.chain_id.as_ref().unwrap()])
+            .with_label_values(&[name, validator_address, &self.chain_id.as_ref().unwrap()])
             .set(voting_power);
     }
 
-    fn set_validator_proposed_blocks(&self, validator_address: &str) {
+    fn set_validator_proposed_blocks(&self, name: &str, validator_address: &str) {
         TENDERMINT_VALIDATOR_PROPOSED_BLOCKS
-            .with_label_values(&[validator_address, &self.chain_id.as_ref().unwrap()])
+            .with_label_values(&[name, validator_address, &self.chain_id.as_ref().unwrap()])
             .inc();
     }
 
-    fn set_validator_proposer_priority(&self, validator_address: &str, priority: i64) {
+    fn set_validator_proposer_priority(&self, name: &str, validator_address: &str, priority: i64) {
         TENDERMINT_VALIDATOR_PROPOSER_PRIORITY
-            .with_label_values(&[validator_address, &self.chain_id.as_ref().unwrap()])
+            .with_label_values(&[name, validator_address, &self.chain_id.as_ref().unwrap()])
             .set(priority);
     }
 
-    fn set_validator_tokens(&self, validator_address: &str, amount: f64) {
+    fn set_validator_tokens(&self, name: &str, validator_address: &str, amount: f64) {
         TENDERMINT_VALIDATOR_TOKENS
-            .with_label_values(&[validator_address, &self.chain_id.as_ref().unwrap()])
+            .with_label_values(&[name, validator_address, &self.chain_id.as_ref().unwrap()])
             .set(amount);
     }
 
-    fn set_validator_jailed(&self, validator_address: &str, jailed: bool) {
-        let mut value = 0;
-        if jailed {
-            value = 1;
-        }
+    fn set_validator_jailed(&self, name: &str, validator_address: &str, jailed: bool) {
         TENDERMINT_VALIDATOR_JAILED
-            .with_label_values(&[validator_address, &self.chain_id.as_ref().unwrap()])
-            .set(value);
+            .with_label_values(&[name, validator_address, &self.chain_id.as_ref().unwrap()])
+            .set(if jailed { 1 } else { 0 });
+    }
+
+    fn set_upgrade_proposal(
+        &self,
+        id: &str,
+        proposal_type: &str,
+        status: &str,
+        height: i64,
+        active: bool,
+    ) {
+        TENDERMINT_UPGRADE_STATUS
+            .with_label_values(&[id, proposal_type, status, &height.to_string()])
+            .set(if active { 1 } else { 0 });
     }
 }
 
 impl NetworkScrapper for Tendermint {
     type RpcValidator = TendermintValidator;
     type RestValidator = TendermintRESTValidator;
+    type Proposal = Proposal;
 
     async fn get_rpc_validators(&self, path: &str) -> Vec<Self::RpcValidator> {
         info!("Fetching RPC validators");
@@ -385,20 +404,18 @@ impl NetworkScrapper for Tendermint {
             .get_rest_validators("/cosmos/staking/v1beta1/validators")
             .await;
 
-        for validator in rpc_validators.iter() {
-            self.set_validator_voting_power(
-                &validator.address,
-                validator.voting_power.parse::<i64>().unwrap(), //todo
-            );
-            self.set_validator_proposer_priority(
-                &validator.address,
-                validator.proposer_priority.parse::<i64>().unwrap(), //todo
-            );
-        }
-
-        let pub_keys: HashMap<String, String> = rpc_validators
+        let pub_keys: HashMap<String, (String, String, String)> = rpc_validators
             .into_iter()
-            .map(|validator| (validator.pub_key.value.clone(), validator.address))
+            .map(|validator| {
+                (
+                    validator.pub_key.value.clone(),
+                    (
+                        validator.address,
+                        validator.voting_power,
+                        validator.proposer_priority,
+                    ),
+                )
+            })
             .collect();
 
         for validator in rest_validators {
@@ -406,13 +423,120 @@ impl NetworkScrapper for Tendermint {
             let name = &validator.description.moniker;
             let tokens: f64 = validator.tokens.parse().unwrap_or(0.0);
 
-            if let Some(address) = pub_keys.get(&validator.consensus_pubkey.key) {
-                self.set_validator(name, address);
-                self.set_validator_tokens(address, tokens);
-                self.set_validator_jailed(&address, validator.jailed);
+            if let Some((address, voting_power, proposer_priority)) =
+                pub_keys.get(&validator.consensus_pubkey.key)
+            {
+                self.validators
+                    .insert(address.to_string(), name.to_string());
+                self.set_validator_tokens(name, address, tokens);
+                self.set_validator_jailed(name, address, validator.jailed);
+                self.set_validator_voting_power(
+                    name,
+                    address,
+                    voting_power.parse::<i64>().unwrap(),
+                );
+                self.set_validator_proposer_priority(
+                    name,
+                    address,
+                    proposer_priority.parse::<i64>().unwrap(),
+                );
             } else {
                 debug!("No matching address found for pub_key: {}", pub_key);
             }
+        }
+    }
+
+    async fn get_proposals(&mut self, path: &str) -> Vec<Self::Proposal> {
+        info!("Fetching proposals");
+        let mut pagination_key: Option<String> = None;
+        let mut proposals: Vec<Proposal> = Vec::new();
+
+        loop {
+            let mut url = path.to_string();
+            if let Some(key) = &pagination_key {
+                let encoded_key = encode(key);
+                url = format!("{}?pagination.key={}", path, encoded_key);
+            }
+
+            let res = match self.client.with_rest().get(&url).await {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("Error calling to REST validators endpoint: {:?}", e);
+                    break;
+                }
+            };
+
+            let fetched_proposals: Vec<Proposal> =
+                match from_str::<TendermintProposalsResponse>(&res) {
+                    Ok(res) => {
+                        pagination_key = res.pagination.next_key;
+                        res.proposals
+                    }
+                    Err(e) => {
+                        error!(
+                            "Error deserializing JSON from REST validator endpoint: {}",
+                            e
+                        );
+                        error!("Raw JSON: {}", res);
+                        break;
+                    }
+                };
+
+            proposals.extend(fetched_proposals);
+            if pagination_key.is_none() {
+                break;
+            }
+        }
+        proposals
+    }
+
+    async fn process_proposals(&mut self) {
+        let proposals = self.get_proposals("/cosmos/gov/v1/proposals").await;
+
+        for proposal in proposals.iter() {
+            let first_message = match proposal.messages.get(0) {
+                Some(message) => message,
+                None => {
+                    debug!("Could not read message from proposal");
+                    continue;
+                }
+            };
+
+            if !first_message.msg_type.to_lowercase().contains("upgrade") {
+                continue;
+            }
+
+            let content = match &first_message.content {
+                Some(content) => content,
+                None => {
+                    debug!("Could not read content from proposal message");
+                    continue;
+                }
+            };
+
+            let plan = match &content.plan {
+                Some(plan) => plan,
+                None => {
+                    debug!("Could not read plan from proposal");
+                    continue;
+                }
+            };
+
+            let height = match plan.height.parse::<u64>() {
+                Ok(h) => h,
+                Err(_) => {
+                    debug!("Could not parse proposal height");
+                    continue;
+                }
+            };
+
+            self.set_upgrade_proposal(
+                &proposal.id,
+                &content.content_type,
+                &proposal.status.to_string(),
+                height.try_into().unwrap(),
+                height > self.proccessed_height as u64,
+            );
         }
     }
 }

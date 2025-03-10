@@ -67,21 +67,30 @@ pub trait BlockScrapper {
 pub trait NetworkScrapper {
     type RpcValidator;
     type RestValidator;
+    type Proposal;
 
     async fn get_rpc_validators(&self, path: &str) -> Vec<Self::RpcValidator>;
     async fn get_rest_validators(&self, path: &str) -> Vec<Self::RestValidator>;
     async fn process_validators(&mut self);
-    // async fn get_proposals(&mut self);
+    async fn get_proposals(&mut self, path: &str) -> Vec<Self::Proposal>;
+    async fn process_proposals(&mut self);
 }
 
 pub trait BlockchainMetrics {
     fn set_current_block_height(&self, height: i64);
     fn set_current_block_time(&self, block_time: NaiveDateTime);
-    fn set_validator(&self, name: &str, validator_address: &str);
-    fn set_validator_missed_blocks(&self, validator_address: &str);
-    fn set_validator_voting_power(&self, validator_address: &str, voting_power: i64);
-    fn set_validator_proposer_priority(&self, validator_address: &str, priority: i64);
-    fn set_validator_proposed_blocks(&self, validator_address: &str);
-    fn set_validator_tokens(&self, validator_address: &str, amount: f64);
-    fn set_validator_jailed(&self, validator_address: &str, jailed: bool);
+    fn set_validator_missed_blocks(&self, name: &str, validator_address: &str);
+    fn set_validator_voting_power(&self, name: &str, validator_address: &str, voting_power: i64);
+    fn set_validator_proposer_priority(&self, name: &str, validator_address: &str, priority: i64);
+    fn set_validator_proposed_blocks(&self, name: &str, validator_address: &str);
+    fn set_validator_tokens(&self, name: &str, validator_address: &str, amount: f64);
+    fn set_validator_jailed(&self, name: &str, validator_address: &str, jailed: bool);
+    fn set_upgrade_proposal(
+        &self,
+        id: &str,
+        proposal_type: &str,
+        status: &str,
+        height: i64,
+        active: bool,
+    );
 }

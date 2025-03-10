@@ -167,8 +167,8 @@ impl HttpClient {
 
         let mut rng = SmallRng::from_os_rng();
 
-        // Retry up to 3 times
-        for attempt in 0..3 {
+        // Retry up to 5 times
+        for attempt in 0..5 {
             if let Some(endpoint) = healthy_endpoints.choose(&mut rng) {
                 let url = format!("{}/{}", endpoint.url, path);
                 let metric_path: Vec<&str> = path.split("?").collect();

@@ -21,7 +21,7 @@ lazy_static! {
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_validator", "Active validators (rpc call)"),
-        &["address", "name", "chain_id"]
+        &["name", "address", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_MISSED_BLOCKS: IntGaugeVec = IntGaugeVec::new(
@@ -29,7 +29,7 @@ lazy_static! {
             "tendermint_validator_missed_blocks",
             "Number of blocks missed by validator"
         ),
-        &["address", "chain_id"]
+        &["name", "address", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_PROPOSED_BLOCKS: IntGaugeVec = IntGaugeVec::new(
@@ -37,7 +37,7 @@ lazy_static! {
             "tendermint_validator_proposed_blocks",
             "Number of blocks proposed by validator"
         ),
-        &["address", "chain_id"]
+        &["name", "address", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_VOTING_POWER: IntGaugeVec = IntGaugeVec::new(
@@ -45,7 +45,7 @@ lazy_static! {
             "tendermint_validator_voting_power",
             "Voting power by validator"
         ),
-        &["address", "chain_id"]
+        &["name", "address", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_PROPOSER_PRIORITY: IntGaugeVec = IntGaugeVec::new(
@@ -53,7 +53,7 @@ lazy_static! {
             "tendermint_validator_proposer_priority",
             "Proposer priority by validator"
         ),
-        &["address", "chain_id"]
+        &["name", "address", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_TOKENS: GaugeVec = GaugeVec::new(
@@ -61,12 +61,17 @@ lazy_static! {
             "tendermint_validator_tokens",
             "Number of tokens by validator"
         ),
-        &["address", "chain_id"]
+        &["name", "address", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_JAILED: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_validator_jailed", "Jailed status by validator"),
-        &["address", "chain_id"]
+        &["name", "address", "chain_id"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_UPGRADE_STATUS: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("tendermint_validator_jailed", "Jailed status by validator"),
+        &["id", "type", "title", "status", "height", "chain_id"]
     )
     .unwrap();
 }

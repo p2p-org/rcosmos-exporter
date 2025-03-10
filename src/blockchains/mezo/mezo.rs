@@ -47,6 +47,7 @@ impl BlockchainMonitor for Mezo {
 impl NetworkScrapper for Mezo {
     type RpcValidator = TendermintValidator;
     type RestValidator = MezoRESTValidator;
+    type Proposal = Option<()>;
 
     async fn get_rpc_validators(&self, path: &str) -> Vec<Self::RpcValidator> {
         info!("Fetching RPC validators");
@@ -150,18 +151,7 @@ impl NetworkScrapper for Mezo {
         let rest_validators = self.get_rest_validators("/mezo/poa/v1/validators").await;
         let rpc_validators = self.get_rpc_validators("/validators").await;
 
-        for validator in rpc_validators.iter() {
-            self.base.set_validator_voting_power(
-                &validator.address,
-                validator.voting_power.parse::<i64>().unwrap(), //todo
-            );
-            self.base.set_validator_proposer_priority(
-                &validator.address,
-                validator.proposer_priority.parse::<i64>().unwrap(), //todo
-            );
-        }
-
-        let pub_keys: HashMap<String, String> = rpc_validators
+        let pub_keys: HashMap<String, (String, String, String)> = rpc_validators
             .into_iter()
             .filter_map(|validator| {
                 let bytes = match general_purpose::STANDARD.decode(validator.pub_key.value) {
@@ -181,21 +171,48 @@ impl NetworkScrapper for Mezo {
                 };
                 let address = pub_key.to_bech32("mezovalconspub");
 
-                Some((address, validator.address))
+                Some((
+                    address,
+                    (
+                        validator.address,
+                        validator.voting_power,
+                        validator.proposer_priority,
+                    ),
+                ))
             })
             .collect();
-
-        // dbg!(rest_validators);
 
         for validator in rest_validators {
             let pub_key = &validator.cons_pub_key_bech32;
             let name = &validator.description.moniker;
 
-            if let Some(validator_address) = pub_keys.get(pub_key) {
-                self.base.set_validator(name, validator_address);
+            if let Some((validator_address, voting_power, proporser_priority)) =
+                pub_keys.get(pub_key)
+            {
+                self.base
+                    .validators
+                    .insert(validator_address.to_string(), name.to_string());
+                self.base.set_validator_voting_power(
+                    name,
+                    validator_address,
+                    voting_power.parse::<i64>().unwrap(),
+                );
+                self.base.set_validator_proposer_priority(
+                    name,
+                    validator_address,
+                    proporser_priority.parse::<i64>().unwrap(),
+                );
             } else {
                 info!("No matching address found for pub_key: {}", pub_key);
             }
         }
+    }
+
+    async fn get_proposals(&mut self, path: &str) -> Vec<Self::Proposal> {
+        todo!()
+    }
+
+    async fn process_proposals(&mut self) {
+        todo!()
     }
 }

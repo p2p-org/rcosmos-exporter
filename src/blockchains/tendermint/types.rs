@@ -54,11 +54,6 @@ pub struct TendermintSyncInfo {
     pub catching_up: bool,
 }
 
-// #[derive(Debug, Deserialize)]
-// pub struct TendermintValidatorInfo {
-//     pub voting_power: usize,
-// }
-
 #[derive(Debug, Deserialize)]
 pub struct BlockTime(String);
 impl BlockTime {
@@ -170,6 +165,75 @@ pub struct TendermintRESTPagination {
     pub next_key: Option<String>,
     pub total: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintProposalsResponse {
+    pub proposals: Vec<Proposal>,
+    pub pagination: TendermintRESTPagination,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProposalStatus {
+    ProposalStatusDepositPeriod,
+    ProposalStatusVotingPeriod,
+    ProposalStatusPassed,
+    ProposalStatusRejected,
+    ProposalStatusFailed,
+}
+
+impl ToString for ProposalStatus {
+    fn to_string(&self) -> String {
+        match self {
+            ProposalStatus::ProposalStatusDepositPeriod => {
+                "PROPOSAL_STATUS_DEPOSIT_PERIOD".to_string()
+            }
+            ProposalStatus::ProposalStatusVotingPeriod => {
+                "PROPOSAL_STATUS_VOTING_PERIOD".to_string()
+            }
+            ProposalStatus::ProposalStatusPassed => "PROPOSAL_STATUS_PASSED".to_string(),
+            ProposalStatus::ProposalStatusRejected => "PROPOSAL_STATUS_REJECTED".to_string(),
+            ProposalStatus::ProposalStatusFailed => "PROPOSAL_STATUS_FAILED".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Proposal {
+    pub id: String,
+    pub messages: Vec<ProposalMessage>,
+    pub status: ProposalStatus,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalMessage {
+    #[serde(rename = "@type")]
+    pub msg_type: String,
+    pub content: Option<ProposalContent>,
+    pub authority: Option<String>,
+    pub plan: Option<ProposalPlan>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalContent {
+    #[serde(rename = "@type")]
+    pub content_type: String,
+    pub title: Option<String>,
+    pub description: String,
+    pub plan: Option<ProposalPlan>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalPlan {
+    pub info: String,
+    pub height: String,
+}
+
 mod serde_naive_datetime {
     use chrono::NaiveDateTime;
     use serde::{self, Deserialize, Deserializer};
