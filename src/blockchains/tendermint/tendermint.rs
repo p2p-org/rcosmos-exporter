@@ -594,7 +594,7 @@ impl NetworkScrapper for Tendermint {
                             .clone()
                             .unwrap_or_else(|| "Not Found".to_string())
                     });
-                    proposal_type = content.content_type;
+                    proposal_type = content.content_type.clone();
                     if let Some(plan) = &content.plan {
                         height = plan.height.clone();
                     }
