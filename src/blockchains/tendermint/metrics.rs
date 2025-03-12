@@ -70,7 +70,7 @@ lazy_static! {
     )
     .unwrap();
     pub static ref TENDERMINT_UPGRADE_STATUS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("tendermint_validator_jailed", "Jailed status by validator"),
+        Opts::new("tendermint_validator_jailed", "Chain upgrade status"),
         &["id", "type", "title", "status", "height", "chain_id"]
     )
     .unwrap();
