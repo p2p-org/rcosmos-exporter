@@ -19,13 +19,13 @@ use crate::{
 
 use super::{
     metrics::{
-        TENDERMINT_CURRENT_BLOCK_HEIGHT, TENDERMINT_CURRENT_BLOCK_TIME, TENDERMINT_UPGRADE_STATUS,
-        TENDERMINT_VALIDATOR_JAILED, TENDERMINT_VALIDATOR_MISSED_BLOCKS,
+        TENDERMINT_CURRENT_BLOCK_HEIGHT, TENDERMINT_CURRENT_BLOCK_TIME, TENDERMINT_PROPOSALS,
+        TENDERMINT_UPGRADE_STATUS, TENDERMINT_VALIDATOR_JAILED, TENDERMINT_VALIDATOR_MISSED_BLOCKS,
         TENDERMINT_VALIDATOR_PROPOSED_BLOCKS, TENDERMINT_VALIDATOR_PROPOSER_PRIORITY,
         TENDERMINT_VALIDATOR_TOKENS, TENDERMINT_VALIDATOR_VOTING_POWER,
     },
     types::{
-        TendermintBlockResponse, TendermintRESTResponse, TendermintRESTValidator,
+        ProposalStatus, TendermintBlockResponse, TendermintRESTResponse, TendermintRESTValidator,
         TendermintStatusResponse, TendermintValidator, ValidatorsResponse,
     },
 };
@@ -38,6 +38,7 @@ pub struct Tendermint {
     pub chain_id: Option<String>,
 
     pub validators: HashMap<String, String>,
+    pub proposals: Vec<String>,
 }
 
 impl Tendermint {
@@ -48,6 +49,7 @@ impl Tendermint {
             block_window: block_window,
             chain_id: None,
             validators: HashMap::new(),
+            proposals: Vec::new(),
         }
     }
 }
@@ -293,6 +295,19 @@ impl BlockchainMetrics for Tendermint {
             .with_label_values(&[id, proposal_type, status, &height.to_string()])
             .set(if active { 1 } else { 0 });
     }
+
+    fn set_proposal(&self, id: &str, proposal_type: &str, title: &str, status: &str, height: &str) {
+        TENDERMINT_PROPOSALS
+            .with_label_values(&[
+                &id,
+                &proposal_type,
+                &title,
+                &status,
+                &height,
+                &self.chain_id.as_ref().unwrap(),
+            ])
+            .set(0);
+    }
 }
 
 impl NetworkScrapper for Tendermint {
@@ -494,6 +509,10 @@ impl NetworkScrapper for Tendermint {
         let proposals = self.get_proposals("/cosmos/gov/v1/proposals").await;
 
         for proposal in proposals.iter() {
+            if proposal.status != ProposalStatus::ProposalStatusPassed {
+                continue;
+            }
+
             let first_message = match proposal.messages.get(0) {
                 Some(message) => message,
                 None => {
@@ -536,6 +555,73 @@ impl NetworkScrapper for Tendermint {
                 &proposal.status.to_string(),
                 height.try_into().unwrap(),
                 height > self.proccessed_height as u64,
+            );
+        }
+
+        let active_proposals = proposals
+            .iter()
+            .filter(|proposal| proposal.status == ProposalStatus::ProposalStatusVotingPeriod);
+
+        for proposal in active_proposals {
+            self.proposals.push(proposal.id.clone());
+        }
+
+        for proposal in proposals {
+            if !self.proposals.contains(&proposal.id) {
+                continue;
+            }
+
+            let first_message = match proposal.messages.get(0) {
+                Some(message) => message,
+                None => {
+                    debug!("Could not read message from proposal");
+                    continue;
+                }
+            };
+
+            let mut proposal_type = "Not found".to_string();
+            let mut title = proposal
+                .title
+                .clone()
+                .unwrap_or_else(|| "Not found".to_string());
+            let mut height = "0".to_string();
+
+            match &first_message.content {
+                Some(content) => {
+                    title = content.title.clone().unwrap_or_else(|| {
+                        proposal
+                            .title
+                            .clone()
+                            .unwrap_or_else(|| "Not Found".to_string())
+                    });
+                    proposal_type = content.content_type;
+                    if let Some(plan) = &content.plan {
+                        height = plan.height.clone();
+                    }
+                }
+                None => {
+                    if let Some(legacy_content) = &first_message.plan {
+                        title = proposal
+                            .title
+                            .clone()
+                            .unwrap_or_else(|| "Not Found".to_string());
+
+                        height = legacy_content.height.clone();
+                    }
+                    if title == "Not Found" {
+                        if let Some(summary) = &proposal.summary {
+                            title = summary.clone();
+                        }
+                    }
+                }
+            };
+
+            self.set_proposal(
+                &proposal.id,
+                &proposal_type,
+                &title,
+                &proposal.status.to_string(),
+                &height,
             );
         }
     }

@@ -70,7 +70,15 @@ lazy_static! {
     )
     .unwrap();
     pub static ref TENDERMINT_UPGRADE_STATUS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("tendermint_validator_jailed", "Chain upgrade status"),
+        Opts::new(
+            "tendermint_upgrade_status",
+            "Indicates whether an upgrade is in progress (1 for upgrade time, 0 otherwise)"
+        ),
+        &["id", "type", "title", "status", "height", "chain_id"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_PROPOSALS: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("tendermint_proposals", "Proposals seen with voting period"),
         &["id", "type", "title", "status", "height", "chain_id"]
     )
     .unwrap();
@@ -103,5 +111,8 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_VALIDATOR_JAILED.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_PROPOSALS.clone()))
         .unwrap();
 }

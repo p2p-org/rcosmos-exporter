@@ -93,4 +93,5 @@ pub trait BlockchainMetrics {
         height: i64,
         active: bool,
     );
+    fn set_proposal(&self, id: &str, proposal_type: &str, title: &str, status: &str, height: &str);
 }
