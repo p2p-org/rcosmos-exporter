@@ -1,14 +1,22 @@
-use blockchains::{mezo::mezo::Mezo, tendermint::tendermint::Tendermint};
+use crate::core::chain_id::ChainIdFetcher;
+use blockchains::{
+    mezo::validator_info_scrapper::MezoValidatorInfoScrapper,
+    tendermint::{
+        block_scrapper::TendermintBlockScrapper, chain_id::TendermintChainIdFetcher,
+        proposal_scrapper::TendermintProposalScrapper,
+        upgrade_plan_scrapper::TendermintUpgradePlanScrapper,
+        validator_info_scrapper::TendermintValidatorInfoScrapper,
+    },
+};
 use core::{
-    blockchain::{Blockchain, BlockchainType},
-    blockchain_client::BlockchainClientBuilder,
-    http_client::HttpClient,
-    metrics::serve_metrics,
+    blockchain::Blockchain,
+    clients::{blockchain_client::BlockchainClientBuilder, http_client::HttpClient},
+    exporter::{BlockchainExporter, ExporterTask},
+    metrics::serve_metrics::serve_metrics,
 };
 use dotenv::dotenv;
-use std::env;
+use std::{env, sync::Arc, time::Duration};
 use tracing::info;
-
 mod blockchains;
 mod core;
 
@@ -26,7 +34,7 @@ async fn main() {
 
     let prometheus_port = env::var("PROMETHEUS_PORT").unwrap_or_else(|_| "9100".to_string());
 
-    let block_window: i64 = env::var("BLOCK_WINDOW")
+    let block_window: usize = env::var("BLOCK_WINDOW")
         .unwrap_or_else(|_| "500".to_string())
         .parse()
         .unwrap();
@@ -34,15 +42,15 @@ async fn main() {
     let rpc_endpoints = env::var("RPC_ENDPOINTS").unwrap();
     let rest_endpoints = env::var("REST_ENDPOINTS").unwrap();
 
-    let blockchain_type = env::var("BLOCKCHAIN").unwrap();
+    let blockchain = env::var("BLOCKCHAIN").unwrap();
 
     info!("RCosmos Exporter");
     info!(
         prometheus_ip,
-        prometheus_port, block_window, rpc_endpoints, rest_endpoints, blockchain_type
+        prometheus_port, block_window, rpc_endpoints, rest_endpoints, blockchain
     );
 
-    let blockchain_type = match BlockchainType::from_str(&blockchain_type) {
+    let blockchain = match Blockchain::from_str(&blockchain) {
         Some(blockchain) => blockchain,
         None => panic!("Unsupported blockchain"),
     };
@@ -50,36 +58,113 @@ async fn main() {
     let rpc = HttpClient::new(split_urls(rpc_endpoints), None);
     let rest = HttpClient::new(split_urls(rest_endpoints), None);
 
-    let blockchain = match blockchain_type {
-        BlockchainType::Tendermint => {
+    let exporter = match blockchain {
+        Blockchain::Tendermint => {
             let client = BlockchainClientBuilder::new()
                 .with_rest(rest)
                 .with_rpc(rpc)
                 .build()
                 .await;
+
+            let client = Arc::new(client);
+
+            let chain_id = TendermintChainIdFetcher::new(Arc::clone(&client))
+                .get_chain_id()
+                .await
+                .unwrap();
+
+            let block_scrapper = ExporterTask::new(
+                Box::new(TendermintBlockScrapper::new(
+                    Arc::clone(&client),
+                    block_window,
+                    chain_id.clone(),
+                )),
+                Duration::from_secs(30),
+            );
+
+            let consensus_scrapper = ExporterTask::new(
+                Box::new(TendermintValidatorInfoScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
+            let proposal_scrapper = ExporterTask::new(
+                Box::new(TendermintProposalScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
+            let upgrade_plan_scrapper = ExporterTask::new(
+                Box::new(TendermintUpgradePlanScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
             blockchains::tendermint::metrics::register_custom_metrics();
-            Blockchain::Tendermint(Tendermint::new(client, block_window))
+
+            BlockchainExporter::new()
+                .add_task(block_scrapper)
+                .add_task(consensus_scrapper)
+                .add_task(proposal_scrapper)
+                .add_task(upgrade_plan_scrapper)
         }
-        BlockchainType::Mezo => {
+        Blockchain::Mezo => {
             let client = BlockchainClientBuilder::new()
                 .with_rest(rest)
                 .with_rpc(rpc)
                 .build()
                 .await;
+
+            let client = Arc::new(client);
+
+            let chain_id = TendermintChainIdFetcher::new(Arc::clone(&client))
+                .get_chain_id()
+                .await
+                .unwrap();
+
+            let block_scrapper = ExporterTask::new(
+                Box::new(TendermintBlockScrapper::new(
+                    Arc::clone(&client),
+                    block_window,
+                    chain_id.clone(),
+                )),
+                Duration::from_secs(30),
+            );
+
+            let consensus_scrapper: ExporterTask = ExporterTask::new(
+                Box::new(MezoValidatorInfoScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
+            let upgrade_plan_scrapper = ExporterTask::new(
+                Box::new(TendermintUpgradePlanScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
             blockchains::tendermint::metrics::register_custom_metrics();
-            let base = Tendermint::new(client, block_window);
-            Blockchain::Mezo(Mezo::new(base))
+
+            BlockchainExporter::new()
+                .add_task(block_scrapper)
+                .add_task(consensus_scrapper)
+                .add_task(upgrade_plan_scrapper)
         }
     };
 
-    blockchain.start_monitoring().await;
-    serve_metrics(
-        prometheus_ip,
-        prometheus_port,
-        blockchain_type,
-        block_window,
-    )
-    .await;
+    exporter.start();
+
+    serve_metrics(prometheus_ip, prometheus_port, blockchain, block_window).await;
 }
 
 fn split_urls(urls: String) -> Vec<(String, String)> {

@@ -29,7 +29,17 @@ lazy_static! {
             "tendermint_validator_missed_blocks",
             "Number of blocks missed by validator"
         ),
+        &["address", "chain_id"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATORS: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("tendermint_validators", "Validators on the network"),
         &["name", "address", "chain_id"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_UPTIME: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_validator_uptime", "Uptime over block window"),
+        &["address", "window", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_PROPOSED_BLOCKS: IntGaugeVec = IntGaugeVec::new(
@@ -37,7 +47,7 @@ lazy_static! {
             "tendermint_validator_proposed_blocks",
             "Number of blocks proposed by validator"
         ),
-        &["name", "address", "chain_id"]
+        &["address", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_VOTING_POWER: IntGaugeVec = IntGaugeVec::new(
@@ -45,7 +55,7 @@ lazy_static! {
             "tendermint_validator_voting_power",
             "Voting power by validator"
         ),
-        &["name", "address", "chain_id"]
+        &["address", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_PROPOSER_PRIORITY: IntGaugeVec = IntGaugeVec::new(
@@ -53,7 +63,7 @@ lazy_static! {
             "tendermint_validator_proposer_priority",
             "Proposer priority by validator"
         ),
-        &["name", "address", "chain_id"]
+        &["address", "chain_id"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_TOKENS: GaugeVec = GaugeVec::new(
@@ -82,6 +92,11 @@ lazy_static! {
         &["id", "type", "title", "status", "height", "chain_id"]
     )
     .unwrap();
+    pub static ref TENDERMINT_UPGRADE_PLAN: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("tendermint_upgrade_plan", "Upgrade plan"),
+        &["name", "chain_id"]
+    )
+    .unwrap();
 }
 
 pub fn register_custom_metrics() {
@@ -96,6 +111,9 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_VALIDATOR_MISSED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_UPTIME.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_VALIDATOR_PROPOSED_BLOCKS.clone()))
@@ -114,5 +132,11 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_PROPOSALS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATORS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_UPGRADE_PLAN.clone()))
         .unwrap();
 }

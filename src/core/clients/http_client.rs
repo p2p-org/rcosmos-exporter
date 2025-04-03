@@ -8,9 +8,9 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
-use crate::core::metrics::EXPORTER_HTTP_REQUESTS;
+use crate::core::metrics::exporter_metrics::EXPORTER_HTTP_REQUESTS;
 
 #[derive(Debug, Clone)]
 struct Endpoint {
@@ -46,7 +46,7 @@ impl Endpoint {
                 true
             }
             Ok(response) => {
-                warn!("Health check failed for {}", health_url);
+                warn!("(HTTP Client) Health check failed for {}", health_url);
                 EXPORTER_HTTP_REQUESTS
                     .with_label_values(&[
                         &self.url,
@@ -57,7 +57,7 @@ impl Endpoint {
                 false
             }
             _ => {
-                warn!("Health check failed for {}", health_url);
+                warn!("(HTTP Client) Health check failed for {}", health_url);
                 false
             }
         }
@@ -103,7 +103,7 @@ impl HttpClient {
 
         Some(HttpClient {
             endpoints: Arc::new(RwLock::new(endpoints)),
-            client: client,
+            client,
             health_check_interval: health_check_interval.unwrap_or(Duration::from_secs(10)),
         })
     }
@@ -119,18 +119,15 @@ impl HttpClient {
             loop {
                 ticker.tick().await;
 
-                info!("Starting health check round");
-
                 let endpoints_read = endpoints.read().await;
                 let mut tasks = vec![];
                 for endpoint in endpoints_read.iter() {
                     let client = client.clone();
                     let endpoint = endpoint.clone();
 
-                    tasks.push(tokio::spawn(async move {
-                        let healthy = endpoint.check_health(&client).await;
-                        healthy
-                    }));
+                    tasks.push(tokio::spawn(
+                        async move { endpoint.check_health(&client).await },
+                    ));
                 }
                 let results: Vec<_> = join_all(tasks).await.into_iter().collect();
 
@@ -151,7 +148,7 @@ impl HttpClient {
                             }
                         }
                         Err(e) => {
-                            error!("Health check task couldn't join: {:?}", e)
+                            error!("(HTTP Client) Health check task couldn't join: {:?}", e)
                         }
                     }
                 }
@@ -201,7 +198,7 @@ impl HttpClient {
                             ])
                             .inc();
                         warn!(
-                            "Attempt {} failed for {}, using {}: No healthy response",
+                            "(HTTP Client) Attempt {} failed for {}, using {}: No healthy response",
                             attempt + 1,
                             path,
                             url
@@ -212,7 +209,7 @@ impl HttpClient {
                             .with_label_values(&[&endpoint.url, path, "error"])
                             .inc();
                         warn!(
-                            "Attempt {} failed for {}, using {}: No HTTP response",
+                            "(HTTP Client) Attempt {} failed for {}, using {}: No HTTP response",
                             attempt + 1,
                             path,
                             url
@@ -223,7 +220,7 @@ impl HttpClient {
             sleep(Duration::from_secs(2)).await;
         }
 
-        warn!("No healthy endpoints when calling {}", path);
+        warn!("(HTTP Client) No healthy endpoints when calling {}", path);
         Err(HTTPClientErrors::NoHealthyEndpoints(path.to_string()))
     }
 }

@@ -248,3 +248,14 @@ mod serde_naive_datetime {
         NaiveDateTime::parse_from_str(&s, DATE_FORMAT).map_err(serde::de::Error::custom)
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintUpgradePlanResponse {
+    pub plan: Option<TendermintUpgradePlan>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintUpgradePlan {
+    pub name: String,
+    pub height: String,
+}
