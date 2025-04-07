@@ -26,7 +26,9 @@ impl BlockWindow {
 
         if self.processed == self.window {
             for val in self.validator_signed_blocks.values_mut() {
-                *val -= 1;
+                if *val > 0 {
+                    *val -= 1;
+                }
             }
         } else {
             self.processed += 1;
