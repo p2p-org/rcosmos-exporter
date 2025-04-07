@@ -1,46 +1,8 @@
-use std::fmt;
+#![allow(unused_variables)]
+#![allow(dead_code)]
 
 use chrono::NaiveDateTime;
 use serde::Deserialize;
-
-pub const DEFAULT_ESTIMATED_BLOCK_TIME: f64 = 6.1;
-
-#[derive(Debug, Deserialize)]
-pub struct ConsensusStateResponse {
-    pub result: Option<ConsensusStateResult>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ConsensusStateResult {
-    pub round_state: Option<ConsensusStateRoundState>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ConsensusStateRoundState {
-    #[serde(rename = "height/round/step")]
-    pub height_round_step: String,
-    #[serde(with = "serde_naive_datetime")]
-    pub start_time: NaiveDateTime,
-    pub height_vote_set: Vec<ConsensusHeightVoteSet>,
-    pub proposer: ConsensusStateProposer,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ConsensusHeightVoteSet {
-    pub round: i32,
-    pub prevotes: Vec<String>,
-    pub precommits: Vec<String>,
-    #[serde(rename = "prevotes_bit_array")]
-    pub prevotes_bit_array: String,
-    #[serde(rename = "precommits_bit_array")]
-    pub precommits_bit_array: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ConsensusStateProposer {
-    pub address: String,
-    pub index: i32,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct ValidatorsResponse {
@@ -66,6 +28,7 @@ pub struct TendermintValidator {
     pub address: String,
     pub pub_key: PubKey,
     pub voting_power: String,
+    pub proposer_priority: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,7 +50,6 @@ pub struct TendermintNodeInfo {
 
 #[derive(Debug, Deserialize)]
 pub struct TendermintSyncInfo {
-    pub latest_block_height: String,
     pub latest_block_time: BlockTime,
     pub catching_up: bool,
 }
@@ -100,37 +62,6 @@ impl BlockTime {
         Ok(naive_datetime.and_utc().timestamp())
     }
 }
-
-#[derive(Debug, Deserialize)]
-pub struct RpcBlockErrorResponse {
-    pub jsonrpc: String,
-    pub id: i64,
-    pub error: RpcError,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RpcError {
-    pub code: i64,
-    pub message: String,
-    pub data: Option<String>,
-}
-
-impl fmt::Display for RpcBlockErrorResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "RPC Error: code = {}, message = {}, data = {}",
-            self.error.code,
-            self.error.message,
-            match &self.error.data {
-                Some(data) => data.as_str(),
-                None => "None",
-            }
-        )
-    }
-}
-
-impl std::error::Error for RpcBlockErrorResponse {}
 
 #[derive(Debug, Deserialize)]
 pub struct TendermintBlockResponse {
@@ -174,6 +105,7 @@ pub struct TendermintBlockHeader {
     #[serde(with = "serde_naive_datetime")]
     pub time: NaiveDateTime,
     pub chain_id: String,
+    pub proposer_address: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -250,6 +182,22 @@ pub enum ProposalStatus {
     ProposalStatusFailed,
 }
 
+impl ToString for ProposalStatus {
+    fn to_string(&self) -> String {
+        match self {
+            ProposalStatus::ProposalStatusDepositPeriod => {
+                "PROPOSAL_STATUS_DEPOSIT_PERIOD".to_string()
+            }
+            ProposalStatus::ProposalStatusVotingPeriod => {
+                "PROPOSAL_STATUS_VOTING_PERIOD".to_string()
+            }
+            ProposalStatus::ProposalStatusPassed => "PROPOSAL_STATUS_PASSED".to_string(),
+            ProposalStatus::ProposalStatusRejected => "PROPOSAL_STATUS_REJECTED".to_string(),
+            ProposalStatus::ProposalStatusFailed => "PROPOSAL_STATUS_FAILED".to_string(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct Proposal {
     pub id: String,
@@ -301,13 +249,13 @@ mod serde_naive_datetime {
     }
 }
 
-#[derive(Debug)]
-pub struct EndpointError(pub String);
-
-impl fmt::Display for EndpointError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
+#[derive(Debug, Deserialize)]
+pub struct TendermintUpgradePlanResponse {
+    pub plan: Option<TendermintUpgradePlan>,
 }
 
-impl std::error::Error for EndpointError {}
+#[derive(Debug, Deserialize)]
+pub struct TendermintUpgradePlan {
+    pub name: String,
+    pub height: String,
+}
