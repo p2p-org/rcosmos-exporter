@@ -31,25 +31,27 @@ jobs:
       with:
         toolchain: stable
         override: true
+        target: x86_64-unknown-linux-musl
+
     - id: get_version
       run: echo "VERSION=$(echo ${GITHUB_REF#refs/tags/} | tr '.' '_')" >> $GITHUB_ENV
 
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev perl make
+      run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev perl make musl-tools
 
     - name: Build Release
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --release
+        args: --release --target x86_64-unknown-linux-musl
 
     - name: Rename binary with version
       run: |
-        mv ./target/release/${{ env.BINARY_NAME }} ./target/release/${{ env.BINARY_NAME }}-${{ env.VERSION }}
+        mv ./target/x86_64-unknown-linux-musl/release/${{ env.BINARY_NAME }} ./target/x86_64-unknown-linux-musl/release/${{ env.BINARY_NAME }}-${{ env.VERSION }}
 
     - name: Compress binary
       run: |
-        tar -czvf ${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz -C ./target/release ${{ env.BINARY_NAME }}-${{ env.VERSION }}
+        tar -czvf ${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz -C ./target/x86_64-unknown-linux-musl/release ${{ env.BINARY_NAME }}-${{ env.VERSION }}
 
     - name: Create Release
       id: create_release
