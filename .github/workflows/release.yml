@@ -46,7 +46,7 @@ jobs:
 
     - name: Compress binary
       run: |
-        tar -czvf ${{ env.BINARY_NAME }}_${{ env.VERSION }}.tar.gz -C ./target/release ${{ env.BINARY_NAME }}_${{ env.VERSION }}
+        tar -czvf ${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz -C ./target/release ${{ env.BINARY_NAME }}_${{ env.VERSION }}
 
     - name: Create Release
       id: create_release
@@ -69,3 +69,4 @@ jobs:
         asset_path: ./${{ env.BINARY_NAME }}_${{ env.VERSION }}.tar.gz
         asset_name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}.tar.gz
         asset_content_type: application/gzip
+  

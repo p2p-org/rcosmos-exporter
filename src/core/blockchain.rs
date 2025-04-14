@@ -1,9 +1,12 @@
+use std::fmt::Display;
+
 ///
 /// Different blockchains supported
 ///
 pub enum Blockchain {
     Tendermint,
     Mezo,
+    Babylon,
 }
 
 impl Blockchain {
@@ -11,7 +14,19 @@ impl Blockchain {
         match s.to_lowercase().as_str() {
             "tendermint" => Some(Blockchain::Tendermint),
             "mezo" => Some(Blockchain::Mezo),
+            "babylon" => Some(Blockchain::Babylon),
             _ => None,
         }
+    }
+}
+
+impl Display for Blockchain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Blockchain::Tendermint => "Tendermint",
+            Blockchain::Mezo => "Mezo",
+            Blockchain::Babylon => "Babylon",
+        };
+        write!(f, "{}", s)
     }
 }

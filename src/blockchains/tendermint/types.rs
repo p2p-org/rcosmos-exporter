@@ -44,14 +44,22 @@ pub struct TendermintStatusResult {
 
 #[derive(Debug, Deserialize)]
 pub struct TendermintNodeInfo {
+    pub id: String,
     pub version: String,
     pub network: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct TendermintSyncInfo {
-    pub latest_block_time: BlockTime,
     pub catching_up: bool,
+    pub latest_block_height: String,
+    #[serde(with = "serde_naive_datetime")]
+    pub latest_block_time: NaiveDateTime,
+    pub latest_block_hash: String,
+    pub earliest_block_hash: String,
+    pub earliest_block_height: String,
+    #[serde(with = "serde_naive_datetime")]
+    pub earliest_block_time: NaiveDateTime,
 }
 
 #[derive(Debug, Deserialize)]

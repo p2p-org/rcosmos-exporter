@@ -1,6 +1,7 @@
 pub mod block_scrapper;
 pub mod chain_id;
 pub mod metrics;
+pub mod node_status_scrapper;
 pub mod proposal_scrapper;
 pub mod types;
 pub mod upgrade_plan_scrapper;
