@@ -1,49 +1,39 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 /// Tracks blocks, signed blocks by blocks and timestamps of a given block window
 pub struct BlockWindow {
-    pub validator_signed_blocks: HashMap<String, isize>,
+    blocks: VecDeque<Vec<String>>,
     pub window: usize,
-    processed: usize,
 }
 
 impl BlockWindow {
     pub fn new(window: usize) -> Self {
         Self {
-            validator_signed_blocks: HashMap::default(),
+            blocks: VecDeque::with_capacity(window),
             window,
-            processed: 0,
         }
     }
 
     pub fn add_block_signers(&mut self, signers: Vec<String>) {
-        for signer in signers {
-            self.validator_signed_blocks
-                .entry(signer.to_string())
-                .and_modify(|v| *v += 1)
-                .or_insert(1);
-        }
+        self.blocks.push_back(signers);
 
-        if self.processed == self.window {
-            for val in self.validator_signed_blocks.values_mut() {
-                if *val > 0 {
-                    *val -= 1;
-                }
-            }
-        } else {
-            self.processed += 1;
+        if self.blocks.len() > self.window {
+            self.blocks.pop_front();
         }
     }
 
     pub fn uptimes(&self) -> HashMap<String, f64> {
-        self.validator_signed_blocks
+        let mut signer_counts: HashMap<String, f64> = HashMap::new();
+
+        for block_signers in &self.blocks {
+            for signer in block_signers {
+                *signer_counts.entry(signer.clone()).or_insert(0.0) += 1.0;
+            }
+        }
+
+        signer_counts
             .iter()
-            .map(|(key, value)| {
-                (
-                    key.clone(),
-                    ((*value as f64) / (self.window as f64) * 100.0),
-                )
-            })
+            .map(|(key, value)| (key.clone(), (value / (self.window as f64)) * 100.0))
             .collect()
     }
 }
