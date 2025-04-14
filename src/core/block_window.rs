@@ -9,7 +9,7 @@ pub struct BlockWindow {
 impl BlockWindow {
     pub fn new(window: usize) -> Self {
         Self {
-            blocks: VecDeque::with_capacity(500),
+            blocks: VecDeque::with_capacity(window),
             window,
         }
     }
