@@ -1,7 +1,9 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use crate::{
-    blockchains::tendermint::metrics::REGISTRY as tendermint_registry, core::blockchain::Blockchain,
+    blockchains::babylon::metrics::REGISTRY as babylon_registry,
+    blockchains::tendermint::metrics::REGISTRY as tendermint_registry,
+    core::blockchain::Blockchain,
 };
 use hyper::{
     service::{make_service_fn, service_fn},
@@ -47,6 +49,12 @@ pub async fn serve_metrics(
                     let mut metric_families = match *blockchain_type {
                         Blockchain::Tendermint => tendermint_registry.gather(),
                         Blockchain::Mezo => tendermint_registry.gather(),
+                        Blockchain::Babylon => {
+                            let mut families = Vec::new();
+                            families.extend(babylon_registry.gather());
+                            families.extend(tendermint_registry.gather());
+                            families
+                        }
                     };
 
                     metric_families.extend(EXPORTER_REGISTRY.gather());

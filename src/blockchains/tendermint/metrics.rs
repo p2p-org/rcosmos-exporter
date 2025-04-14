@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use prometheus::{GaugeVec, IntGaugeVec, Opts, Registry};
+use prometheus::{CounterVec, GaugeVec, IntGaugeVec, Opts, Registry};
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
@@ -19,12 +19,7 @@ lazy_static! {
         &["chain_id"]
     )
     .unwrap();
-    pub static ref TENDERMINT_VALIDATOR: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("tendermint_validator", "Active validators (rpc call)"),
-        &["name", "address", "chain_id"]
-    )
-    .unwrap();
-    pub static ref TENDERMINT_VALIDATOR_MISSED_BLOCKS: IntGaugeVec = IntGaugeVec::new(
+    pub static ref TENDERMINT_VALIDATOR_MISSED_BLOCKS: CounterVec = CounterVec::new(
         Opts::new(
             "tendermint_validator_missed_blocks",
             "Number of blocks missed by validator"
@@ -42,7 +37,7 @@ lazy_static! {
         &["address", "window", "chain_id"]
     )
     .unwrap();
-    pub static ref TENDERMINT_VALIDATOR_PROPOSED_BLOCKS: IntGaugeVec = IntGaugeVec::new(
+    pub static ref TENDERMINT_VALIDATOR_PROPOSED_BLOCKS: CounterVec = CounterVec::new(
         Opts::new(
             "tendermint_validator_proposed_blocks",
             "Number of blocks proposed by validator"
@@ -97,6 +92,64 @@ lazy_static! {
         &["name", "chain_id"]
     )
     .unwrap();
+    pub static ref TENDERMINT_NODE_ID: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("tendermint_node_id", "Node id"),
+        &["name", "chain_id", "id"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_CATCHING_UP: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("tendermint_node_catching_up", "Node is catching up"),
+        &["name", "chain_id"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_LATEST_BLOCK_HASH: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "tendermint_node_latest_block_hash",
+            "Node latest block hash"
+        ),
+        &["name", "chain_id", "hash"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_LATEST_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "tendermint_node_latest_block_height",
+            "Node latest block height"
+        ),
+        &["name", "chain_id"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_LATEST_BLOCK_TIME: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_node_latest_block_time",
+            "Node latest block time"
+        ),
+        &["name", "chain_id"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_EARLIEST_BLOCK_HASH: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "tendermint_node_earliest_block_hash",
+            "Node latest block hash"
+        ),
+        &["name", "chain_id", "hash"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_EARLIEST_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "tendermint_node_earliest_block_height",
+            "Node earliest block height"
+        ),
+        &["name", "chain_id"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_EARLIEST_BLOCK_TIME: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_node_earliest_block_time",
+            "Node earliest block time"
+        ),
+        &["name", "chain_id"]
+    )
+    .unwrap();
 }
 
 pub fn register_custom_metrics() {
@@ -105,9 +158,6 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_CURRENT_BLOCK_TIME.clone()))
-        .unwrap();
-    REGISTRY
-        .register(Box::new(TENDERMINT_VALIDATOR.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_VALIDATOR_MISSED_BLOCKS.clone()))
@@ -138,5 +188,29 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_UPGRADE_PLAN.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_ID.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_CATCHING_UP.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_LATEST_BLOCK_HASH.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_LATEST_BLOCK_HEIGHT.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_LATEST_BLOCK_TIME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_EARLIEST_BLOCK_HASH.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_EARLIEST_BLOCK_HEIGHT.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_EARLIEST_BLOCK_TIME.clone()))
         .unwrap();
 }
