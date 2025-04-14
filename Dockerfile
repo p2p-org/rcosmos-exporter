@@ -17,6 +17,6 @@ ENV BLOCK_WINDOW=500
 
 EXPOSE 9100
 
-COPY --from=builder /build/target/release/rcosmos_exporter /
+COPY --from=builder /build/target/release/rcosmos-exporter /
 
-ENTRYPOINT ["./rcosmos_exporter"]
+ENTRYPOINT ["./rcosmos-exporter"]

@@ -8,7 +8,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  BINARY_NAME: rcosmos_exporter
+  BINARY_NAME: rcosmos-exporter
 
 jobs:
   build:
@@ -42,11 +42,11 @@ jobs:
 
     - name: Rename binary with version
       run: |
-        mv ./target/release/${{ env.BINARY_NAME }} ./target/release/${{ env.BINARY_NAME }}_${{ env.VERSION }}
+        mv ./target/release/${{ env.BINARY_NAME }} ./target/release/${{ env.BINARY_NAME }}-${{ env.VERSION }}
 
     - name: Compress binary
       run: |
-        tar -czvf ${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz -C ./target/release ${{ env.BINARY_NAME }}_${{ env.VERSION }}
+        tar -czvf ${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz -C ./target/release ${{ env.BINARY_NAME }}-${{ env.VERSION }}
 
     - name: Create Release
       id: create_release
@@ -66,7 +66,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./${{ env.BINARY_NAME }}_${{ env.VERSION }}.tar.gz
-        asset_name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}.tar.gz
+        asset_path: ./${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz
+        asset_name: ${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz
         asset_content_type: application/gzip
   
