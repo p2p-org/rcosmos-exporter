@@ -112,34 +112,10 @@ impl SessionManager<Uninitialized> {
     async fn fetch_session(&self, secret_id: String) -> Result<String, anyhow::Error> {
         Ok(r#"
 {
-  "org_id": "Org#ffea7e1a-7ddb-4348-8bc4-8cd86bef3b98",
-  "role_id": null,
-  "expiration": 1775817096,
-  "purpose": "User session with scopes [\"manage:org:*\"]",
-  "token": "3d6fd7397:MzQwOGIxM2EtZDBjZi00NzhlLTgzYTAtNmU5ZTRiOTFjMjZj.eyJlcG9jaF9udW0iOjEsImVwb2NoX3Rva2VuIjoiWGsxTW1MRFFGdlQ0Rk5CQmZ5ZG5YRW1VdEV4ajNXMjBYNEZzd3hjZ2Q3Yz0iLCJvdGhlcl90b2tlbiI6IlJpWWN1czV1d0oraTFleXowUm1zWTlsOVRYMU4yVkt5TG9xV2hBd0NTL3M9In0=",
-  "refresh_token": "3d6fd7397:MzQwOGIxM2EtZDBjZi00NzhlLTgzYTAtNmU5ZTRiOTFjMjZj.eyJlcG9jaF9udW0iOjEsImVwb2NoX3Rva2VuIjoiWGsxTW1MRFFGdlQ0Rk5CQmZ5ZG5YRW1VdEV4ajNXMjBYNEZzd3hjZ2Q3Yz0iLCJvdGhlcl90b2tlbiI6IlJpWWN1czV1d0oraTFleXowUm1zWTlsOVRYMU4yVkt5TG9xV2hBd0NTL3M9In0=.L5j7wuzGvtPpw1VIuoHQcPJa+XKIY5Jvvfm9T2yylbw=",
-  "env": {
-    "Dev-CubeSignerStack": {
-      "ClientId": "1tiou9ecj058khiidmhj4ds4rj",
-      "DefaultCredentialRpId": "cubist.dev",
-      "GoogleDeviceClientId": "59575607964-nc9hjnjka7jlb838jmg40qes4dtpsm6e.apps.googleusercontent.com",
-      "GoogleDeviceClientSecret": "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",
-      "Region": "us-east-1",
-      "SignerApiRoot": "https://gamma.signer.cubist.dev",
-      "UserPoolId": "us-east-1_RU7HEslOW"
-    }
-  },
-  "session_info": {
-    "auth_token": "RiYcus5uwJ+i1eyz0RmsY9l9TX1N2VKyLoqWhAwCS/s=",
-    "auth_token_exp": 1744388651,
-    "epoch": 1,
-    "epoch_token": "Xk1MmLDQFvT4FNBBfydnXEmUtExj3W20X4Fswxcgd7c=",
-    "refresh_token": "L5j7wuzGvtPpw1VIuoHQcPJa+XKIY5Jvvfm9T2yylbw=",
-    "refresh_token_exp": 1744474751,
-    "session_id": "3408b13a-d0cf-478e-83a0-6e9e4b91c26c"
-  }
+
 }
-        "#.to_string())
+        "#
+        .to_string())
     }
 }
 
