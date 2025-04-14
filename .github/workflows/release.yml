@@ -35,7 +35,7 @@ jobs:
       run: echo "VERSION=$(echo ${GITHUB_REF#refs/tags/} | tr '.' '_')" >> $GITHUB_ENV
 
     - name: Install dependencies
-      run: apt-get update && apt-get install  pkg-config libssl-dev perl make
+      run: apt-get update && apt-get install pkg-config libssl-dev perl make
 
     - name: Build Release
       uses: actions-rs/cargo@v1
