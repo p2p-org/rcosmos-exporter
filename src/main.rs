@@ -1,4 +1,5 @@
 use crate::core::chain_id::ChainIdFetcher;
+
 use blockchains::{
     babylon::{
         bls_scrapper::BabylonBlsScrapper,
@@ -14,7 +15,12 @@ use blockchains::{
         upgrade_plan_scrapper::TendermintUpgradePlanScrapper,
         validator_info_scrapper::TendermintValidatorInfoScrapper,
     },
+    coredao::{
+        block_scrapper::CoreDaoBlockScrapper,
+        validator_info_scrapper::CoreDaoValidatorInfoScrapper,
+    },
 };
+
 use core::{
     blockchain::Blockchain,
     clients::{blockchain_client::BlockchainClientBuilder, http_client::HttpClient},
@@ -26,7 +32,7 @@ use std::{env, sync::Arc, time::Duration};
 use tokio::{
     signal,
     sync::{
-        mpsc::{unbounded_channel, UnboundedSender},
+        mpsc::{unbounded_channel},
         Notify,
     },
 };
@@ -45,7 +51,7 @@ async fn main() {
         .init();
 
     let shutdown_notify = Arc::new(Notify::new());
-    let (sender, mut receiver) = unbounded_channel::<()>();
+    let (_sender, mut receiver) = unbounded_channel::<()>();
 
     let prometheus_ip = env::var("PROMETHEUS_IP").unwrap_or_else(|_| "0.0.0.0".to_string());
 
@@ -91,7 +97,6 @@ async fn main() {
                 rpc_endpoints,
                 rest_endpoints,
                 block_window,
-                sender,
             )
             .await
         }
@@ -154,7 +159,6 @@ pub async fn network_exporter(
     rpc_endpoints: String,
     rest_endpoints: String,
     block_window: usize,
-    sender: UnboundedSender<()>,
 ) -> BlockchainExporter {
     let rpc = HttpClient::new(split_urls(rpc_endpoints), None);
     let rest = HttpClient::new(split_urls(rest_endpoints), None);
@@ -332,6 +336,35 @@ pub async fn network_exporter(
                 .add_task(upgrade_plan_scrapper)
                 .add_task(bls_scrapper)
             // .add_task(cubist_metrics_exporter)
+        }
+        Blockchain::CoreDao => {
+            let client = BlockchainClientBuilder::new()
+                .with_rpc(rpc)
+                .build()
+                .await;
+
+            let client = Arc::new(client);
+
+            // Register CoreDao metrics
+            blockchains::coredao::metrics::register_custom_metrics();
+            
+            info!("Registered CoreDao metrics");
+
+            let block_scrapper = ExporterTask::new(
+                Box::new(CoreDaoBlockScrapper::new(Arc::clone(&client))),
+                Duration::from_secs(30),
+            );
+
+            let validator_info_scrapper = ExporterTask::new(
+                Box::new(CoreDaoValidatorInfoScrapper::new(Arc::clone(&client))),
+                Duration::from_secs(300),
+            );
+
+            info!("Created CoreDao scrappers");
+
+            BlockchainExporter::new()
+                .add_task(block_scrapper)
+                .add_task(validator_info_scrapper)
         }
     }
 }

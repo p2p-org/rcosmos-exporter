@@ -8,7 +8,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, warn, info};
 
 use crate::core::metrics::exporter_metrics::EXPORTER_HTTP_REQUESTS;
 
@@ -18,6 +18,7 @@ struct Endpoint {
     health_url: String,
     healthy: bool,
     consecutive_failures: usize,
+    last_checked: Option<std::time::SystemTime>,
 }
 
 impl Endpoint {
@@ -27,6 +28,7 @@ impl Endpoint {
             health_url: health_url.to_string(),
             healthy: true,
             consecutive_failures: 0,
+            last_checked: None,
         }
     }
 
@@ -222,5 +224,101 @@ impl HttpClient {
 
         warn!("(HTTP Client) No healthy endpoints when calling {}", path);
         Err(HTTPClientErrors::NoHealthyEndpoints(path.to_string()))
+    }
+
+    pub async fn post(&self, path: &str, body: String) -> Result<String, HTTPClientErrors> {
+        debug!("Making POST call to {}", path);
+
+        let endpoints = self.endpoints.read().await;
+        let healthy_endpoints: Vec<_> = endpoints.iter().filter(|e| e.healthy).collect();
+
+        let mut rng = SmallRng::from_os_rng();
+
+        // Retry up to 5 times
+        for attempt in 0..5 {
+            if let Some(endpoint) = healthy_endpoints.choose(&mut rng) {
+                // Fix URL formatting to avoid double slashes
+                let url = if path.is_empty() {
+                    endpoint.url.clone()
+                } else if path.starts_with("/") {
+                    format!("{}{}", endpoint.url, path)
+                } else {
+                    format!("{}/{}", endpoint.url, path)
+                };
+                
+                let metric_path = if path.contains("?") {
+                    path.split("?").next().unwrap_or("")
+                } else {
+                    path
+                };
+
+                info!("Attempting POST request to: {}", url);
+                
+                let response = self.client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .body(body.clone())
+                    .send()
+                    .await;
+
+                match response {
+                    Ok(res) if res.status() == StatusCode::OK => {
+                        EXPORTER_HTTP_REQUESTS
+                            .with_label_values(&[
+                                &endpoint.url,
+                                metric_path,
+                                &res.status().as_u16().to_string(),
+                            ])
+                            .inc();
+                        return Ok(res.text().await?);
+                    }
+                    Ok(res) => {
+                        EXPORTER_HTTP_REQUESTS
+                            .with_label_values(&[
+                                &endpoint.url,
+                                metric_path,
+                                &res.status().as_u16().to_string(),
+                            ])
+                            .inc();
+                        warn!(
+                            "(HTTP Client) Attempt {} failed for {}, using {}: No healthy response, status: {}",
+                            attempt + 1,
+                            path,
+                            url,
+                            res.status()
+                        );
+                    }
+                    Err(e) => {
+                        EXPORTER_HTTP_REQUESTS
+                            .with_label_values(&[&endpoint.url, path, "error"])
+                            .inc();
+                        warn!(
+                            "(HTTP Client) Attempt {} failed for {}, using {}: Error: {}",
+                            attempt + 1,
+                            path,
+                            url,
+                            e
+                        );
+                    }
+                }
+            }
+            sleep(Duration::from_secs(2)).await;
+        }
+
+        warn!("(HTTP Client) No healthy endpoints when calling {}", path);
+        Err(HTTPClientErrors::NoHealthyEndpoints(path.to_string()))
+    }
+
+    pub async fn print_endpoints(&self) {
+        let endpoints = self.endpoints.read().await;
+        if endpoints.is_empty() {
+            info!("HTTP Client has no endpoints configured");
+        } else {
+            for (i, endpoint) in endpoints.iter().enumerate() {
+                info!("HTTP Client endpoint {}: {}", i, endpoint.url);
+                info!("  Healthy: {}", endpoint.healthy);
+                info!("  Last checked: {:?}", endpoint.last_checked);
+            }
+        }
     }
 }

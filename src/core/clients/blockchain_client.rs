@@ -1,4 +1,5 @@
 use super::http_client::HttpClient;
+use tracing::info;
 
 ///
 /// Ensures that BlockchainClients start with health checks
@@ -77,4 +78,21 @@ impl BlockchainClient {
             None => panic!("RPC client not initialized"),
         }
     }
+    
+    pub async fn post_json<T: serde::Serialize>(&self, endpoint: &str, payload: &T) -> Result<String, crate::core::clients::http_client::HTTPClientErrors> {
+        let rpc = self.rpc.as_ref().expect("RPC client not initialized");
+        let json_string = serde_json::to_string(payload).unwrap();
+        
+        // Use the new post method
+        rpc.post(endpoint, json_string).await
+    }
+
+    pub async fn print_rpc_endpoints(&self) {
+        if let Some(rpc) = &self.rpc {
+            rpc.print_endpoints().await;
+        } else {
+            info!("RPC client not initialized");
+        }
+    }
+
 }
