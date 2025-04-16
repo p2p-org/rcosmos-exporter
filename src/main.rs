@@ -347,8 +347,18 @@ pub async fn network_exporter(
 
             // Register CoreDao metrics
             blockchains::coredao::metrics::register_custom_metrics();
-            
-            info!("Registered CoreDao metrics");
+
+            // Get target validator from environment variable
+            let target_validator = match std::env::var("COREDAO_TARGET_VALIDATOR") {
+                Ok(val) => {
+                    info!("Using target validator from env: {}", val);
+                    val
+                },
+                Err(_) => {
+                    error!("COREDAO_TARGET_VALIDATOR environment variable not set");
+                    return BlockchainExporter::new(); // Return empty exporter
+                }
+            };
 
             let block_scrapper = ExporterTask::new(
                 Box::new(CoreDaoBlockScrapper::new(Arc::clone(&client))),
@@ -356,11 +366,12 @@ pub async fn network_exporter(
             );
 
             let validator_info_scrapper = ExporterTask::new(
-                Box::new(CoreDaoValidatorInfoScrapper::new(Arc::clone(&client))),
-                Duration::from_secs(300),
+                Box::new(CoreDaoValidatorInfoScrapper::new(
+                    Arc::clone(&client),
+                    target_validator,
+                )),
+                Duration::from_secs(60),
             );
-
-            info!("Created CoreDao scrappers");
 
             BlockchainExporter::new()
                 .add_task(block_scrapper)

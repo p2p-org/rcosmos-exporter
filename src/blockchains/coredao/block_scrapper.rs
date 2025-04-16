@@ -35,7 +35,7 @@ impl CoreDaoBlockScrapper {
             "id": 1
         });
 
-        let res = match self.client.post_json("", &payload).await {
+        let res = match self.client.with_rpc().post("", &payload).await {
             Ok(res) => res,
             Err(e) => {
                 error!("(Core DAO Block Scrapper) Error getting latest block number: {}", e);
@@ -79,7 +79,7 @@ impl CoreDaoBlockScrapper {
             "id": 1
         });
 
-        let res = match self.client.post_json("", &payload).await {
+        let res = match self.client.with_rpc().post("", &payload).await {
             Ok(res) => res,
             Err(e) => {
                 error!("(Core DAO Block Scrapper) Error getting block: {}", e);
@@ -114,45 +114,30 @@ impl CoreDaoBlockScrapper {
         Some((block_number, miner))
     }
     
-    async fn poll_for_blocks(&mut self, delay: Duration) {
-        info!("(Core DAO Block Scrapper) Starting to poll for new blocks");
-        
-        // Initialize last_processed_block to the current latest block
+    async fn process_new_blocks(&mut self) {
+        // Get the latest block number
         if let Some(latest_block) = self.get_latest_block_number().await {
-            info!("(Core DAO Block Scrapper) Starting polling from latest block: {}", latest_block);
-            self.last_processed_block = latest_block;
-        } else {
-            error!("(Core DAO Block Scrapper) Failed to get initial latest block number");
-        }
-        
-        loop {
-            // Get the latest block number
-            if let Some(latest_block) = self.get_latest_block_number().await {
-                // If we've seen a new block
-                if latest_block > self.last_processed_block {
-                    info!("(Core DAO Block Scrapper) Found new block: {}", latest_block);
-                    
-                    // Process all blocks from last_processed_block+1 to latest_block
-                    for block_num in (self.last_processed_block + 1)..=latest_block {
-                        if let Some((block_number, consensus_address)) = self.get_block_by_number(block_num).await {
-                            
-                            // Set the metric 
-                            COREDAO_BLOCK_SIGNER
-                                .with_label_values(&[
-                                    &block_number.to_string(), 
-                                    &consensus_address
-                                ])
-                                .set(1);
-                        }
+            // If we've seen a new block
+            if latest_block > self.last_processed_block {
+                info!("(Core DAO Block Scrapper) Found new block: {}", latest_block);
+                
+                // Process all blocks from last_processed_block+1 to latest_block
+                for block_num in (self.last_processed_block + 1)..=latest_block {
+                    if let Some((block_number, consensus_address)) = self.get_block_by_number(block_num).await {
+                        
+                        // Set the metric 
+                        COREDAO_BLOCK_SIGNER
+                            .with_label_values(&[
+                                &block_number.to_string(), 
+                                &consensus_address
+                            ])
+                            .set(1);
                     }
-                    
-                    // Update the last processed block
-                    self.last_processed_block = latest_block;
                 }
+                
+                // Update the last processed block
+                self.last_processed_block = latest_block;
             }
-            
-            // Sleep for the specified delay before checking again
-            sleep(delay).await;
         }
     }
 }
@@ -160,13 +145,24 @@ impl CoreDaoBlockScrapper {
 #[async_trait]
 impl Task for CoreDaoBlockScrapper {
     async fn run(&mut self, delay: Duration) {
-        info!("(Core DAO Block Scrapper) Executing task");
+        info!("(Core DAO Block Scrapper) Starting task");
         
-        info!("(Core DAO Block Scrapper) Using polling method for block updates");
-        self.poll_for_blocks(delay).await;
+        // Initialize last_processed_block to the current latest block
+        if let Some(latest_block) = self.get_latest_block_number().await {
+            info!("(Core DAO Block Scrapper) Starting from latest block: {}", latest_block);
+            self.last_processed_block = latest_block;
+        } else {
+            error!("(Core DAO Block Scrapper) Failed to get initial latest block number");
+        }
         
-        // This point should never be reached as polling runs indefinitely
-        info!("(Core DAO Block Scrapper) Task completed, next run in {:?}", delay);
-        sleep(delay).await;
+        loop {
+            info!("(Core DAO Block Scrapper) Checking for new blocks");
+            
+            // Process any new blocks
+            self.process_new_blocks().await;
+            
+            info!("(Core DAO Block Scrapper) Block processing complete, sleeping for {:?}", delay);
+            sleep(delay).await;
+        }
     }
 }

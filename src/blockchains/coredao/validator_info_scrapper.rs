@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::{error, info, debug};
 
 use crate::{
     blockchains::coredao::{
@@ -15,11 +15,15 @@ use crate::{
 
 pub struct CoreDaoValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
+    target_validator: String,
 }
 
 impl CoreDaoValidatorInfoScrapper {
-    pub fn new(client: Arc<BlockchainClient>) -> Self {
-        Self { client }
+    pub fn new(client: Arc<BlockchainClient>, target_validator: String) -> Self {
+        Self { 
+            client,
+            target_validator: target_validator.to_lowercase(),
+        }
     }
 
     async fn get_validators(&self) -> Vec<String> {
@@ -40,7 +44,7 @@ impl CoreDaoValidatorInfoScrapper {
 
         info!("(Core DAO Validator Info) Sending request to RPC endpoint with payload: {}", payload);
         
-        let res = match self.client.post_json("", &payload).await {
+        let res = match self.client.with_rpc().post("", &payload).await {
             Ok(res) => {
                 info!("(Core DAO Validator Info) Received response from endpoint: {}", res);
                 res
@@ -107,7 +111,7 @@ impl CoreDaoValidatorInfoScrapper {
 
         info!("(Core DAO Validator Info) Sending request to get all candidates with payload: {}", payload);
         
-        let res = match self.client.post_json("", &payload).await {
+        let res = match self.client.with_rpc().post("", &payload).await {
             Ok(res) => {
                 info!("(Core DAO Validator Info) Received response for all candidates: {}", res);
                 res
@@ -171,7 +175,7 @@ impl CoreDaoValidatorInfoScrapper {
             "id": 1
         });
         
-        let res = match self.client.post_json("", &payload).await {
+        let res = match self.client.with_rpc().post("", &payload).await {
             Ok(res) => res,
             Err(e) => {
                 error!("(Core DAO Validator Info) Error checking if validator is jailed: {}", e);
@@ -218,7 +222,7 @@ impl CoreDaoValidatorInfoScrapper {
 
         info!("(Core DAO Validator Info) Sending slash info request with payload: {}", payload);
 
-        let res = match self.client.post_json("", &payload).await {
+        let res = match self.client.with_rpc().post("", &payload).await {
             Ok(res) => {
                 info!("(Core DAO Validator Info) Received slash info response: {}", res);
                 res
@@ -307,33 +311,32 @@ impl CoreDaoValidatorInfoScrapper {
 #[async_trait]
 impl Task for CoreDaoValidatorInfoScrapper {
     async fn run(&mut self, delay: Duration) {
-        info!("(Core DAO Validator Info) Executing task");
+        info!("(Core DAO Validator Info) Starting task");
         
         // Print the RPC endpoint(s) from the environment variable
         if let Ok(rpc_endpoints) = std::env::var("RPC_ENDPOINTS") {
-            info!("(Core DAO Validator Info) Using RPC endpoints from env: {}", rpc_endpoints);
+            debug!("(Core DAO Validator Info) Using RPC endpoints from env: {}", rpc_endpoints);
         } else {
             error!("(Core DAO Validator Info) RPC_ENDPOINTS environment variable not set");
         }
         
-        // Print the actual endpoint(s) from the client
-        info!("(Core DAO Validator Info) Printing configured RPC endpoints:");
-        self.client.print_rpc_endpoints().await;
+        info!("(Core DAO Validator Info) Target validator for detailed metrics: {}", self.target_validator);
         
-        // Get target validator from environment variable
-        let target_validator = match std::env::var("COREDAO_TARGET_VALIDATOR") {
-            Ok(val) => {
-                info!("(Core DAO Validator Info) Using target validator from env: {}", val);
-                val.to_lowercase()
-            },
-            Err(_) => {
-                error!("(Core DAO Validator Info) COREDAO_TARGET_VALIDATOR environment variable not set");
-                return;
-            }
-        };
-        
-        info!("(Core DAO Validator Info) Target validator for detailed metrics: {}", target_validator);
-        
+        loop {
+            info!("(Core DAO Validator Info) Executing validator info collection");
+            
+            // Collect and update validator metrics
+            self.collect_validator_metrics(&self.target_validator).await;
+            
+            info!("(Core DAO Validator Info) Task iteration completed, sleeping for {:?}", delay);
+            sleep(delay).await;
+        }
+    }
+}
+
+impl CoreDaoValidatorInfoScrapper {
+    // Add this new method to encapsulate the validator metrics collection logic
+    async fn collect_validator_metrics(&self, target_validator: &str) {
         // Get all active validators and normalize to lowercase
         let active_validators: Vec<String> = self.get_validators().await
             .into_iter()
@@ -361,8 +364,8 @@ impl Task for CoreDaoValidatorInfoScrapper {
         }
         
         // Add target validator if not already in the list
-        if !all_validators.contains(&target_validator) {
-            all_validators.push(target_validator.clone());
+        if !all_validators.contains(&target_validator.to_string()) {
+            all_validators.push(target_validator.to_string());
         }
         
         // Set the validator metric for all validators (active and inactive)
@@ -378,29 +381,26 @@ impl Task for CoreDaoValidatorInfoScrapper {
         
         // Always check metrics for the target validator
         // Check if the target validator is jailed
-        let is_jailed = self.check_if_jailed(&target_validator).await;
+        let is_jailed = self.check_if_jailed(target_validator).await;
         info!("(Core DAO Validator Info) Target validator jailed status: {}", is_jailed);
         
         // Set the jailed metric for the target validator
         COREDAO_VALIDATOR_JAILED
-            .with_label_values(&[&target_validator])
+            .with_label_values(&[target_validator])
             .set(if is_jailed { 1 } else { 0 });
         
         // Check the slash info for the target validator
-        let (block_height, slash_count) = self.check_slash_info(&target_validator).await;
+        let (block_height, slash_count) = self.check_slash_info(target_validator).await;
         info!("(Core DAO Validator Info) Target validator slash info - Block Height: {}, Slash Count: {}", 
               block_height, slash_count);
         
         // Set the slash metrics for the target validator
         COREDAO_VALIDATOR_SLASH_BLOCK
-            .with_label_values(&[&target_validator])
+            .with_label_values(&[target_validator])
             .set(block_height as i64);
         
         COREDAO_VALIDATOR_SLASH_COUNT
-            .with_label_values(&[&target_validator])
+            .with_label_values(&[target_validator])
             .set(slash_count as i64);
-        
-        info!("(Core DAO Validator Info) Task completed, next run in {:?}", delay);
-        sleep(delay).await;
     }
 }

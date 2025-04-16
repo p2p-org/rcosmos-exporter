@@ -8,7 +8,8 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
-use tracing::{debug, error, warn, info};
+use tracing::{debug, error, warn};
+use serde_json;
 
 use crate::core::metrics::exporter_metrics::EXPORTER_HTTP_REQUESTS;
 
@@ -18,7 +19,6 @@ struct Endpoint {
     health_url: String,
     healthy: bool,
     consecutive_failures: usize,
-    last_checked: Option<std::time::SystemTime>,
 }
 
 impl Endpoint {
@@ -28,7 +28,6 @@ impl Endpoint {
             health_url: health_url.to_string(),
             healthy: true,
             consecutive_failures: 0,
-            last_checked: None,
         }
     }
 
@@ -226,8 +225,14 @@ impl HttpClient {
         Err(HTTPClientErrors::NoHealthyEndpoints(path.to_string()))
     }
 
-    pub async fn post(&self, path: &str, body: String) -> Result<String, HTTPClientErrors> {
+    pub async fn post<T: serde::Serialize>(&self, path: &str, body: T) -> Result<String, HTTPClientErrors> {
         debug!("Making POST call to {}", path);
+
+        // Convert the body to a JSON string
+        let body_string = match serde_json::to_string(&body) {
+            Ok(json) => json,
+            Err(e) => return Err(HTTPClientErrors::NoHealthyEndpoints(format!("JSON serialization error: {}", e))),
+        };
 
         let endpoints = self.endpoints.read().await;
         let healthy_endpoints: Vec<_> = endpoints.iter().filter(|e| e.healthy).collect();
@@ -252,12 +257,12 @@ impl HttpClient {
                     path
                 };
 
-                info!("Attempting POST request to: {}", url);
+                debug!("Attempting POST request to: {}", url);
                 
                 let response = self.client
                     .post(&url)
                     .header("Content-Type", "application/json")
-                    .body(body.clone())
+                    .body(body_string.clone())
                     .send()
                     .await;
 
@@ -307,18 +312,5 @@ impl HttpClient {
 
         warn!("(HTTP Client) No healthy endpoints when calling {}", path);
         Err(HTTPClientErrors::NoHealthyEndpoints(path.to_string()))
-    }
-
-    pub async fn print_endpoints(&self) {
-        let endpoints = self.endpoints.read().await;
-        if endpoints.is_empty() {
-            info!("HTTP Client has no endpoints configured");
-        } else {
-            for (i, endpoint) in endpoints.iter().enumerate() {
-                info!("HTTP Client endpoint {}: {}", i, endpoint.url);
-                info!("  Healthy: {}", endpoint.healthy);
-                info!("  Last checked: {:?}", endpoint.last_checked);
-            }
-        }
     }
 }
