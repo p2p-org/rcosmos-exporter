@@ -16,14 +16,14 @@ lazy_static! {
         &["address", "chain_id"]
     )
     .unwrap();
-    // pub static ref BABYLON_CUBE_SIGNER_SIGNATURES: IntGaugeVec = IntGaugeVec::new(
-    //     Opts::new(
-    //         "babylon_cube_signer_signatures",
-    //         "Babylon validators missing BLS vote"
-    //     ),
-    //     &["key_id", "chain_id"]
-    // )
-    // .unwrap();
+    pub static ref BABYLON_CUBE_SIGNER_SIGNATURES: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "babylon_cube_signer_signatures",
+            "Babylon validators missing BLS vote"
+        ),
+        &["key_id", "chain_id"]
+    )
+    .unwrap();
 }
 
 pub fn register_custom_metrics() {

@@ -107,6 +107,21 @@ impl GracefulTask for BabylonCubistMetricScrapper {
             }
         }
 
+        info!("Babylon Cubist Metric Scrapper) Saving session secret");
+        match self
+            .cubist_client
+            .session_manager
+            .write_session_secret()
+            .await
+        {
+            Ok(_) => info!("(Babylon Cubist Metric Scrapper) Saved session secret"),
+            Err(e) => {
+                error!(
+                    "(Babylon Cubist Metric Scrapper) couldnt save session secret: {}",
+                    e
+                )
+            }
+        }
         let _ = sender.send(());
         info!("Stopped Babylon Cubist (CubeSigner) Metrics Scrapper");
     }

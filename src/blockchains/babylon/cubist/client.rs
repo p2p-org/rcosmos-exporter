@@ -31,9 +31,9 @@ pub struct Client {
 
 impl Client {
     // Constructor for BaseClient
-    pub async fn new(secret_id: Str) -> anyhow::Result<Self> {
+    pub async fn new(secret_id: String, secret_path: String) -> anyhow::Result<Self> {
         let session_manager = SessionManager::new();
-        let session_manager = session_manager.init(secret_id).await?;
+        let session_manager = session_manager.init(secret_id, secret_path).await?;
         Ok(Self {
             session_manager,
             config: ClientConfig {

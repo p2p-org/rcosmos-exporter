@@ -3,8 +3,13 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::marker::PhantomData;
+use std::path::Path;
 use std::time::SystemTime;
 use thiserror::Error;
+use tokio::{fs, io};
+use tracing::info;
+use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
+use vaultrs::kv2;
 
 #[derive(Deserialize, Serialize, Default, Clone)]
 #[serde(rename_all = "PascalCase")]
@@ -74,16 +79,25 @@ pub enum SessionManagerError {
     TokenRefreshNot200,
     #[error("api returned message: {message:?}, with error code {error_code:?}")]
     ErrorReturned { message: String, error_code: String },
-    #[error("Could not obtain session from secret manager")]
-    SecretManagerError,
+    #[error("Could not read vault token")]
+    VaultTokenReadError(#[from] io::Error),
+    #[error("Could not find the vault token path")]
+    VaultTokenPathDoesNotExist,
 }
 
 pub struct Initialized;
 pub struct Uninitialized;
 
+#[derive(Debug, Deserialize, Serialize)]
+struct SessionSecret {
+    key: String,
+    session: String,
+}
+
 pub struct SessionManager<State = Initialized> {
     pub session: SessionData,
     state: PhantomData<State>,
+    vault_token: String,
 }
 
 pub const DEFAULT_EXPIRATION_BUFFER_SECS: u64 = 30;
@@ -93,29 +107,94 @@ impl SessionManager<Uninitialized> {
         Self {
             session: SessionData::default(),
             state: PhantomData::<Uninitialized>,
+            vault_token: String::new(),
         }
     }
 
     pub async fn init(
         &self,
         secret_id: String,
+        secret_path: String,
     ) -> Result<SessionManager<Initialized>, anyhow::Error> {
         let session = self.fetch_session(secret_id).await?;
+
         let session = serde_json::from_str::<SessionData>(&session)?;
 
         Ok(SessionManager {
+            vault_token: self.vault_token.clone(),
             session: session,
             state: PhantomData::<Initialized>,
         })
     }
 
-    async fn fetch_session(&self, secret_id: String) -> Result<String, anyhow::Error> {
-        Ok(r#"
-{
+    async fn fetch_session(
+        &self,
+        secret_id: String,
+        secret_path: String,
+    ) -> Result<String, anyhow::Error> {
+        let host = "https://vault.infra.p2p.org/";
 
-}
-        "#
-        .to_string())
+        let token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token";
+
+        if !Path::new(token_path).exists() {
+            return Err(SessionManagerError::VaultTokenPathDoesNotExist.into());
+        }
+
+        let token = match fs::read_to_string(token_path).await {
+            Ok(token) => token,
+            Err(e) => return Err(SessionManagerError::VaultTokenReadError(e).into()),
+        };
+
+        let client = VaultClient::new(
+            VaultClientSettingsBuilder::default()
+                .address(host)
+                .token(token)
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let secret = SessionSecret {
+            key: secret_id.clone(),
+            session:  r#"
+            {
+              "org_id": "Org#ffea7e1a-7ddb-4348-8bc4-8cd86bef3b98",
+              "role_id": null,
+              "expiration": 1775817096,
+              "purpose": "User session with scopes [\"manage:org:*\"]",
+              "token": "3d6fd7397:MzQwOGIxM2EtZDBjZi00NzhlLTgzYTAtNmU5ZTRiOTFjMjZj.eyJlcG9jaF9udW0iOjEsImVwb2NoX3Rva2VuIjoiWGsxTW1MRFFGdlQ0Rk5CQmZ5ZG5YRW1VdEV4ajNXMjBYNEZzd3hjZ2Q3Yz0iLCJvdGhlcl90b2tlbiI6IlJpWWN1czV1d0oraTFleXowUm1zWTlsOVRYMU4yVkt5TG9xV2hBd0NTL3M9In0=",
+              "refresh_token": "3d6fd7397:MzQwOGIxM2EtZDBjZi00NzhlLTgzYTAtNmU5ZTRiOTFjMjZj.eyJlcG9jaF9udW0iOjEsImVwb2NoX3Rva2VuIjoiWGsxTW1MRFFGdlQ0Rk5CQmZ5ZG5YRW1VdEV4ajNXMjBYNEZzd3hjZ2Q3Yz0iLCJvdGhlcl90b2tlbiI6IlJpWWN1czV1d0oraTFleXowUm1zWTlsOVRYMU4yVkt5TG9xV2hBd0NTL3M9In0=.L5j7wuzGvtPpw1VIuoHQcPJa+XKIY5Jvvfm9T2yylbw=",
+              "env": {
+                "Dev-CubeSignerStack": {
+                  "ClientId": "1tiou9ecj058khiidmhj4ds4rj",
+                  "DefaultCredentialRpId": "cubist.dev",
+                  "GoogleDeviceClientId": "59575607964-nc9hjnjka7jlb838jmg40qes4dtpsm6e.apps.googleusercontent.com",
+                  "GoogleDeviceClientSecret": "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",
+                  "Region": "us-east-1",
+                  "SignerApiRoot": "https://gamma.signer.cubist.dev",
+                  "UserPoolId": "us-east-1_RU7HEslOW"
+                }
+              },
+              "session_info": {
+                "auth_token": "RiYcus5uwJ+i1eyz0RmsY9l9TX1N2VKyLoqWhAwCS/s=",
+                "auth_token_exp": 1744388651,
+                "epoch": 1,
+                "epoch_token": "Xk1MmLDQFvT4FNBBfydnXEmUtExj3W20X4Fswxcgd7c=",
+                "refresh_token": "L5j7wuzGvtPpw1VIuoHQcPJa+XKIY5Jvvfm9T2yylbw=",
+                "refresh_token_exp": 1744474751,
+                "session_id": "3408b13a-d0cf-478e-83a0-6e9e4b91c26c"
+              }
+            }
+            "#.to_string()
+        };
+
+        info!("Setting initial secret: {:?}", secret);
+        kv2::set(&client, "secret", &secret_path, &secret).await?;
+
+        let secret: SessionSecret = kv2::read(&client, "secret", &secret_path).await?;
+        info!("Fetched secret from Vault: {:?}", secret);
+
+        Ok(secret.session.to_string())
     }
 }
 
@@ -202,5 +281,37 @@ impl SessionManager<Initialized> {
         } else {
             Ok(self.session.token.clone())
         }
+    }
+
+    pub async fn write_session_secret(&self) -> anyhow::Result<()> {
+        let host = "https://vault.infra.p2p.org/";
+
+        let token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token";
+
+        if !Path::new(token_path).exists() {
+            return Err(SessionManagerError::VaultTokenPathDoesNotExist.into());
+        }
+
+        let token = match fs::read_to_string(token_path).await {
+            Ok(token) => token,
+            Err(e) => return Err(SessionManagerError::VaultTokenReadError(e).into()),
+        };
+
+        let client = VaultClient::new(
+            VaultClientSettingsBuilder::default()
+                .address(host)
+                .token(token)
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let secret = SessionSecret {
+            key: "babylon-testnet".to_string(),
+            session: serde_json::to_string(&self.session)?,
+        };
+
+        kv2::set(&client, "secret", "mysecret", &secret).await?;
+        Ok(())
     }
 }

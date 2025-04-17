@@ -2,9 +2,9 @@ use crate::core::chain_id::ChainIdFetcher;
 use blockchains::{
     babylon::{
         bls_scrapper::BabylonBlsScrapper,
-        // cubist::{
-        //     client::Client as CubistClient, cubist_metrics_scrapper::BabylonCubistMetricScrapper,
-        // },
+        cubist::{
+            client::Client as CubistClient, cubist_metrics_scrapper::BabylonCubistMetricScrapper,
+        },
     },
     mezo::validator_info_scrapper::MezoValidatorInfoScrapper,
     tendermint::{
@@ -308,30 +308,38 @@ pub async fn network_exporter(
                 Duration::from_secs(300),
             );
 
-            // let secret_id = env::var("BABYLON_CUBIST_SESSION_SECRET_ID").expect("You must pass BABYLON_CUBIST_SESSION_SECRET_ID env var");
+            let secret_id = env::var("BABYLON_CUBIST_SESSION_SECRET_ID")
+                .expect("You must pass BABYLON_CUBIST_SESSION_SECRET_ID env var");
 
-            // let cubist_client = CubistClient::new(secret_id)
-            //     .await
-            //     .expect("Could not initialize Cubist client");
+            let secret_path = env::var("BABYLON_CUBIST_SESSION_SECRET_PATH")
+                .expect("You must pass BABYLON_CUBIST_SESSION_SECRET_PATH env var");
 
-            // let cubist_metrics_exporter = ExporterTask::graceful(
-            //     Box::new(BabylonCubistMetricScrapper::new(
-            //         cubist_client,
-            //         chain_id.clone(),
-            //     )),
-            //     Duration::from_secs(300),
-            //     sender.clone(),
-            // );
+            let cubist_client = match CubistClient::new(secret_id, secret_path).await {
+                Ok(client) => client,
+                Err(e) => {
+                    error!("Could not initialize cubist client: {}", e);
+                    panic!("Exiting");
+                }
+            };
+
+            let cubist_metrics_exporter = ExporterTask::graceful(
+                Box::new(BabylonCubistMetricScrapper::new(
+                    cubist_client,
+                    chain_id.clone(),
+                )),
+                Duration::from_secs(300),
+                sender.clone(),
+            );
 
             blockchains::tendermint::metrics::register_custom_metrics();
             blockchains::babylon::metrics::register_custom_metrics();
 
             BlockchainExporter::new()
-                .add_task(block_scrapper)
-                .add_task(consensus_scrapper)
-                .add_task(upgrade_plan_scrapper)
-                .add_task(bls_scrapper)
-            // .add_task(cubist_metrics_exporter)
+                // .add_task(block_scrapper)
+                // .add_task(consensus_scrapper)
+                // .add_task(upgrade_plan_scrapper)
+                // .add_task(bls_scrapper)
+                .add_task(cubist_metrics_exporter)
         }
     }
 }
