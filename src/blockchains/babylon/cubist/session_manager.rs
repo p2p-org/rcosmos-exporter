@@ -116,7 +116,7 @@ impl SessionManager<Uninitialized> {
         secret_id: String,
         secret_path: String,
     ) -> Result<SessionManager<Initialized>, anyhow::Error> {
-        let session = self.fetch_session(secret_id).await?;
+        let session = self.fetch_session(secret_id, secret_path).await?;
 
         let session = serde_json::from_str::<SessionData>(&session)?;
 

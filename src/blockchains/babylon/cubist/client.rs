@@ -1,5 +1,5 @@
 use reqwest::{
-    header::{AUTHORIZATION, CACHE_STATUS, CONTENT_TYPE, USER_AGENT},
+    header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT},
     Client as HttpClient, Method,
 };
 use serde::Serialize;

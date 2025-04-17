@@ -7,6 +7,9 @@ use blockchains::{
             client::Client as CubistClient, cubist_metrics_scrapper::BabylonCubistMetricScrapper,
         },
     },
+    coredao::{
+        block_scrapper::CoreDaoBlockScrapper, validator_info_scrapper::CoreDaoValidatorInfoScrapper,
+    },
     mezo::validator_info_scrapper::MezoValidatorInfoScrapper,
     tendermint::{
         block_scrapper::TendermintBlockScrapper, chain_id::TendermintChainIdFetcher,
@@ -14,10 +17,6 @@ use blockchains::{
         proposal_scrapper::TendermintProposalScrapper,
         upgrade_plan_scrapper::TendermintUpgradePlanScrapper,
         validator_info_scrapper::TendermintValidatorInfoScrapper,
-    },
-    coredao::{
-        block_scrapper::CoreDaoBlockScrapper,
-        validator_info_scrapper::CoreDaoValidatorInfoScrapper,
     },
 };
 
@@ -32,7 +31,7 @@ use std::{env, sync::Arc, time::Duration};
 use tokio::{
     signal,
     sync::{
-        mpsc::{unbounded_channel},
+        mpsc::{unbounded_channel, UnboundedSender},
         Notify,
     },
 };
@@ -51,7 +50,7 @@ async fn main() {
         .init();
 
     let shutdown_notify = Arc::new(Notify::new());
-    let (_sender, mut receiver) = unbounded_channel::<()>();
+    let (sender, mut receiver) = unbounded_channel::<()>();
 
     let prometheus_ip = env::var("PROMETHEUS_IP").unwrap_or_else(|_| "0.0.0.0".to_string());
 
@@ -97,6 +96,7 @@ async fn main() {
                 rpc_endpoints,
                 rest_endpoints,
                 block_window,
+                sender,
             )
             .await
         }
@@ -159,6 +159,7 @@ pub async fn network_exporter(
     rpc_endpoints: String,
     rest_endpoints: String,
     block_window: usize,
+    sender: UnboundedSender<()>,
 ) -> BlockchainExporter {
     let rpc = HttpClient::new(split_urls(rpc_endpoints), None);
     let rest = HttpClient::new(split_urls(rest_endpoints), None);
@@ -346,10 +347,7 @@ pub async fn network_exporter(
                 .add_task(cubist_metrics_exporter)
         }
         Blockchain::CoreDao => {
-            let client = BlockchainClientBuilder::new()
-                .with_rpc(rpc)
-                .build()
-                .await;
+            let client = BlockchainClientBuilder::new().with_rpc(rpc).build().await;
 
             let client = Arc::new(client);
 
@@ -361,7 +359,7 @@ pub async fn network_exporter(
                 Ok(val) => {
                     info!("Using target validator from env: {}", val);
                     val
-                },
+                }
                 Err(_) => {
                     error!("COREDAO_TARGET_VALIDATOR environment variable not set");
                     return BlockchainExporter::new(); // Return empty exporter
