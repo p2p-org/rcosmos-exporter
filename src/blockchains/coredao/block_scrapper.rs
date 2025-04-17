@@ -1,13 +1,13 @@
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration, collections::{VecDeque}};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio::{time::sleep};
-use tracing::{error, info};
+use tracing::{error, info, debug};
 
 use crate::{
     blockchains::coredao::{
-        metrics::COREDAO_BLOCK_SIGNER,
+        metrics::{COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY, COREDAO_VALIDATOR_SIGNED_BLOCKS},
     },
     core::{clients::blockchain_client::BlockchainClient, exporter::Task},
 };
@@ -15,12 +15,21 @@ use crate::{
 pub struct CoreDaoBlockScrapper {
     client: Arc<BlockchainClient>,
     last_processed_block: u64,
+    // Store recent blocks and their signers
+    recent_blocks: VecDeque<(u64, String)>,
+    // Maximum blocks to track
+    max_blocks: usize,
+    // Target validator to monitor
+    target_validator: Option<String>,
 }
 
 impl CoreDaoBlockScrapper {
-    pub fn new(client: Arc<BlockchainClient>) -> Self {
-        Self {
+    pub fn with_target_validator(client: Arc<BlockchainClient>, target_validator: String) -> Self {
+        CoreDaoBlockScrapper {
             client,
+            recent_blocks: VecDeque::with_capacity(100),
+            max_blocks: 100,
+            target_validator: Some(target_validator),
             last_processed_block: 0,
         }
     }
@@ -124,19 +133,126 @@ impl CoreDaoBlockScrapper {
                 // Process all blocks from last_processed_block+1 to latest_block
                 for block_num in (self.last_processed_block + 1)..=latest_block {
                     if let Some((block_number, consensus_address)) = self.get_block_by_number(block_num).await {
+                        self.recent_blocks.push_back((block_number, consensus_address.to_lowercase()));
                         
-                        // Set the metric 
-                        COREDAO_BLOCK_SIGNER
-                            .with_label_values(&[
-                                &block_number.to_string(), 
-                                &consensus_address
-                            ])
-                            .set(1);
+                        // Keep only the most recent max_blocks
+                        if self.recent_blocks.len() > self.max_blocks {
+                            self.recent_blocks.pop_front();
+                        }
+                        
+                        debug!("(Core DAO Block Scrapper) Block {} signed by {}", block_number, consensus_address);
                     }
                 }
                 
-                // Update the last processed block
+                self.calculate_validator_participation();
+                
                 self.last_processed_block = latest_block;
+            } else {
+                debug!("(Core DAO Block Scrapper) No new blocks found");
+            }
+        } else {
+            error!("(Core DAO Block Scrapper) Failed to get latest block number");
+        }
+    }
+    
+    fn calculate_validator_participation(&self) {
+        if self.recent_blocks.is_empty() {
+            return;
+        }
+        
+        // Get unique validators from recent blocks to determine rotation size
+        let mut unique_validators = std::collections::HashSet::new();
+        for (_, validator) in &self.recent_blocks {
+            unique_validators.insert(validator.clone());
+        }
+        
+        let total_validators = unique_validators.len();
+        if total_validators == 0 {
+            error!("(Core DAO Block Scrapper) No validators found in recent blocks");
+            return;
+        }
+        
+        info!("(Core DAO Block Scrapper) Found {} unique validators in recent blocks", total_validators);
+        
+        // We need to track validator participation over three rounds
+        let blocks_per_round = total_validators;
+        let blocks_for_three_rounds = blocks_per_round * 3;
+        
+        if self.recent_blocks.len() < blocks_for_three_rounds {
+            info!("(Core DAO Block Scrapper) Not enough blocks for 3 rounds (need {}, have {})",
+                  blocks_for_three_rounds, self.recent_blocks.len());
+            return;
+        }
+        
+        let recent_three_rotations: Vec<_> = self.recent_blocks
+            .iter()
+            .rev()
+            .take(blocks_for_three_rounds)
+            .collect();
+        
+        // Count blocks signed by each validator across all three rotations
+        let mut validator_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        for (_, validator) in &recent_three_rotations {
+            *validator_counts.entry(validator.clone()).or_insert(0) += 1;
+        }
+        
+        // Calculate and set participation rates for all validators
+        for validator in unique_validators {
+            let blocks_signed = validator_counts.get(&validator).cloned().unwrap_or(0);
+            
+            // In an ideal scenario, each validator would sign exactly 3 blocks (one per rotation)
+            // So we calculate participation as (blocks signed / 3) * 100%
+            let participation_rate = (blocks_signed as f64 / 3.0) * 100.0;
+            
+            COREDAO_VALIDATOR_PARTICIPATION
+                .with_label_values(&[&validator])
+                .set(participation_rate);
+                
+            if let Some(ref target) = self.target_validator {
+                if &validator == target {
+                    info!("(Core DAO Block Scrapper) Target validator {} signed {} out of 3 expected blocks across 3 rotations ({}%)",
+                          validator, blocks_signed, participation_rate);
+                }
+            }
+        }
+        
+        // Check if target validator has signed at least once in the latest rotation
+        if let Some(ref target) = self.target_validator {
+            // Get blocks for the latest rotation only
+            let latest_rotation = &recent_three_rotations[0..blocks_per_round];
+            
+            let has_signed = latest_rotation
+                .iter()
+                .any(|(_, validator)| validator == target);
+            
+            let activity_value = if has_signed { 1.0 } else { 0.0 };
+            
+            COREDAO_VALIDATOR_RECENT_ACTIVITY
+                .with_label_values(&[target])
+                .set(activity_value);
+            
+            info!("(Core DAO Block Scrapper) Setting recent activity metric for {} to {} (signed in latest rotation: {})",
+                  target, activity_value, has_signed);
+            
+            if !has_signed {
+                info!("(Core DAO Block Scrapper) ALERT: Target validator {} has not signed any blocks in the latest rotation!",
+                      target);
+            }
+            
+            // Track all blocks signed by the target validator
+            // First, get all blocks signed by the target validator
+            let target_signed_blocks: Vec<_> = self.recent_blocks
+                .iter()
+                .filter(|(_, validator)| validator == target)
+                .collect();
+            
+            for (block_number, _) in target_signed_blocks {
+                COREDAO_VALIDATOR_SIGNED_BLOCKS
+                    .with_label_values(&[target, &block_number.to_string()])
+                    .set(1.0);
+                
+                info!("(Core DAO Block Scrapper) Target validator {} signed block {}",
+                      target, block_number);
             }
         }
     }
@@ -147,16 +263,24 @@ impl Task for CoreDaoBlockScrapper {
     async fn run(&mut self, delay: Duration) {
         info!("(Core DAO Block Scrapper) Starting task");
         
+        let target_address = self.target_validator.clone().unwrap();
+        debug!("(Core DAO Block Scrapper) Forcibly initializing recent activity metric for {}", target_address);
+        COREDAO_VALIDATOR_RECENT_ACTIVITY
+            .with_label_values(&[&target_address])
+            .set(-1.0);  // Initialize with -1 to indicate "not enough data yet"
+        
         // Initialize last_processed_block to the current latest block
         if let Some(latest_block) = self.get_latest_block_number().await {
-            info!("(Core DAO Block Scrapper) Starting from latest block: {}", latest_block);
-            self.last_processed_block = latest_block;
+            debug!("(Core DAO Block Scrapper) Starting from latest block: {}", latest_block);
+            self.last_processed_block = latest_block.saturating_sub(self.max_blocks as u64);
+            debug!("(Core DAO Block Scrapper) Will process blocks from {} to {}", 
+                  self.last_processed_block + 1, latest_block);
         } else {
             error!("(Core DAO Block Scrapper) Failed to get initial latest block number");
         }
         
         loop {
-            info!("(Core DAO Block Scrapper) Checking for new blocks");
+            debug!("(Core DAO Block Scrapper) Checking for new blocks");
             
             // Process any new blocks
             self.process_new_blocks().await;
