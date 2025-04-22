@@ -9,17 +9,25 @@ use crate::{
     blockchains::tendermint::{
         metrics::TENDERMINT_UPGRADE_PLAN, types::TendermintUpgradePlanResponse,
     },
-    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{
+        chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task,
+        network::Network,
+    },
 };
 
 pub struct TendermintUpgradePlanScrapper {
     client: Arc<BlockchainClient>,
     chain_id: ChainId,
+    network: Network,
 }
 
 impl TendermintUpgradePlanScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId) -> Self {
-        Self { client, chain_id }
+    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: Network) -> Self {
+        Self {
+            client,
+            chain_id,
+            network,
+        }
     }
 
     async fn get_upgrade_plan(&self) -> anyhow::Result<TendermintUpgradePlanResponse> {
@@ -53,7 +61,11 @@ impl TendermintUpgradePlanScrapper {
                         }
                     };
                     TENDERMINT_UPGRADE_PLAN
-                        .with_label_values(&[&plan.name, &self.chain_id.to_string()])
+                        .with_label_values(&[
+                            &plan.name,
+                            &self.chain_id.to_string(),
+                            &self.network.to_string(),
+                        ])
                         .set(height);
                 }
             }

@@ -8,7 +8,10 @@ use urlencoding::encode;
 
 use crate::{
     blockchains::tendermint::types::TendermintProposalsResponse,
-    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{
+        chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task,
+        network::Network,
+    },
 };
 
 use super::{
@@ -20,14 +23,16 @@ pub struct TendermintProposalScrapper {
     client: Arc<BlockchainClient>,
     proposals: Vec<String>,
     chain_id: ChainId,
+    network: Network,
 }
 
 impl TendermintProposalScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId) -> Self {
+    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: Network) -> Self {
         Self {
             client,
             proposals: Vec::new(),
             chain_id,
+            network,
         }
     }
 
@@ -145,6 +150,7 @@ impl TendermintProposalScrapper {
                     &content.content_type,
                     &proposal.status.to_string(),
                     &height.to_string(),
+                    &self.network.to_string(),
                 ])
                 .set(if height > last_block_height as u64 {
                     1
@@ -220,6 +226,7 @@ impl TendermintProposalScrapper {
                     &proposal.status.to_string(),
                     &height,
                     &self.chain_id.to_string(),
+                    &self.network.to_string(),
                 ])
                 .set(0);
         }
