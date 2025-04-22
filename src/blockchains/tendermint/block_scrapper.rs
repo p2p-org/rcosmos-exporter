@@ -29,6 +29,7 @@ pub struct TendermintBlockScrapper {
     processed_height: usize,
     chain_id: ChainId,
     network: Network,
+    validator_alert_addresses: Vec<String>,
 }
 
 impl TendermintBlockScrapper {
@@ -37,6 +38,7 @@ impl TendermintBlockScrapper {
         block_window: usize,
         chain_id: ChainId,
         network: Network,
+        validator_alert_addresses: Vec<String>,
     ) -> Self {
         Self {
             client,
@@ -45,6 +47,7 @@ impl TendermintBlockScrapper {
             processed_height: 0,
             chain_id,
             network,
+            validator_alert_addresses,
         }
     }
 
@@ -177,12 +180,18 @@ impl TendermintBlockScrapper {
         info!("(Tendermint Block Scrapper) Calculating uptime for validators");
         for validator in self.validators.iter() {
             let uptime = uptimes.get(validator).unwrap_or(&0.0);
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(validator)
+                .to_string();
+
             TENDERMINT_VALIDATOR_UPTIME
                 .with_label_values(&[
                     validator,
                     &self.block_window.window.to_string(),
                     &self.chain_id.to_string(),
                     &self.network.to_string(),
+                    &fires_alerts,
                 ])
                 .set(*uptime);
         }
@@ -264,11 +273,17 @@ impl TendermintBlockScrapper {
             .collect();
 
         for validator in validators_missing_block {
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(&validator)
+                .to_string();
+
             TENDERMINT_VALIDATOR_MISSED_BLOCKS
                 .with_label_values(&[
                     &validator,
                     &self.chain_id.to_string(),
                     &self.network.to_string(),
+                    &fires_alerts,
                 ])
                 .inc();
         }

@@ -59,6 +59,9 @@ async fn main() {
         .parse()
         .unwrap();
 
+    let validator_alert_addresses =
+        env::var("VALIDATOR_ALERT_ADDRESSES").unwrap_or_else(|_| "".to_string());
+
     let blockchain = env::var("BLOCKCHAIN").expect("You must passs BLOCKCHAIN env var.");
     let mode = env::var("MODE").expect("You must pass MODE env var.");
     let network = env::var("NETWORK").expect("You must passs NETWORK env var.");
@@ -89,6 +92,7 @@ async fn main() {
             info!("MODE: {}", mode);
             info!("BLOCKCHAIN: {}", blockchain);
             info!("NETWORK: {}", network);
+            info!("VALIDATOR_ALERT_ADDRESES: {}", validator_alert_addresses);
             info!("PROMETHEUS_IP: {}", prometheus_ip);
             info!("PROMETHEUS_PORT: {}", prometheus_port);
             info!("BLOCK_WINDOW: {}", block_window);
@@ -102,6 +106,7 @@ async fn main() {
                 rest_endpoints,
                 block_window,
                 network,
+                validator_alert_addresses,
             )
             .await
         }
@@ -166,9 +171,11 @@ pub async fn network_exporter(
     rest_endpoints: String,
     block_window: usize,
     network: Network,
+    validator_alert_addresses: String,
 ) -> BlockchainExporter {
     let rpc = HttpClient::new(split_urls(rpc_endpoints), None);
     let rest = HttpClient::new(split_urls(rest_endpoints), None);
+    let validator_alert_addresses = split_validator_addresses(validator_alert_addresses);
 
     match blockchain {
         Blockchain::Tendermint => {
@@ -191,6 +198,7 @@ pub async fn network_exporter(
                     block_window,
                     chain_id.clone(),
                     network.clone(),
+                    validator_alert_addresses.clone(),
                 )),
                 Duration::from_secs(30),
             );
@@ -200,6 +208,7 @@ pub async fn network_exporter(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),
+                    validator_alert_addresses.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -250,6 +259,7 @@ pub async fn network_exporter(
                     block_window,
                     chain_id.clone(),
                     network.clone(),
+                    validator_alert_addresses.clone(),
                 )),
                 Duration::from_secs(30),
             );
@@ -259,6 +269,7 @@ pub async fn network_exporter(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),
+                    validator_alert_addresses.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -299,6 +310,7 @@ pub async fn network_exporter(
                     block_window,
                     chain_id.clone(),
                     network.clone(),
+                    validator_alert_addresses.clone(),
                 )),
                 Duration::from_secs(30),
             );
@@ -308,6 +320,7 @@ pub async fn network_exporter(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),
+                    validator_alert_addresses.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -326,6 +339,7 @@ pub async fn network_exporter(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),
+                    validator_alert_addresses.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -363,22 +377,11 @@ pub async fn network_exporter(
             // Register CoreDao metrics
             blockchains::coredao::metrics::register_custom_metrics();
 
-            // Get target validator from environment variable
-            let target_validator = match std::env::var("COREDAO_TARGET_VALIDATOR") {
-                Ok(val) => {
-                    info!("Using target validator from env: {}", val);
-                    val
-                }
-                Err(_) => {
-                    error!("COREDAO_TARGET_VALIDATOR environment variable not set");
-                    return BlockchainExporter::new(); // Return empty exporter
-                }
-            };
-
             let block_scrapper = ExporterTask::new(
                 Box::new(CoreDaoBlockScrapper::new(
                     Arc::clone(&client),
                     network.clone(),
+                    validator_alert_addresses.clone(),
                 )),
                 Duration::from_secs(30),
             );
@@ -386,7 +389,7 @@ pub async fn network_exporter(
             let validator_info_scrapper = ExporterTask::new(
                 Box::new(CoreDaoValidatorInfoScrapper::new(
                     Arc::clone(&client),
-                    target_validator,
+                    validator_alert_addresses.clone(),
                     network.clone(),
                 )),
                 Duration::from_secs(60),
@@ -409,6 +412,10 @@ pub async fn listen_for_shutdown(shutdown_notify: Arc<Notify>) {
     }
 
     shutdown_notify.notify_waiters();
+}
+
+fn split_validator_addresses(addresses: String) -> Vec<String> {
+    addresses.split(';').map(|s| s.trim().to_string()).collect()
 }
 
 fn split_urls(urls: String) -> Vec<(String, String)> {

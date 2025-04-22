@@ -27,15 +27,22 @@ pub struct BabylonBlsScrapper {
     processed_epoch: usize,
     chain_id: ChainId,
     network: Network,
+    validator_alert_addresses: Vec<String>,
 }
 
 impl BabylonBlsScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: Network) -> Self {
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        chain_id: ChainId,
+        network: Network,
+        validator_alert_addresses: Vec<String>,
+    ) -> Self {
         Self {
             client,
             processed_epoch: 0,
             chain_id,
             network,
+            validator_alert_addresses,
         }
     }
 
@@ -230,6 +237,11 @@ impl BabylonBlsScrapper {
         }
 
         for validator in validators {
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(&validator.address)
+                .to_string();
+
             if validators_missing_block.contains(&validator.address) {
                 info!(
                     "(Babylon BLS Scrapper) Found validator missing checkpoint: {}",
@@ -240,6 +252,7 @@ impl BabylonBlsScrapper {
                         &validator.address,
                         &self.chain_id.to_string(),
                         &self.network.to_string(),
+                        &fires_alerts,
                     ])
                     .inc();
             }

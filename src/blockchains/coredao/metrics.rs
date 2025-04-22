@@ -6,25 +6,25 @@ lazy_static! {
     pub static ref COREDAO_VALIDATORS: IntGaugeVec = register_int_gauge_vec!(
         "coredao_validators",
         "CoreDAO validator status (1=active, 0=inactive)",
-        &["operator_address", "network"]
+        &["operator_address", "network", "alerts"]
     )
     .unwrap();
     pub static ref COREDAO_VALIDATOR_JAILED: IntGaugeVec = register_int_gauge_vec!(
         "coredao_validator_jailed",
         "CoreDAO validator jailed status (1=jailed, 0=not jailed)",
-        &["operator_address", "network"]
+        &["operator_address", "network", "alerts"]
     )
     .unwrap();
     pub static ref COREDAO_VALIDATOR_SLASH_COUNT: IntGaugeVec = register_int_gauge_vec!(
         "coredao_validator_slash_count",
         "Number of times a CoreDAO validator has been slashed",
-        &["operator_address", "network"]
+        &["operator_address", "network", "alerts"]
     )
     .unwrap();
     pub static ref COREDAO_VALIDATOR_SLASH_BLOCK: IntGaugeVec = register_int_gauge_vec!(
         "coredao_validator_slash_block",
         "Block height at which a CoreDAO validator was last slashed (0=never slashed)",
-        &["operator_address", "network"]
+        &["operator_address", "network", "alerts"]
     )
     .unwrap();
     pub static ref COREDAO_BLOCK_SIGNER: IntGaugeVec = register_int_gauge_vec!(
