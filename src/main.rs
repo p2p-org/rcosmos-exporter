@@ -7,6 +7,9 @@ use blockchains::{
         //     client::Client as CubistClient, cubist_metrics_scrapper::BabylonCubistMetricScrapper,
         // },
     },
+    coredao::{
+        block_scrapper::CoreDaoBlockScrapper, validator_info_scrapper::CoreDaoValidatorInfoScrapper,
+    },
     mezo::validator_info_scrapper::MezoValidatorInfoScrapper,
     tendermint::{
         block_scrapper::TendermintBlockScrapper, chain_id::TendermintChainIdFetcher,
@@ -15,10 +18,6 @@ use blockchains::{
         upgrade_plan_scrapper::TendermintUpgradePlanScrapper,
         validator_info_scrapper::TendermintValidatorInfoScrapper,
     },
-    coredao::{
-        block_scrapper::CoreDaoBlockScrapper,
-        validator_info_scrapper::CoreDaoValidatorInfoScrapper,
-    },
 };
 
 use core::{
@@ -26,15 +25,13 @@ use core::{
     clients::{blockchain_client::BlockchainClientBuilder, http_client::HttpClient},
     exporter::{BlockchainExporter, ExporterTask, Mode},
     metrics::serve_metrics::serve_metrics,
+    network::Network,
 };
 use dotenv::dotenv;
 use std::{env, sync::Arc, time::Duration};
 use tokio::{
     signal,
-    sync::{
-        mpsc::{unbounded_channel},
-        Notify,
-    },
+    sync::{mpsc::unbounded_channel, Notify},
 };
 use tracing::{error, info};
 mod blockchains;
@@ -64,12 +61,18 @@ async fn main() {
 
     let blockchain = env::var("BLOCKCHAIN").expect("You must passs BLOCKCHAIN env var.");
     let mode = env::var("MODE").expect("You must pass MODE env var.");
+    let network = env::var("NETWORK").expect("You must passs NETWORK env var.");
 
     println!("{}", ascii_art());
 
     let blockchain = match Blockchain::from_str(&blockchain) {
         Some(blockchain) => blockchain,
         None => panic!("Unsupported blockchain"),
+    };
+
+    let network = match Network::from_str(&network) {
+        Some(network) => network,
+        None => panic!("Unsupported network"),
     };
 
     let mode = match Mode::from_str(&mode) {
@@ -85,6 +88,7 @@ async fn main() {
             info!("--------------------------------------------------------------------");
             info!("MODE: {}", mode);
             info!("BLOCKCHAIN: {}", blockchain);
+            info!("NETWORK: {}", network);
             info!("PROMETHEUS_IP: {}", prometheus_ip);
             info!("PROMETHEUS_PORT: {}", prometheus_port);
             info!("BLOCK_WINDOW: {}", block_window);
@@ -97,6 +101,7 @@ async fn main() {
                 rpc_endpoints,
                 rest_endpoints,
                 block_window,
+                network,
             )
             .await
         }
@@ -107,13 +112,14 @@ async fn main() {
             info!("--------------------------------------------------------------------");
             info!("MODE: {}", mode);
             info!("NODE_NAME: {}", name);
+            info!("NETWORK: {}", network);
             info!("NODE_ENDPOINT: {}", endpoint);
             info!("--------------------------------------------------------------------");
 
             blockchains::tendermint::metrics::register_custom_metrics();
 
             let node_status_scrapper = ExporterTask::new(
-                Box::new(TendermintNodeStatusScrapper::new(name, endpoint)),
+                Box::new(TendermintNodeStatusScrapper::new(name, endpoint, network)),
                 Duration::from_secs(5),
             );
 
@@ -159,6 +165,7 @@ pub async fn network_exporter(
     rpc_endpoints: String,
     rest_endpoints: String,
     block_window: usize,
+    network: Network,
 ) -> BlockchainExporter {
     let rpc = HttpClient::new(split_urls(rpc_endpoints), None);
     let rest = HttpClient::new(split_urls(rest_endpoints), None);
@@ -183,6 +190,7 @@ pub async fn network_exporter(
                     Arc::clone(&client),
                     block_window,
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(30),
             );
@@ -191,6 +199,7 @@ pub async fn network_exporter(
                 Box::new(TendermintValidatorInfoScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -199,6 +208,7 @@ pub async fn network_exporter(
                 Box::new(TendermintProposalScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -207,6 +217,7 @@ pub async fn network_exporter(
                 Box::new(TendermintUpgradePlanScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -238,6 +249,7 @@ pub async fn network_exporter(
                     Arc::clone(&client),
                     block_window,
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(30),
             );
@@ -246,6 +258,7 @@ pub async fn network_exporter(
                 Box::new(MezoValidatorInfoScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -254,6 +267,7 @@ pub async fn network_exporter(
                 Box::new(TendermintUpgradePlanScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -284,6 +298,7 @@ pub async fn network_exporter(
                     Arc::clone(&client),
                     block_window,
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(30),
             );
@@ -292,6 +307,7 @@ pub async fn network_exporter(
                 Box::new(TendermintValidatorInfoScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -300,6 +316,7 @@ pub async fn network_exporter(
                 Box::new(TendermintUpgradePlanScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -308,6 +325,7 @@ pub async fn network_exporter(
                 Box::new(BabylonBlsScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
+                    network.clone(),
                 )),
                 Duration::from_secs(300),
             );
@@ -338,10 +356,7 @@ pub async fn network_exporter(
             // .add_task(cubist_metrics_exporter)
         }
         Blockchain::CoreDao => {
-            let client = BlockchainClientBuilder::new()
-                .with_rpc(rpc)
-                .build()
-                .await;
+            let client = BlockchainClientBuilder::new().with_rpc(rpc).build().await;
 
             let client = Arc::new(client);
 
@@ -353,7 +368,7 @@ pub async fn network_exporter(
                 Ok(val) => {
                     info!("Using target validator from env: {}", val);
                     val
-                },
+                }
                 Err(_) => {
                     error!("COREDAO_TARGET_VALIDATOR environment variable not set");
                     return BlockchainExporter::new(); // Return empty exporter
@@ -361,7 +376,10 @@ pub async fn network_exporter(
             };
 
             let block_scrapper = ExporterTask::new(
-                Box::new(CoreDaoBlockScrapper::new(Arc::clone(&client))),
+                Box::new(CoreDaoBlockScrapper::new(
+                    Arc::clone(&client),
+                    network.clone(),
+                )),
                 Duration::from_secs(30),
             );
 
@@ -369,6 +387,7 @@ pub async fn network_exporter(
                 Box::new(CoreDaoValidatorInfoScrapper::new(
                     Arc::clone(&client),
                     target_validator,
+                    network.clone(),
                 )),
                 Duration::from_secs(60),
             );

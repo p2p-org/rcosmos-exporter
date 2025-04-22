@@ -19,7 +19,10 @@ use crate::{
             types::{TendermintValidator, ValidatorsResponse},
         },
     },
-    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{
+        chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task,
+        network::Network,
+    },
 };
 
 use super::types::MezoRESTValidator;
@@ -27,11 +30,16 @@ use super::types::MezoRESTValidator;
 pub struct MezoValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
     chain_id: ChainId,
+    network: Network,
 }
 
 impl MezoValidatorInfoScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId) -> Self {
-        Self { client, chain_id }
+    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: Network) -> Self {
+        Self {
+            client,
+            chain_id,
+            network,
+        }
     }
 
     async fn get_rpc_validators(&self, path: &str) -> Vec<TendermintValidator> {
@@ -159,7 +167,12 @@ impl MezoValidatorInfoScrapper {
             let name = &validator.description.moniker;
 
             TENDERMINT_VALIDATORS
-                .with_label_values(&[name, &address, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
                 .set(0);
         }
 
@@ -168,11 +181,19 @@ impl MezoValidatorInfoScrapper {
         info!("(Mezo Validator Info) Processing RPC validators");
         for validator in rpc_validators {
             TENDERMINT_VALIDATOR_PROPOSER_PRIORITY
-                .with_label_values(&[&validator.address, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    &validator.address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
                 .set(validator.proposer_priority.parse::<i64>().unwrap());
 
             TENDERMINT_VALIDATOR_VOTING_POWER
-                .with_label_values(&[&validator.address, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    &validator.address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
                 .set(validator.voting_power.parse::<i64>().unwrap());
         }
     }

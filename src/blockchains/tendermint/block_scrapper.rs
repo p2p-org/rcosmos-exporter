@@ -9,7 +9,7 @@ use crate::{
     blockchains::tendermint::types::{TendermintValidator, ValidatorsResponse},
     core::{
         block_height::BlockHeight, block_window::BlockWindow, chain_id::ChainId,
-        clients::blockchain_client::BlockchainClient, exporter::Task,
+        clients::blockchain_client::BlockchainClient, exporter::Task, network::Network,
     },
 };
 
@@ -28,16 +28,23 @@ pub struct TendermintBlockScrapper {
     block_window: BlockWindow,
     processed_height: usize,
     chain_id: ChainId,
+    network: Network,
 }
 
 impl TendermintBlockScrapper {
-    pub fn new(client: Arc<BlockchainClient>, block_window: usize, chain_id: ChainId) -> Self {
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        block_window: usize,
+        chain_id: ChainId,
+        network: Network,
+    ) -> Self {
         Self {
             client,
             validators: Vec::default(),
             block_window: BlockWindow::new(block_window),
             processed_height: 0,
             chain_id,
+            network,
         }
     }
 
@@ -175,6 +182,7 @@ impl TendermintBlockScrapper {
                     validator,
                     &self.block_window.window.to_string(),
                     &self.chain_id.to_string(),
+                    &self.network.to_string(),
                 ])
                 .set(*uptime);
         }
@@ -237,7 +245,11 @@ impl TendermintBlockScrapper {
         };
 
         TENDERMINT_VALIDATOR_PROPOSED_BLOCKS
-            .with_label_values(&[proposer_address, &self.chain_id.to_string()])
+            .with_label_values(&[
+                proposer_address,
+                &self.chain_id.to_string(),
+                &self.network.to_string(),
+            ])
             .inc();
 
         let validators_missing_block: Vec<String> = self
@@ -253,16 +265,20 @@ impl TendermintBlockScrapper {
 
         for validator in validators_missing_block {
             TENDERMINT_VALIDATOR_MISSED_BLOCKS
-                .with_label_values(&[&validator, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    &validator,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
                 .inc();
         }
 
         TENDERMINT_CURRENT_BLOCK_HEIGHT
-            .with_label_values(&[&self.chain_id.to_string()])
+            .with_label_values(&[&self.chain_id.to_string(), &self.network.to_string()])
             .set(block_height.try_into().unwrap());
 
         TENDERMINT_CURRENT_BLOCK_TIME
-            .with_label_values(&[&self.chain_id.to_string()])
+            .with_label_values(&[&self.chain_id.to_string(), &self.network.to_string()])
             .set(block_time.and_utc().timestamp() as f64);
 
         self.processed_height = block_height;

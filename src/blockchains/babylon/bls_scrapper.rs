@@ -11,7 +11,10 @@ use crate::{
         babylon::types::{CurrentEpoch, GetEpochResponse},
         tendermint::types::{TendermintValidator, ValidatorsResponse},
     },
-    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{
+        chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task,
+        network::Network,
+    },
 };
 
 use super::{
@@ -23,14 +26,16 @@ pub struct BabylonBlsScrapper {
     client: Arc<BlockchainClient>,
     processed_epoch: usize,
     chain_id: ChainId,
+    network: Network,
 }
 
 impl BabylonBlsScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId) -> Self {
+    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: Network) -> Self {
         Self {
             client,
             processed_epoch: 0,
             chain_id,
+            network,
         }
     }
 
@@ -143,7 +148,7 @@ impl BabylonBlsScrapper {
         };
 
         BABYLON_CURRENT_EPOCH
-            .with_label_values(&[&self.chain_id.to_string()])
+            .with_label_values(&[&self.chain_id.to_string(), &self.network.to_string()])
             .set(current_epoch as i64);
 
         let epoch_to_process = current_epoch - 1;
@@ -231,7 +236,11 @@ impl BabylonBlsScrapper {
                     &validator.address
                 );
                 BABYLON_VALIDATOR_MISSING_BLS_VOTE
-                    .with_label_values(&[&validator.address, &self.chain_id.to_string()])
+                    .with_label_values(&[
+                        &validator.address,
+                        &self.chain_id.to_string(),
+                        &self.network.to_string(),
+                    ])
                     .inc();
             }
         }
