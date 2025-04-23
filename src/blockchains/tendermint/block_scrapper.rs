@@ -28,16 +28,26 @@ pub struct TendermintBlockScrapper {
     block_window: BlockWindow,
     processed_height: usize,
     chain_id: ChainId,
+    network: String,
+    validator_alert_addresses: Vec<String>,
 }
 
 impl TendermintBlockScrapper {
-    pub fn new(client: Arc<BlockchainClient>, block_window: usize, chain_id: ChainId) -> Self {
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        block_window: usize,
+        chain_id: ChainId,
+        network: String,
+        validator_alert_addresses: Vec<String>,
+    ) -> Self {
         Self {
             client,
             validators: Vec::default(),
             block_window: BlockWindow::new(block_window),
             processed_height: 0,
             chain_id,
+            network,
+            validator_alert_addresses,
         }
     }
 
@@ -170,11 +180,18 @@ impl TendermintBlockScrapper {
         info!("(Tendermint Block Scrapper) Calculating uptime for validators");
         for validator in self.validators.iter() {
             let uptime = uptimes.get(validator).unwrap_or(&0.0);
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(validator)
+                .to_string();
+
             TENDERMINT_VALIDATOR_UPTIME
                 .with_label_values(&[
                     validator,
                     &self.block_window.window.to_string(),
                     &self.chain_id.to_string(),
+                    &self.network,
+                    &fires_alerts,
                 ])
                 .set(*uptime);
         }
@@ -237,7 +254,7 @@ impl TendermintBlockScrapper {
         };
 
         TENDERMINT_VALIDATOR_PROPOSED_BLOCKS
-            .with_label_values(&[proposer_address, &self.chain_id.to_string()])
+            .with_label_values(&[proposer_address, &self.chain_id.to_string(), &self.network])
             .inc();
 
         let validators_missing_block: Vec<String> = self
@@ -252,17 +269,27 @@ impl TendermintBlockScrapper {
             .collect();
 
         for validator in validators_missing_block {
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(&validator)
+                .to_string();
+
             TENDERMINT_VALIDATOR_MISSED_BLOCKS
-                .with_label_values(&[&validator, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    &validator,
+                    &self.chain_id.to_string(),
+                    &self.network,
+                    &fires_alerts,
+                ])
                 .inc();
         }
 
         TENDERMINT_CURRENT_BLOCK_HEIGHT
-            .with_label_values(&[&self.chain_id.to_string()])
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(block_height.try_into().unwrap());
 
         TENDERMINT_CURRENT_BLOCK_TIME
-            .with_label_values(&[&self.chain_id.to_string()])
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(block_time.and_utc().timestamp() as f64);
 
         self.processed_height = block_height;

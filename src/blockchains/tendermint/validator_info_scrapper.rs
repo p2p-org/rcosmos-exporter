@@ -23,11 +23,23 @@ use super::metrics::{
 pub struct TendermintValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
     chain_id: ChainId,
+    network: String,
+    validator_alert_addresses: Vec<String>,
 }
 
 impl TendermintValidatorInfoScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId) -> Self {
-        Self { client, chain_id }
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        chain_id: ChainId,
+        network: String,
+        validator_alert_addresses: Vec<String>,
+    ) -> Self {
+        Self {
+            client,
+            chain_id,
+            network,
+            validator_alert_addresses,
+        }
     }
 
     async fn get_rpc_validators(&self, path: &str) -> Vec<TendermintValidator> {
@@ -155,15 +167,36 @@ impl TendermintValidatorInfoScrapper {
             let name = &validator.description.moniker;
             let tokens: f64 = validator.tokens.parse().unwrap_or(0.0);
             let jailed = validator.jailed;
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(&address)
+                .to_string();
 
             TENDERMINT_VALIDATORS
-                .with_label_values(&[name, &address, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                    &fires_alerts,
+                ])
                 .set(0);
             TENDERMINT_VALIDATOR_TOKENS
-                .with_label_values(&[name, &address, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
                 .set(tokens);
             TENDERMINT_VALIDATOR_JAILED
-                .with_label_values(&[name, &address, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                    &fires_alerts,
+                ])
                 .set(if jailed { 1 } else { 0 });
         }
 
@@ -172,11 +205,19 @@ impl TendermintValidatorInfoScrapper {
         info!("(Tendermint Validator Info) Processing RPC validators");
         for validator in rpc_validators {
             TENDERMINT_VALIDATOR_PROPOSER_PRIORITY
-                .with_label_values(&[&validator.address, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    &validator.address,
+                    &self.chain_id.to_string(),
+                    &self.network,
+                ])
                 .set(validator.proposer_priority.parse::<i64>().unwrap());
 
             TENDERMINT_VALIDATOR_VOTING_POWER
-                .with_label_values(&[&validator.address, &self.chain_id.to_string()])
+                .with_label_values(&[
+                    &validator.address,
+                    &self.chain_id.to_string(),
+                    &self.network,
+                ])
                 .set(validator.voting_power.parse::<i64>().unwrap());
         }
     }

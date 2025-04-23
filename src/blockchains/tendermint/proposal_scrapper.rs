@@ -20,14 +20,16 @@ pub struct TendermintProposalScrapper {
     client: Arc<BlockchainClient>,
     proposals: Vec<String>,
     chain_id: ChainId,
+    network: String,
 }
 
 impl TendermintProposalScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId) -> Self {
+    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: String) -> Self {
         Self {
             client,
             proposals: Vec::new(),
             chain_id,
+            network,
         }
     }
 
@@ -145,6 +147,7 @@ impl TendermintProposalScrapper {
                     &content.content_type,
                     &proposal.status.to_string(),
                     &height.to_string(),
+                    &self.network,
                 ])
                 .set(if height > last_block_height as u64 {
                     1
@@ -220,6 +223,7 @@ impl TendermintProposalScrapper {
                     &proposal.status.to_string(),
                     &height,
                     &self.chain_id.to_string(),
+                    &self.network,
                 ])
                 .set(0);
         }

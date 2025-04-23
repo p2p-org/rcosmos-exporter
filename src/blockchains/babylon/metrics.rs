@@ -5,7 +5,7 @@ lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
     pub static ref BABYLON_CURRENT_EPOCH: IntGaugeVec = IntGaugeVec::new(
         Opts::new("babylon_current_epoch", "Babylon current epoch"),
-        &["chain_id"]
+        &["chain_id", "network"]
     )
     .unwrap();
     pub static ref BABYLON_VALIDATOR_MISSING_BLS_VOTE: CounterVec = CounterVec::new(
@@ -13,7 +13,7 @@ lazy_static! {
             "babylon_validator_missing_bls_vote",
             "Babylon validators missing BLS vote"
         ),
-        &["address", "chain_id"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     // pub static ref BABYLON_CUBE_SIGNER_SIGNATURES: IntGaugeVec = IntGaugeVec::new(

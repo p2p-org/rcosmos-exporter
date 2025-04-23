@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration, collections::{VecDeque}};
+use std::{sync::Arc, time::Duration, collections::VecDeque};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -6,10 +6,8 @@ use tokio::{time::sleep};
 use tracing::{error, info, debug};
 
 use crate::{
-    blockchains::coredao::{
-        metrics::{COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY, COREDAO_VALIDATOR_SIGNED_BLOCKS},
-    },
-    core::{clients::blockchain_client::BlockchainClient, exporter::Task},
+    blockchains::coredao::metrics::{COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY, COREDAO_VALIDATOR_SIGNED_BLOCKS},
+    core::{clients::blockchain_client::BlockchainClient, exporter::Task, network::Network},
 };
 
 pub struct CoreDaoBlockScrapper {
@@ -19,18 +17,24 @@ pub struct CoreDaoBlockScrapper {
     recent_blocks: VecDeque<(u64, String)>,
     // Maximum blocks to track
     max_blocks: usize,
-    // Target validator to monitor
-    target_validator: Option<String>,
+    // Validator addresses to monitor and alert on
+    validator_alert_addresses: Vec<String>,
+    network: Network,
 }
 
 impl CoreDaoBlockScrapper {
-    pub fn with_target_validator(client: Arc<BlockchainClient>, target_validator: String) -> Self {
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        validator_alert_addresses: Vec<String>,
+        network: Network,
+    ) -> Self {
         CoreDaoBlockScrapper {
             client,
             recent_blocks: VecDeque::with_capacity(100),
             max_blocks: 100,
-            target_validator: Some(target_validator),
+            validator_alert_addresses,
             last_processed_block: 0,
+            network,
         }
     }
 
@@ -47,7 +51,10 @@ impl CoreDaoBlockScrapper {
         let res = match self.client.with_rpc().post("", &payload).await {
             Ok(res) => res,
             Err(e) => {
-                error!("(Core DAO Block Scrapper) Error getting latest block number: {}", e);
+                error!(
+                    "(Core DAO Block Scrapper) Error getting latest block number: {}",
+                    e
+                );
                 return None;
             }
         };
@@ -55,7 +62,10 @@ impl CoreDaoBlockScrapper {
         let result: Value = match serde_json::from_str(&res) {
             Ok(val) => val,
             Err(e) => {
-                error!("(Core DAO Block Scrapper) Error parsing JSON for blockNumber: {}", e);
+                error!(
+                    "(Core DAO Block Scrapper) Error parsing JSON for blockNumber: {}",
+                    e
+                );
                 return None;
             }
         };
@@ -71,16 +81,18 @@ impl CoreDaoBlockScrapper {
         match u64::from_str_radix(block_number_hex, 16) {
             Ok(num) => Some(num),
             Err(e) => {
-                error!("(Core DAO Block Scrapper) Error parsing block number: {}", e);
+                error!(
+                    "(Core DAO Block Scrapper) Error parsing block number: {}",
+                    e
+                );
                 None
             }
         }
     }
 
     async fn get_block_by_number(&self, block_number: u64) -> Option<(u64, String)> {
-        
         let block_number_hex = format!("0x{:x}", block_number);
-        
+
         let payload = json!({
             "jsonrpc": "2.0",
             "method": "eth_getBlockByNumber",
@@ -99,7 +111,10 @@ impl CoreDaoBlockScrapper {
         let result: Value = match serde_json::from_str(&res) {
             Ok(val) => val,
             Err(e) => {
-                error!("(Core DAO Block Scrapper) Error parsing JSON for block {}: {}", block_number, e);
+                error!(
+                    "(Core DAO Block Scrapper) Error parsing JSON for block {}: {}",
+                    block_number, e
+                );
                 return None;
             }
         };
@@ -107,7 +122,10 @@ impl CoreDaoBlockScrapper {
         let block = match result.get("result") {
             Some(block) => block,
             None => {
-                error!("(Core DAO Block Scrapper) No result field in response for block {}", block_number);
+                error!(
+                    "(Core DAO Block Scrapper) No result field in response for block {}",
+                    block_number
+                );
                 return None;
             }
         };
@@ -115,21 +133,27 @@ impl CoreDaoBlockScrapper {
         let miner = match block.get("miner") {
             Some(Value::String(miner)) => miner.clone(),
             _ => {
-                error!("(Core DAO Block Scrapper) Invalid or missing miner field for block {}", block_number);
+                error!(
+                    "(Core DAO Block Scrapper) Invalid or missing miner field for block {}",
+                    block_number
+                );
                 return None;
             }
         };
 
         Some((block_number, miner))
     }
-    
+
     async fn process_new_blocks(&mut self) {
         // Get the latest block number
         if let Some(latest_block) = self.get_latest_block_number().await {
             // If we've seen a new block
             if latest_block > self.last_processed_block {
-                info!("(Core DAO Block Scrapper) Found new block: {}", latest_block);
-                
+                info!(
+                    "(Core DAO Block Scrapper) Found new block: {}",
+                    latest_block
+                );
+
                 // Process all blocks from last_processed_block+1 to latest_block
                 for block_num in (self.last_processed_block + 1)..=latest_block {
                     if let Some((block_number, consensus_address)) = self.get_block_by_number(block_num).await {
@@ -204,20 +228,22 @@ impl CoreDaoBlockScrapper {
             // So we calculate participation as (blocks signed / 3) * 100%
             let participation_rate = (blocks_signed as f64 / 3.0) * 100.0;
             
+            // Check if this is one of our alert validators
+            let fires_alerts = self.validator_alert_addresses.contains(&validator).to_string();
+            
             COREDAO_VALIDATOR_PARTICIPATION
-                .with_label_values(&[&validator])
+                .with_label_values(&[&validator, &self.network.to_string(), &fires_alerts])
                 .set(participation_rate);
                 
-            if let Some(ref target) = self.target_validator {
-                if &validator == target {
-                    info!("(Core DAO Block Scrapper) Target validator {} signed {} out of 3 expected blocks across 3 rotations ({}%)",
-                          validator, blocks_signed, participation_rate);
-                }
+            // Check if this is one of our alert validators
+            if self.validator_alert_addresses.contains(&validator) {
+                info!("(Core DAO Block Scrapper) Alert validator {} signed {} out of 3 expected blocks across 3 rotations ({}%)",
+                      validator, blocks_signed, participation_rate);
             }
         }
         
-        // Check if target validator has signed at least once in the latest rotation
-        if let Some(ref target) = self.target_validator {
+        // Check if alert validators have signed at least once in the latest rotation
+        for target in &self.validator_alert_addresses {
             // Get blocks for the latest rotation only
             let latest_rotation = &recent_three_rotations[0..blocks_per_round];
             
@@ -226,21 +252,21 @@ impl CoreDaoBlockScrapper {
                 .any(|(_, validator)| validator == target);
             
             let activity_value = if has_signed { 1.0 } else { 0.0 };
+            let fires_alerts = "true";
             
             COREDAO_VALIDATOR_RECENT_ACTIVITY
-                .with_label_values(&[target])
+                .with_label_values(&[target, &self.network.to_string(), fires_alerts])
                 .set(activity_value);
             
             info!("(Core DAO Block Scrapper) Setting recent activity metric for {} to {} (signed in latest rotation: {})",
                   target, activity_value, has_signed);
             
             if !has_signed {
-                info!("(Core DAO Block Scrapper) ALERT: Target validator {} has not signed any blocks in the latest rotation!",
+                info!("(Core DAO Block Scrapper) ALERT: Validator {} has not signed any blocks in the latest rotation!",
                       target);
             }
             
             // Track all blocks signed by the target validator
-            // First, get all blocks signed by the target validator
             let target_signed_blocks: Vec<_> = self.recent_blocks
                 .iter()
                 .filter(|(_, validator)| validator == target)
@@ -248,10 +274,10 @@ impl CoreDaoBlockScrapper {
             
             for (block_number, _) in target_signed_blocks {
                 COREDAO_VALIDATOR_SIGNED_BLOCKS
-                    .with_label_values(&[target, &block_number.to_string()])
+                    .with_label_values(&[target, &block_number.to_string(), &self.network.to_string(), fires_alerts])
                     .set(1.0);
                 
-                info!("(Core DAO Block Scrapper) Target validator {} signed block {}",
+                info!("(Core DAO Block Scrapper) Validator {} signed block {}",
                       target, block_number);
             }
         }
@@ -263,11 +289,13 @@ impl Task for CoreDaoBlockScrapper {
     async fn run(&mut self, delay: Duration) {
         info!("(Core DAO Block Scrapper) Starting task");
         
-        let target_address = self.target_validator.clone().unwrap();
-        debug!("(Core DAO Block Scrapper) Forcibly initializing recent activity metric for {}", target_address);
-        COREDAO_VALIDATOR_RECENT_ACTIVITY
-            .with_label_values(&[&target_address])
-            .set(-1.0);  // Initialize with -1 to indicate "not enough data yet"
+        // Initialize metrics for all alert validators
+        for target_address in &self.validator_alert_addresses {
+            debug!("(Core DAO Block Scrapper) Forcibly initializing recent activity metric for {}", target_address);
+            COREDAO_VALIDATOR_RECENT_ACTIVITY
+                .with_label_values(&[target_address, &self.network.to_string(), "true"])
+                .set(-1.0);  // Initialize with -1 to indicate "not enough data yet"
+        }
         
         // Initialize last_processed_block to the current latest block
         if let Some(latest_block) = self.get_latest_block_number().await {
@@ -278,14 +306,17 @@ impl Task for CoreDaoBlockScrapper {
         } else {
             error!("(Core DAO Block Scrapper) Failed to get initial latest block number");
         }
-        
+
         loop {
             debug!("(Core DAO Block Scrapper) Checking for new blocks");
             
             // Process any new blocks
             self.process_new_blocks().await;
-            
-            info!("(Core DAO Block Scrapper) Block processing complete, sleeping for {:?}", delay);
+
+            info!(
+                "(Core DAO Block Scrapper) Block processing complete, sleeping for {:?}",
+                delay
+            );
             sleep(delay).await;
         }
     }

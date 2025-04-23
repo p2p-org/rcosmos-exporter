@@ -21,14 +21,16 @@ pub struct TendermintNodeStatusScrapper {
     client: Client,
     endpoint: String,
     name: String,
+    network: String,
 }
 
 impl TendermintNodeStatusScrapper {
-    pub fn new(name: String, endpoint: String) -> Self {
+    pub fn new(name: String, endpoint: String, network: String) -> Self {
         Self {
             client: Client::new(),
             name,
             endpoint,
+            network,
         }
     }
 
@@ -62,11 +64,16 @@ impl TendermintNodeStatusScrapper {
         let chain_id = &status.result.node_info.network;
 
         TENDERMINT_NODE_ID
-            .with_label_values(&[&self.name, &chain_id, &status.result.node_info.id])
+            .with_label_values(&[
+                &self.name,
+                &chain_id,
+                &status.result.node_info.id,
+                &self.network,
+            ])
             .set(0);
 
         TENDERMINT_NODE_CATCHING_UP
-            .with_label_values(&[&self.name, &chain_id])
+            .with_label_values(&[&self.name, &chain_id, &self.network])
             .set(if status.result.sync_info.catching_up {
                 1
             } else {
@@ -77,10 +84,11 @@ impl TendermintNodeStatusScrapper {
                 &self.name,
                 &chain_id,
                 &status.result.sync_info.latest_block_hash,
+                &self.network,
             ])
             .set(0);
         TENDERMINT_NODE_LATEST_BLOCK_HEIGHT
-            .with_label_values(&[&self.name, &chain_id])
+            .with_label_values(&[&self.name, &chain_id, &self.network])
             .set(
                 status
                     .result
@@ -90,7 +98,7 @@ impl TendermintNodeStatusScrapper {
                     .expect("Could not parse latest block height"),
             );
         TENDERMINT_NODE_LATEST_BLOCK_TIME
-            .with_label_values(&[&self.name, &chain_id])
+            .with_label_values(&[&self.name, &chain_id, &self.network])
             .set(
                 status
                     .result
@@ -105,10 +113,11 @@ impl TendermintNodeStatusScrapper {
                 &self.name,
                 &chain_id,
                 &status.result.sync_info.earliest_block_hash,
+                &self.network,
             ])
             .set(0);
         TENDERMINT_NODE_EARLIEST_BLOCK_HEIGHT
-            .with_label_values(&[&self.name, &chain_id])
+            .with_label_values(&[&self.name, &chain_id, &self.network])
             .set(
                 status
                     .result
@@ -118,7 +127,7 @@ impl TendermintNodeStatusScrapper {
                     .expect("Could not parse earliest block height"),
             );
         TENDERMINT_NODE_EARLIEST_BLOCK_TIME
-            .with_label_values(&[&self.name, &chain_id])
+            .with_label_values(&[&self.name, &chain_id, &self.network])
             .set(
                 status
                     .result

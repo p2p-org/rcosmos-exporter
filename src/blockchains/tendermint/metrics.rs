@@ -8,7 +8,7 @@ lazy_static! {
             "tendermint_current_block_height",
             "Current block height of the Tendermint chain"
         ),
-        &["chain_id"]
+        &["chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_CURRENT_BLOCK_TIME: GaugeVec = GaugeVec::new(
@@ -16,7 +16,7 @@ lazy_static! {
             "tendermint_current_block_time",
             "Current block time of the Tendermint chain"
         ),
-        &["chain_id"]
+        &["chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_MISSED_BLOCKS: CounterVec = CounterVec::new(
@@ -24,17 +24,17 @@ lazy_static! {
             "tendermint_validator_missed_blocks",
             "Number of blocks missed by validator"
         ),
-        &["address", "chain_id"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATORS: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_validators", "Validators on the network"),
-        &["name", "address", "chain_id"]
+        &["name", "address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_UPTIME: GaugeVec = GaugeVec::new(
         Opts::new("tendermint_validator_uptime", "Uptime over block window"),
-        &["address", "window", "chain_id"]
+        &["address", "window", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_PROPOSED_BLOCKS: CounterVec = CounterVec::new(
@@ -42,7 +42,7 @@ lazy_static! {
             "tendermint_validator_proposed_blocks",
             "Number of blocks proposed by validator"
         ),
-        &["address", "chain_id"]
+        &["address", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_VOTING_POWER: IntGaugeVec = IntGaugeVec::new(
@@ -50,7 +50,7 @@ lazy_static! {
             "tendermint_validator_voting_power",
             "Voting power by validator"
         ),
-        &["address", "chain_id"]
+        &["address", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_PROPOSER_PRIORITY: IntGaugeVec = IntGaugeVec::new(
@@ -58,7 +58,7 @@ lazy_static! {
             "tendermint_validator_proposer_priority",
             "Proposer priority by validator"
         ),
-        &["address", "chain_id"]
+        &["address", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_TOKENS: GaugeVec = GaugeVec::new(
@@ -66,12 +66,12 @@ lazy_static! {
             "tendermint_validator_tokens",
             "Number of tokens by validator"
         ),
-        &["name", "address", "chain_id"]
+        &["name", "address", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_JAILED: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_validator_jailed", "Jailed status by validator"),
-        &["name", "address", "chain_id"]
+        &["name", "address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_UPGRADE_STATUS: IntGaugeVec = IntGaugeVec::new(
@@ -79,27 +79,27 @@ lazy_static! {
             "tendermint_upgrade_status",
             "Indicates whether an upgrade is in progress (1 for upgrade time, 0 otherwise)"
         ),
-        &["id", "type", "title", "status", "height", "chain_id"]
+        &["id", "type", "title", "status", "height", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_PROPOSALS: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_proposals", "Proposals seen with voting period"),
-        &["id", "type", "title", "status", "height", "chain_id"]
+        &["id", "type", "title", "status", "height", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_UPGRADE_PLAN: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_upgrade_plan", "Upgrade plan"),
-        &["name", "chain_id"]
+        &["name", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_ID: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_node_id", "Node id"),
-        &["name", "chain_id", "id"]
+        &["name", "chain_id", "id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_CATCHING_UP: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_node_catching_up", "Node is catching up"),
-        &["name", "chain_id"]
+        &["name", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_LATEST_BLOCK_HASH: IntGaugeVec = IntGaugeVec::new(
@@ -107,7 +107,7 @@ lazy_static! {
             "tendermint_node_latest_block_hash",
             "Node latest block hash"
         ),
-        &["name", "chain_id", "hash"]
+        &["name", "chain_id", "hash", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_LATEST_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
@@ -115,7 +115,7 @@ lazy_static! {
             "tendermint_node_latest_block_height",
             "Node latest block height"
         ),
-        &["name", "chain_id"]
+        &["name", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_LATEST_BLOCK_TIME: GaugeVec = GaugeVec::new(
@@ -123,7 +123,7 @@ lazy_static! {
             "tendermint_node_latest_block_time",
             "Node latest block time"
         ),
-        &["name", "chain_id"]
+        &["name", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_EARLIEST_BLOCK_HASH: IntGaugeVec = IntGaugeVec::new(
@@ -131,7 +131,7 @@ lazy_static! {
             "tendermint_node_earliest_block_hash",
             "Node latest block hash"
         ),
-        &["name", "chain_id", "hash"]
+        &["name", "chain_id", "hash", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_EARLIEST_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
@@ -139,7 +139,7 @@ lazy_static! {
             "tendermint_node_earliest_block_height",
             "Node earliest block height"
         ),
-        &["name", "chain_id"]
+        &["name", "chain_id", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_EARLIEST_BLOCK_TIME: GaugeVec = GaugeVec::new(
@@ -147,7 +147,7 @@ lazy_static! {
             "tendermint_node_earliest_block_time",
             "Node earliest block time"
         ),
-        &["name", "chain_id"]
+        &["name", "chain_id", "network"]
     )
     .unwrap();
 }

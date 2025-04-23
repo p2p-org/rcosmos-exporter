@@ -23,14 +23,23 @@ pub struct BabylonBlsScrapper {
     client: Arc<BlockchainClient>,
     processed_epoch: usize,
     chain_id: ChainId,
+    network: String,
+    validator_alert_addresses: Vec<String>,
 }
 
 impl BabylonBlsScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId) -> Self {
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        chain_id: ChainId,
+        network: String,
+        validator_alert_addresses: Vec<String>,
+    ) -> Self {
         Self {
             client,
             processed_epoch: 0,
             chain_id,
+            network,
+            validator_alert_addresses,
         }
     }
 
@@ -143,7 +152,7 @@ impl BabylonBlsScrapper {
         };
 
         BABYLON_CURRENT_EPOCH
-            .with_label_values(&[&self.chain_id.to_string()])
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(current_epoch as i64);
 
         let epoch_to_process = current_epoch - 1;
@@ -225,13 +234,23 @@ impl BabylonBlsScrapper {
         }
 
         for validator in validators {
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(&validator.address)
+                .to_string();
+
             if validators_missing_block.contains(&validator.address) {
                 info!(
                     "(Babylon BLS Scrapper) Found validator missing checkpoint: {}",
                     &validator.address
                 );
                 BABYLON_VALIDATOR_MISSING_BLS_VOTE
-                    .with_label_values(&[&validator.address, &self.chain_id.to_string()])
+                    .with_label_values(&[
+                        &validator.address,
+                        &self.chain_id.to_string(),
+                        &self.network,
+                        &fires_alerts,
+                    ])
                     .inc();
             }
         }

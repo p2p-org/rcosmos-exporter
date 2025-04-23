@@ -3,46 +3,42 @@ use prometheus::{register_int_gauge_vec, IntGaugeVec, Registry, GaugeVec, regist
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
-    
     pub static ref COREDAO_VALIDATORS: IntGaugeVec = register_int_gauge_vec!(
         "coredao_validators",
         "CoreDAO validator status (1=active, 0=inactive)",
-        &["operator_address"]
+        &["operator_address", "network", "alerts"]
     )
     .unwrap();
-
     pub static ref COREDAO_VALIDATOR_JAILED: IntGaugeVec = register_int_gauge_vec!(
         "coredao_validator_jailed",
         "CoreDAO validator jailed status (1=jailed, 0=not jailed)",
-        &["operator_address"]
+        &["operator_address", "network", "alerts"]
     )
     .unwrap();
-
     pub static ref COREDAO_VALIDATOR_SLASH_COUNT: IntGaugeVec = register_int_gauge_vec!(
         "coredao_validator_slash_count",
         "Number of times a CoreDAO validator has been slashed",
-        &["operator_address"]
+        &["operator_address", "network", "alerts"]
     )
     .unwrap();
-
     pub static ref COREDAO_VALIDATOR_SLASH_BLOCK: IntGaugeVec = register_int_gauge_vec!(
         "coredao_validator_slash_block",
         "Block height at which a CoreDAO validator was last slashed (0=never slashed)",
-        &["operator_address"]
+        &["operator_address", "network", "alerts"]
     )
     .unwrap();
 
     pub static ref COREDAO_VALIDATOR_PARTICIPATION: GaugeVec = register_gauge_vec!(
         "coredao_validator_participation",
         "Percentage of expected blocks signed by each validator across 3 rotations (100% = 3 blocks, 33.3% = 1 block)",
-        &["validator_address"]
+        &["validator_address", "network", "alerts"]
     )
     .unwrap();
     
     pub static ref COREDAO_VALIDATOR_RECENT_ACTIVITY: GaugeVec = register_gauge_vec!(
         "coredao_validator_recent_activity",
         "Whether validator has signed at least one block in the last rotation (-1=not enough data yet, 0=no, 1=yes)",
-        &["validator_address"]
+        &["validator_address", "network", "alerts"]
     )
     .unwrap();
 
@@ -50,7 +46,7 @@ lazy_static! {
     pub static ref COREDAO_VALIDATOR_SIGNED_BLOCKS: GaugeVec = register_gauge_vec!(
         "coredao_validator_signed_blocks",
         "Block numbers signed by the target validator (value is 1, label contains the block number)",
-        &["validator_address", "block_number"]
+        &["validator_address", "block_number", "network", "alerts"]
     )
     .unwrap();
 }
