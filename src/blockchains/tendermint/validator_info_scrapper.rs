@@ -27,14 +27,21 @@ pub struct TendermintValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
     chain_id: ChainId,
     network: Network,
+    validator_alert_addresses: Vec<String>,
 }
 
 impl TendermintValidatorInfoScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: Network) -> Self {
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        chain_id: ChainId,
+        network: Network,
+        validator_alert_addresses: Vec<String>,
+    ) -> Self {
         Self {
             client,
             chain_id,
             network,
+            validator_alert_addresses,
         }
     }
 
@@ -163,6 +170,10 @@ impl TendermintValidatorInfoScrapper {
             let name = &validator.description.moniker;
             let tokens: f64 = validator.tokens.parse().unwrap_or(0.0);
             let jailed = validator.jailed;
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(&address)
+                .to_string();
 
             TENDERMINT_VALIDATORS
                 .with_label_values(&[
@@ -170,6 +181,7 @@ impl TendermintValidatorInfoScrapper {
                     &address,
                     &self.chain_id.to_string(),
                     &self.network.to_string(),
+                    &fires_alerts,
                 ])
                 .set(0);
             TENDERMINT_VALIDATOR_TOKENS
@@ -186,6 +198,7 @@ impl TendermintValidatorInfoScrapper {
                     &address,
                     &self.chain_id.to_string(),
                     &self.network.to_string(),
+                    &fires_alerts,
                 ])
                 .set(if jailed { 1 } else { 0 });
         }

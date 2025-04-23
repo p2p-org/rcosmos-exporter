@@ -14,14 +14,20 @@ pub struct CoreDaoBlockScrapper {
     client: Arc<BlockchainClient>,
     last_processed_block: u64,
     network: Network,
+    validator_alert_addresses: Vec<String>,
 }
 
 impl CoreDaoBlockScrapper {
-    pub fn new(client: Arc<BlockchainClient>, network: Network) -> Self {
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        network: Network,
+        validator_alert_addresses: Vec<String>,
+    ) -> Self {
         Self {
             client,
             last_processed_block: 0,
             network,
+            validator_alert_addresses,
         }
     }
 

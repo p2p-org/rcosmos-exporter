@@ -24,17 +24,17 @@ lazy_static! {
             "tendermint_validator_missed_blocks",
             "Number of blocks missed by validator"
         ),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATORS: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_validators", "Validators on the network"),
-        &["name", "address", "chain_id", "network"]
+        &["name", "address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_UPTIME: GaugeVec = GaugeVec::new(
         Opts::new("tendermint_validator_uptime", "Uptime over block window"),
-        &["address", "window", "chain_id", "network"]
+        &["address", "window", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_PROPOSED_BLOCKS: CounterVec = CounterVec::new(
@@ -71,7 +71,7 @@ lazy_static! {
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_JAILED: IntGaugeVec = IntGaugeVec::new(
         Opts::new("tendermint_validator_jailed", "Jailed status by validator"),
-        &["name", "address", "chain_id", "network"]
+        &["name", "address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_UPGRADE_STATUS: IntGaugeVec = IntGaugeVec::new(

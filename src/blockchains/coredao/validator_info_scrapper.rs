@@ -15,15 +15,19 @@ use crate::{
 
 pub struct CoreDaoValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
-    target_validator: String,
+    validator_alert_addresses: Vec<String>,
     network: Network,
 }
 
 impl CoreDaoValidatorInfoScrapper {
-    pub fn new(client: Arc<BlockchainClient>, target_validator: String, network: Network) -> Self {
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        validator_alert_addresses: Vec<String>,
+        network: Network,
+    ) -> Self {
         Self {
             client,
-            target_validator: target_validator.to_lowercase(),
+            validator_alert_addresses,
             network,
         }
     }
@@ -405,16 +409,11 @@ impl Task for CoreDaoValidatorInfoScrapper {
             error!("(Core DAO Validator Info) RPC_ENDPOINTS environment variable not set");
         }
 
-        info!(
-            "(Core DAO Validator Info) Target validator for detailed metrics: {}",
-            self.target_validator
-        );
-
         loop {
             info!("(Core DAO Validator Info) Executing validator info collection");
 
             // Collect and update validator metrics
-            self.collect_validator_metrics(&self.target_validator).await;
+            self.collect_validator_metrics().await;
 
             info!(
                 "(Core DAO Validator Info) Task iteration completed, sleeping for {:?}",
@@ -427,7 +426,7 @@ impl Task for CoreDaoValidatorInfoScrapper {
 
 impl CoreDaoValidatorInfoScrapper {
     // Add this new method to encapsulate the validator metrics collection logic
-    async fn collect_validator_metrics(&self, target_validator: &str) {
+    async fn collect_validator_metrics(&self) {
         // Get all active validators and normalize to lowercase
         let active_validators: Vec<String> = self
             .get_validators()
@@ -464,13 +463,19 @@ impl CoreDaoValidatorInfoScrapper {
             }
         }
 
-        // Add target validator if not already in the list
-        if !all_validators.contains(&target_validator.to_string()) {
-            all_validators.push(target_validator.to_string());
+        for validator in &self.validator_alert_addresses {
+            if !all_validators.contains(validator) {
+                all_validators.push(validator.clone());
+            }
         }
 
         // Set the validator metric for all validators (active and inactive)
         for validator in &all_validators {
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(validator)
+                .to_string();
+
             let is_active = active_validators.contains(validator);
             info!(
                 "(Core DAO Validator Info) Setting validator metric for: {} (active: {})",
@@ -478,35 +483,35 @@ impl CoreDaoValidatorInfoScrapper {
             );
 
             COREDAO_VALIDATORS
-                .with_label_values(&[validator, &self.network.to_string()])
+                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
                 .set(if is_active { 1 } else { 0 });
+
+            // Always check metrics for the target validator
+            // Check if the target validator is jailed
+            let is_jailed = self.check_if_jailed(&validator).await;
+            info!(
+                "(Core DAO Validator Info) Target validator jailed status: {}",
+                is_jailed
+            );
+
+            // Set the jailed metric for the target validator
+            COREDAO_VALIDATOR_JAILED
+                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
+                .set(if is_jailed { 1 } else { 0 });
+
+            // Check the slash info for the target validator
+            let (block_height, slash_count) = self.check_slash_info(&validator).await;
+            info!("(Core DAO Validator Info) Target validator slash info - Block Height: {}, Slash Count: {}", 
+                      block_height, slash_count);
+
+            // Set the slash metrics for the target validator
+            COREDAO_VALIDATOR_SLASH_BLOCK
+                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
+                .set(block_height as i64);
+
+            COREDAO_VALIDATOR_SLASH_COUNT
+                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
+                .set(slash_count as i64);
         }
-
-        // Always check metrics for the target validator
-        // Check if the target validator is jailed
-        let is_jailed = self.check_if_jailed(target_validator).await;
-        info!(
-            "(Core DAO Validator Info) Target validator jailed status: {}",
-            is_jailed
-        );
-
-        // Set the jailed metric for the target validator
-        COREDAO_VALIDATOR_JAILED
-            .with_label_values(&[target_validator, &self.network.to_string()])
-            .set(if is_jailed { 1 } else { 0 });
-
-        // Check the slash info for the target validator
-        let (block_height, slash_count) = self.check_slash_info(target_validator).await;
-        info!("(Core DAO Validator Info) Target validator slash info - Block Height: {}, Slash Count: {}", 
-              block_height, slash_count);
-
-        // Set the slash metrics for the target validator
-        COREDAO_VALIDATOR_SLASH_BLOCK
-            .with_label_values(&[target_validator, &self.network.to_string()])
-            .set(block_height as i64);
-
-        COREDAO_VALIDATOR_SLASH_COUNT
-            .with_label_values(&[target_validator, &self.network.to_string()])
-            .set(slash_count as i64);
     }
 }

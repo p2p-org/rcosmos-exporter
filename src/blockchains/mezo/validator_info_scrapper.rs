@@ -31,14 +31,21 @@ pub struct MezoValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
     chain_id: ChainId,
     network: Network,
+    validator_alert_addresses: Vec<String>,
 }
 
 impl MezoValidatorInfoScrapper {
-    pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: Network) -> Self {
+    pub fn new(
+        client: Arc<BlockchainClient>,
+        chain_id: ChainId,
+        network: Network,
+        validator_alert_addresses: Vec<String>,
+    ) -> Self {
         Self {
             client,
             chain_id,
             network,
+            validator_alert_addresses,
         }
     }
 
@@ -164,6 +171,11 @@ impl MezoValidatorInfoScrapper {
             let address: String = hash.iter().map(|byte| format!("{:02x}", byte)).collect();
             let address = address.to_uppercase();
 
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(&address)
+                .to_string();
+
             let name = &validator.description.moniker;
 
             TENDERMINT_VALIDATORS
@@ -172,6 +184,7 @@ impl MezoValidatorInfoScrapper {
                     &address,
                     &self.chain_id.to_string(),
                     &self.network.to_string(),
+                    &fires_alerts,
                 ])
                 .set(0);
         }

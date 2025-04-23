@@ -13,7 +13,7 @@ lazy_static! {
             "babylon_validator_missing_bls_vote",
             "Babylon validators missing BLS vote"
         ),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     // pub static ref BABYLON_CUBE_SIGNER_SIGNATURES: IntGaugeVec = IntGaugeVec::new(
