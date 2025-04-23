@@ -7,20 +7,20 @@ use tracing::{error, info};
 
 use crate::{
     blockchains::coredao::metrics::COREDAO_BLOCK_SIGNER,
-    core::{clients::blockchain_client::BlockchainClient, exporter::Task, network::Network},
+    core::{clients::blockchain_client::BlockchainClient, exporter::Task},
 };
 
 pub struct CoreDaoBlockScrapper {
     client: Arc<BlockchainClient>,
     last_processed_block: u64,
-    network: Network,
+    network: String,
     validator_alert_addresses: Vec<String>,
 }
 
 impl CoreDaoBlockScrapper {
     pub fn new(
         client: Arc<BlockchainClient>,
-        network: Network,
+        network: String,
         validator_alert_addresses: Vec<String>,
     ) -> Self {
         Self {
@@ -157,7 +157,7 @@ impl CoreDaoBlockScrapper {
                             .with_label_values(&[
                                 &block_number.to_string(),
                                 &consensus_address,
-                                &self.network.to_string(),
+                                &self.network,
                             ])
                             .set(1);
                     }

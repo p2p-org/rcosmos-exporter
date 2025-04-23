@@ -10,20 +10,20 @@ use crate::{
         COREDAO_VALIDATORS, COREDAO_VALIDATOR_JAILED, COREDAO_VALIDATOR_SLASH_BLOCK,
         COREDAO_VALIDATOR_SLASH_COUNT,
     },
-    core::{clients::blockchain_client::BlockchainClient, exporter::Task, network::Network},
+    core::{clients::blockchain_client::BlockchainClient, exporter::Task},
 };
 
 pub struct CoreDaoValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
     validator_alert_addresses: Vec<String>,
-    network: Network,
+    network: String,
 }
 
 impl CoreDaoValidatorInfoScrapper {
     pub fn new(
         client: Arc<BlockchainClient>,
         validator_alert_addresses: Vec<String>,
-        network: Network,
+        network: String,
     ) -> Self {
         Self {
             client,
@@ -483,7 +483,7 @@ impl CoreDaoValidatorInfoScrapper {
             );
 
             COREDAO_VALIDATORS
-                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
+                .with_label_values(&[validator, &self.network, &fires_alerts])
                 .set(if is_active { 1 } else { 0 });
 
             // Always check metrics for the target validator
@@ -496,7 +496,7 @@ impl CoreDaoValidatorInfoScrapper {
 
             // Set the jailed metric for the target validator
             COREDAO_VALIDATOR_JAILED
-                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
+                .with_label_values(&[validator, &self.network, &fires_alerts])
                 .set(if is_jailed { 1 } else { 0 });
 
             // Check the slash info for the target validator
@@ -506,11 +506,11 @@ impl CoreDaoValidatorInfoScrapper {
 
             // Set the slash metrics for the target validator
             COREDAO_VALIDATOR_SLASH_BLOCK
-                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
+                .with_label_values(&[validator, &self.network, &fires_alerts])
                 .set(block_height as i64);
 
             COREDAO_VALIDATOR_SLASH_COUNT
-                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
+                .with_label_values(&[validator, &self.network, &fires_alerts])
                 .set(slash_count as i64);
         }
     }

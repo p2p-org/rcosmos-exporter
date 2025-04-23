@@ -12,10 +12,7 @@ use crate::{
     blockchains::tendermint::types::{
         TendermintRESTResponse, TendermintRESTValidator, TendermintValidator, ValidatorsResponse,
     },
-    core::{
-        chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task,
-        network::Network,
-    },
+    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
 };
 
 use super::metrics::{
@@ -26,7 +23,7 @@ use super::metrics::{
 pub struct TendermintValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
     chain_id: ChainId,
-    network: Network,
+    network: String,
     validator_alert_addresses: Vec<String>,
 }
 
@@ -34,7 +31,7 @@ impl TendermintValidatorInfoScrapper {
     pub fn new(
         client: Arc<BlockchainClient>,
         chain_id: ChainId,
-        network: Network,
+        network: String,
         validator_alert_addresses: Vec<String>,
     ) -> Self {
         Self {
@@ -211,7 +208,7 @@ impl TendermintValidatorInfoScrapper {
                 .with_label_values(&[
                     &validator.address,
                     &self.chain_id.to_string(),
-                    &self.network.to_string(),
+                    &self.network,
                 ])
                 .set(validator.proposer_priority.parse::<i64>().unwrap());
 
@@ -219,7 +216,7 @@ impl TendermintValidatorInfoScrapper {
                 .with_label_values(&[
                     &validator.address,
                     &self.chain_id.to_string(),
-                    &self.network.to_string(),
+                    &self.network,
                 ])
                 .set(validator.voting_power.parse::<i64>().unwrap());
         }

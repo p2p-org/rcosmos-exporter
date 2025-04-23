@@ -19,10 +19,7 @@ use crate::{
             types::{TendermintValidator, ValidatorsResponse},
         },
     },
-    core::{
-        chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task,
-        network::Network,
-    },
+    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
 };
 
 use super::types::MezoRESTValidator;
@@ -30,7 +27,7 @@ use super::types::MezoRESTValidator;
 pub struct MezoValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
     chain_id: ChainId,
-    network: Network,
+    network: String,
     validator_alert_addresses: Vec<String>,
 }
 
@@ -38,7 +35,7 @@ impl MezoValidatorInfoScrapper {
     pub fn new(
         client: Arc<BlockchainClient>,
         chain_id: ChainId,
-        network: Network,
+        network: String,
         validator_alert_addresses: Vec<String>,
     ) -> Self {
         Self {
@@ -183,7 +180,7 @@ impl MezoValidatorInfoScrapper {
                     name,
                     &address,
                     &self.chain_id.to_string(),
-                    &self.network.to_string(),
+                    &self.network,
                     &fires_alerts,
                 ])
                 .set(0);
@@ -197,7 +194,7 @@ impl MezoValidatorInfoScrapper {
                 .with_label_values(&[
                     &validator.address,
                     &self.chain_id.to_string(),
-                    &self.network.to_string(),
+                    &self.network,
                 ])
                 .set(validator.proposer_priority.parse::<i64>().unwrap());
 
@@ -205,7 +202,7 @@ impl MezoValidatorInfoScrapper {
                 .with_label_values(&[
                     &validator.address,
                     &self.chain_id.to_string(),
-                    &self.network.to_string(),
+                    &self.network,
                 ])
                 .set(validator.voting_power.parse::<i64>().unwrap());
         }

@@ -5,4 +5,3 @@ pub mod chain_id;
 pub mod clients;
 pub mod exporter;
 pub mod metrics;
-pub mod network;

@@ -11,10 +11,7 @@ use crate::{
         babylon::types::{CurrentEpoch, GetEpochResponse},
         tendermint::types::{TendermintValidator, ValidatorsResponse},
     },
-    core::{
-        chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task,
-        network::Network,
-    },
+    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
 };
 
 use super::{
@@ -26,7 +23,7 @@ pub struct BabylonBlsScrapper {
     client: Arc<BlockchainClient>,
     processed_epoch: usize,
     chain_id: ChainId,
-    network: Network,
+    network: String,
     validator_alert_addresses: Vec<String>,
 }
 
@@ -34,7 +31,7 @@ impl BabylonBlsScrapper {
     pub fn new(
         client: Arc<BlockchainClient>,
         chain_id: ChainId,
-        network: Network,
+        network: String,
         validator_alert_addresses: Vec<String>,
     ) -> Self {
         Self {
@@ -155,7 +152,7 @@ impl BabylonBlsScrapper {
         };
 
         BABYLON_CURRENT_EPOCH
-            .with_label_values(&[&self.chain_id.to_string(), &self.network.to_string()])
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(current_epoch as i64);
 
         let epoch_to_process = current_epoch - 1;
@@ -251,7 +248,7 @@ impl BabylonBlsScrapper {
                     .with_label_values(&[
                         &validator.address,
                         &self.chain_id.to_string(),
-                        &self.network.to_string(),
+                        &self.network,
                         &fires_alerts,
                     ])
                     .inc();
