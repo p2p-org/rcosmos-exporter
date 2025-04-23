@@ -157,7 +157,19 @@ impl CoreDaoBlockScrapper {
                 // Process all blocks from last_processed_block+1 to latest_block
                 for block_num in (self.last_processed_block + 1)..=latest_block {
                     if let Some((block_number, consensus_address)) = self.get_block_by_number(block_num).await {
-                        self.recent_blocks.push_back((block_number, consensus_address.to_lowercase()));
+                        let consensus_address = consensus_address.to_lowercase();
+                        self.recent_blocks.push_back((block_number, consensus_address.clone()));
+                        
+                        // Increment the counter if this block was signed by one of our alert validators
+                        for target in &self.validator_alert_addresses {
+                            if &consensus_address == target {
+                                COREDAO_VALIDATOR_SIGNED_BLOCKS
+                                    .with_label_values(&[target, &self.network.to_string(), "true"])
+                                    .inc();
+                                
+                                debug!("(Core DAO Block Scrapper) Incrementing signed blocks counter for validator {}", target);
+                            }
+                        }
                         
                         // Keep only the most recent max_blocks
                         if self.recent_blocks.len() > self.max_blocks {
@@ -266,20 +278,14 @@ impl CoreDaoBlockScrapper {
                       target);
             }
             
-            // Track all blocks signed by the target validator
-            let target_signed_blocks: Vec<_> = self.recent_blocks
+            // Count all blocks signed by the target validator (for logging only)
+            let target_signed_blocks_count = self.recent_blocks
                 .iter()
                 .filter(|(_, validator)| validator == target)
-                .collect();
+                .count();
             
-            for (block_number, _) in target_signed_blocks {
-                COREDAO_VALIDATOR_SIGNED_BLOCKS
-                    .with_label_values(&[target, &block_number.to_string(), &self.network.to_string(), fires_alerts])
-                    .set(1.0);
-                
-                info!("(Core DAO Block Scrapper) Validator {} signed block {}",
-                      target, block_number);
-            }
+            info!("(Core DAO Block Scrapper) Validator {} has signed {} blocks in the tracked window",
+                  target, target_signed_blocks_count);
         }
     }
 }

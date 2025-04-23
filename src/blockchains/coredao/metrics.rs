@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use prometheus::{register_int_gauge_vec, IntGaugeVec, Registry, GaugeVec, register_gauge_vec};
+use prometheus::{register_int_gauge_vec, IntGaugeVec, Registry, GaugeVec, register_gauge_vec, register_counter_vec, CounterVec};
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
@@ -43,10 +43,10 @@ lazy_static! {
     .unwrap();
 
 
-    pub static ref COREDAO_VALIDATOR_SIGNED_BLOCKS: GaugeVec = register_gauge_vec!(
-        "coredao_validator_signed_blocks",
-        "Block numbers signed by the target validator (value is 1, label contains the block number)",
-        &["validator_address", "block_number", "network", "alerts"]
+    pub static ref COREDAO_VALIDATOR_SIGNED_BLOCKS: CounterVec = register_counter_vec!(
+        "coredao_validator_signed_blocks_total",
+        "Total number of blocks signed by the target validator",
+        &["validator_address", "network", "alerts"]
     )
     .unwrap();
 }
