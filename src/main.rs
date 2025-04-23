@@ -25,7 +25,6 @@ use core::{
     clients::{blockchain_client::BlockchainClientBuilder, http_client::HttpClient},
     exporter::{BlockchainExporter, ExporterTask, Mode},
     metrics::serve_metrics::serve_metrics,
-    network::Network,
 };
 use dotenv::dotenv;
 use std::{env, sync::Arc, time::Duration};
@@ -71,11 +70,6 @@ async fn main() {
     let blockchain = match Blockchain::from_str(&blockchain) {
         Some(blockchain) => blockchain,
         None => panic!("Unsupported blockchain"),
-    };
-
-    let network = match Network::from_str(&network) {
-        Some(network) => network,
-        None => panic!("Unsupported network"),
     };
 
     let mode = match Mode::from_str(&mode) {
@@ -170,7 +164,7 @@ pub async fn network_exporter(
     rpc_endpoints: String,
     rest_endpoints: String,
     block_window: usize,
-    network: Network,
+    network: String,
     validator_alert_addresses: String,
 ) -> BlockchainExporter {
     let rpc = HttpClient::new(split_urls(rpc_endpoints), None);

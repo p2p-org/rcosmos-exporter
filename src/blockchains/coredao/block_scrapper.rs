@@ -7,7 +7,7 @@ use tracing::{error, info, debug};
 
 use crate::{
     blockchains::coredao::metrics::{COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY, COREDAO_VALIDATOR_SIGNED_BLOCKS},
-    core::{clients::blockchain_client::BlockchainClient, exporter::Task, network::Network},
+    core::{clients::blockchain_client::BlockchainClient, exporter::Task},
 };
 
 pub struct CoreDaoBlockScrapper {
@@ -19,14 +19,14 @@ pub struct CoreDaoBlockScrapper {
     max_blocks: usize,
     // Validator addresses to monitor and alert on
     validator_alert_addresses: Vec<String>,
-    network: Network,
+    network: String,
 }
 
 impl CoreDaoBlockScrapper {
     pub fn new(
         client: Arc<BlockchainClient>,
         validator_alert_addresses: Vec<String>,
-        network: Network,
+        network: String,
     ) -> Self {
         CoreDaoBlockScrapper {
             client,
