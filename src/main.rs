@@ -374,10 +374,10 @@ pub async fn network_exporter(
             let block_scrapper = ExporterTask::new(
                 Box::new(CoreDaoBlockScrapper::new(
                     Arc::clone(&client),
-                    network.clone(),
                     validator_alert_addresses.clone(),
+                    network.clone()
                 )),
-                Duration::from_secs(30),
+                Duration::from_secs(15),
             );
 
             let validator_info_scrapper = ExporterTask::new(
