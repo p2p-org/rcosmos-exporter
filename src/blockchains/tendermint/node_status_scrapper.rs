@@ -7,10 +7,9 @@ use tracing::{error, info};
 
 use crate::{
     blockchains::tendermint::metrics::{
-        TENDERMINT_NODE_CATCHING_UP, TENDERMINT_NODE_EARLIEST_BLOCK_HASH,
-        TENDERMINT_NODE_EARLIEST_BLOCK_HEIGHT, TENDERMINT_NODE_EARLIEST_BLOCK_TIME,
-        TENDERMINT_NODE_ID, TENDERMINT_NODE_LATEST_BLOCK_HASH, TENDERMINT_NODE_LATEST_BLOCK_HEIGHT,
-        TENDERMINT_NODE_LATEST_BLOCK_TIME,
+        TENDERMINT_NODE_CATCHING_UP, TENDERMINT_NODE_EARLIEST_BLOCK_HEIGHT,
+        TENDERMINT_NODE_EARLIEST_BLOCK_TIME, TENDERMINT_NODE_ID,
+        TENDERMINT_NODE_LATEST_BLOCK_HEIGHT, TENDERMINT_NODE_LATEST_BLOCK_TIME,
     },
     core::exporter::Task,
 };
@@ -79,14 +78,6 @@ impl TendermintNodeStatusScrapper {
             } else {
                 0
             });
-        TENDERMINT_NODE_LATEST_BLOCK_HASH
-            .with_label_values(&[
-                &self.name,
-                &chain_id,
-                &status.result.sync_info.latest_block_hash,
-                &self.network,
-            ])
-            .set(0);
         TENDERMINT_NODE_LATEST_BLOCK_HEIGHT
             .with_label_values(&[&self.name, &chain_id, &self.network])
             .set(
@@ -107,15 +98,6 @@ impl TendermintNodeStatusScrapper {
                     .and_utc()
                     .timestamp() as f64,
             );
-
-        TENDERMINT_NODE_EARLIEST_BLOCK_HASH
-            .with_label_values(&[
-                &self.name,
-                &chain_id,
-                &status.result.sync_info.earliest_block_hash,
-                &self.network,
-            ])
-            .set(0);
         TENDERMINT_NODE_EARLIEST_BLOCK_HEIGHT
             .with_label_values(&[&self.name, &chain_id, &self.network])
             .set(

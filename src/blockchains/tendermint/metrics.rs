@@ -102,14 +102,6 @@ lazy_static! {
         &["name", "chain_id", "network"]
     )
     .unwrap();
-    pub static ref TENDERMINT_NODE_LATEST_BLOCK_HASH: IntGaugeVec = IntGaugeVec::new(
-        Opts::new(
-            "tendermint_node_latest_block_hash",
-            "Node latest block hash"
-        ),
-        &["name", "chain_id", "hash", "network"]
-    )
-    .unwrap();
     pub static ref TENDERMINT_NODE_LATEST_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
         Opts::new(
             "tendermint_node_latest_block_height",
@@ -124,14 +116,6 @@ lazy_static! {
             "Node latest block time"
         ),
         &["name", "chain_id", "network"]
-    )
-    .unwrap();
-    pub static ref TENDERMINT_NODE_EARLIEST_BLOCK_HASH: IntGaugeVec = IntGaugeVec::new(
-        Opts::new(
-            "tendermint_node_earliest_block_hash",
-            "Node latest block hash"
-        ),
-        &["name", "chain_id", "hash", "network"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_EARLIEST_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
@@ -196,16 +180,10 @@ pub fn register_custom_metrics() {
         .register(Box::new(TENDERMINT_NODE_CATCHING_UP.clone()))
         .unwrap();
     REGISTRY
-        .register(Box::new(TENDERMINT_NODE_LATEST_BLOCK_HASH.clone()))
-        .unwrap();
-    REGISTRY
         .register(Box::new(TENDERMINT_NODE_LATEST_BLOCK_HEIGHT.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_NODE_LATEST_BLOCK_TIME.clone()))
-        .unwrap();
-    REGISTRY
-        .register(Box::new(TENDERMINT_NODE_EARLIEST_BLOCK_HASH.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_NODE_EARLIEST_BLOCK_HEIGHT.clone()))
