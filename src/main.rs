@@ -19,6 +19,7 @@ use blockchains::{
         validator_info_scrapper::TendermintValidatorInfoScrapper,
     },
 };
+use tokio_util::sync::CancellationToken;
 
 use core::{
     blockchain::Blockchain,
@@ -28,10 +29,7 @@ use core::{
 };
 use dotenv::dotenv;
 use std::{env, sync::Arc, time::Duration};
-use tokio::{
-    signal,
-    sync::{mpsc::unbounded_channel, Notify},
-};
+use tokio::{signal, sync::mpsc::unbounded_channel};
 use tracing::{error, info};
 mod blockchains;
 mod core;
@@ -40,14 +38,10 @@ mod core;
 async fn main() {
     dotenv().ok();
 
-    tracing_subscriber::fmt()
-        .json()
-        .with_target(false)
-        .flatten_event(true)
-        .init();
+    tracing_subscriber::fmt().with_target(false).init();
 
-    let shutdown_notify = Arc::new(Notify::new());
-    let (_sender, mut receiver) = unbounded_channel::<()>();
+    let (sender, mut receiver) = unbounded_channel::<()>();
+    let token = CancellationToken::new();
 
     let prometheus_ip = env::var("PROMETHEUS_IP").unwrap_or_else(|_| "0.0.0.0".to_string());
 
@@ -99,7 +93,7 @@ async fn main() {
                 rpc_endpoints,
                 rest_endpoints,
                 block_window,
-                network,
+                network.clone(),
                 validator_alert_addresses,
             )
             .await
@@ -118,7 +112,11 @@ async fn main() {
             blockchains::tendermint::metrics::register_custom_metrics();
 
             let node_status_scrapper = ExporterTask::new(
-                Box::new(TendermintNodeStatusScrapper::new(name, endpoint, network)),
+                Box::new(TendermintNodeStatusScrapper::new(
+                    name,
+                    endpoint,
+                    network.clone(),
+                )),
                 Duration::from_secs(5),
             );
 
@@ -126,34 +124,31 @@ async fn main() {
         }
     };
 
-    exporter.start(Arc::clone(&shutdown_notify));
+    exporter.print_tasks().await;
+    exporter.start(token.clone(), sender, network.clone());
 
     tokio::select! {
         _ = serve_metrics(
             prometheus_ip,
             prometheus_port,
             blockchain,
-            block_window,
         ) => {
             error!("Hyper server exited.");
         },
-        _ = listen_for_shutdown(Arc::clone(&shutdown_notify)) => {
+        _ = listen_for_shutdown(token.clone()) => {
 
-            let graceful_tasks = exporter.graceful_task_count();
+            let number_of_tasks = exporter.number_of_tasks();
+            let mut finished_tasks = 0;
 
-            if graceful_tasks != 0 {
-                info!("Waiting for graceful tasks");
-
-                let mut finished_tasks = 0;
-                while let Some(_) = receiver.recv().await {
-                    finished_tasks += 1;
-                    info!("Waiting for graceful tasks: {}/{}", finished_tasks, graceful_tasks);
-                    if finished_tasks == graceful_tasks {
-                        info!("All graceful tasks finished...");
-                        break;
-                    }
+            while let Some(_) = receiver.recv().await {
+                finished_tasks += 1;
+                info!("Waiting for tasks: {}/{}", finished_tasks, number_of_tasks);
+                if finished_tasks == number_of_tasks {
+                    info!("All tasks finished...");
+                    break;
                 }
             }
+
             info!("Gracefuly shutted down server.")
         }
     }
@@ -167,8 +162,8 @@ pub async fn network_exporter(
     network: String,
     validator_alert_addresses: String,
 ) -> BlockchainExporter {
-    let rpc = HttpClient::new(split_urls(rpc_endpoints), None);
-    let rest = HttpClient::new(split_urls(rest_endpoints), None);
+    let rpc = HttpClient::new(split_urls(rpc_endpoints), None, network.clone());
+    let rest = HttpClient::new(split_urls(rest_endpoints), None, network.clone());
     let validator_alert_addresses = split_validator_addresses(validator_alert_addresses);
 
     match blockchain {
@@ -375,7 +370,7 @@ pub async fn network_exporter(
                 Box::new(CoreDaoBlockScrapper::new(
                     Arc::clone(&client),
                     validator_alert_addresses.clone(),
-                    network.clone()
+                    network.clone(),
                 )),
                 Duration::from_secs(15),
             );
@@ -396,16 +391,21 @@ pub async fn network_exporter(
     }
 }
 
-pub async fn listen_for_shutdown(shutdown_notify: Arc<Notify>) {
+pub async fn listen_for_shutdown(cancel_token: CancellationToken) {
     let sigint = signal::ctrl_c();
     let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap();
 
     tokio::select! {
-        _ = sigint => info!("Received SIGINT, shutting down graceful tasks"),
-        _ = sigterm.recv() => info!("Received SIGTERM, shutting down graceful tasks"),
+        _ = sigint => info!("Received SIGINT"),
+        _ = sigterm.recv() => info!("Received SIGTERM"),
     }
 
-    shutdown_notify.notify_waiters();
+    if cfg!(debug_assertions) {
+        info!("Received Ctrl+C in dev mode. Shutting down immediately.");
+        std::process::exit(0);
+    }
+
+    cancel_token.cancel();
 }
 
 fn split_validator_addresses(addresses: String) -> Vec<String> {

@@ -1,8 +1,7 @@
-use std::{sync::Arc, time::Duration};
-
+use anyhow::{bail, Context};
 use async_trait::async_trait;
 use serde_json::from_str;
-use tokio::time::sleep;
+use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::{
@@ -51,7 +50,7 @@ impl TendermintBlockScrapper {
         }
     }
 
-    async fn get_active_validator_set(&mut self) {
+    async fn get_active_validator_set(&mut self) -> anyhow::Result<()> {
         info!("(Tendermint Block Scrapper) Fetching active validator set");
         let mut validators: Vec<TendermintValidator> = Vec::new();
 
@@ -60,54 +59,35 @@ impl TendermintBlockScrapper {
         let mut fetched = 0;
 
         while !all_fetched {
-            let res = match self
+            let res = self
                 .client
                 .with_rpc()
                 .get(&format!("/validators?page={}", page))
                 .await
-            {
-                Ok(res) => res,
-                Err(e) => {
-                    error!(
-                        "(Tendermint Block Scrapper) Error calling to RPC validators endpoint: {}",
-                        e
-                    );
-                    break;
+                .context(format!("Could not fetch active validators page: {}", page))?;
+
+            let validators_response = from_str::<ValidatorsResponse>(&res)?;
+
+            if let Some(res) = validators_response.result {
+                let count = res.count.parse::<usize>().context("
+                    Could not parse the count of obtained validators when fetching active validators"
+                )?;
+                let total = res.total.parse::<usize>().context(
+                    "Could not parse the total of validators when fetching active validators",
+                )?;
+                if count + fetched == total {
+                    all_fetched = true;
+                } else {
+                    fetched += count;
+                    page += 1;
                 }
+
+                validators.extend(res.validators)
+            } else {
+                bail!("Result key not present at validators rpc endpoint response")
             };
-
-            let fetched_validators: Vec<TendermintValidator> = match from_str::<ValidatorsResponse>(
-                &res,
-            ) {
-                Ok(res) => {
-                    if let Some(res) = res.result {
-                        if res.count.parse::<usize>().unwrap() + fetched
-                            == res.total.parse::<usize>().unwrap()
-                        {
-                            all_fetched = true;
-                        } else {
-                            fetched += res.count.parse::<usize>().unwrap();
-                            page += 1;
-                        }
-
-                        res.validators
-                    } else {
-                        error!("(Tendermint Block Scrapper) Result key not present at validators rpc endpoint response");
-                        break;
-                    }
-                }
-                Err(e) => {
-                    error!(
-                        "(Tendermint Block Scrapper) Error deserializing JSON: {}",
-                        e
-                    );
-                    error!("(Mezo Validator Info) Raw JSON: {}", res);
-                    break;
-                }
-            };
-
-            validators.extend(fetched_validators);
         }
+
         for validator in validators {
             if !self.validators.contains(&validator.address) {
                 info!(
@@ -117,6 +97,7 @@ impl TendermintBlockScrapper {
                 self.validators.push(validator.address);
             }
         }
+        Ok(())
     }
 
     async fn get_block(&mut self, height: BlockHeight) -> anyhow::Result<TendermintBlock> {
@@ -134,29 +115,30 @@ impl TendermintBlockScrapper {
             }
         };
 
-        let res = self.client.with_rpc().get(&path).await?;
+        let res = self
+            .client
+            .with_rpc()
+            .get(&path)
+            .await
+            .context(format!("Could not fetch block {}", path))?;
 
-        match from_str::<TendermintBlockResponse>(&res) {
-            Ok(res) => Ok(res.result.block),
-            Err(e) => Err(e.into()),
-        }
+        Ok(from_str::<TendermintBlockResponse>(&res)
+            .context("Could not deserialize block response")?
+            .result
+            .block)
     }
 
-    async fn process_block_window(&mut self) {
-        let last_block_height = match self.get_block(BlockHeight::Latest).await {
-            Ok(block) => match block.header.height.parse::<usize>() {
-                Ok(height) => height,
-                Err(_) => {
-                    error!("(Tendermint Block Scrapper) Couldn't parse block height");
-                    return;
-                }
-            },
-            Err(e) => {
-                error!("(Tendermint Block Scrapper) Failed to obtain last_block_height");
-                error!("{:?}", e);
-                return;
-            }
-        };
+    async fn process_block_window(&mut self) -> anyhow::Result<()> {
+        let last_block = self
+            .get_block(BlockHeight::Latest)
+            .await
+            .context("Could not obtain last block")?;
+
+        let last_block_height = last_block
+            .header
+            .height
+            .parse::<usize>()
+            .context("Could not parse last block height")?;
 
         let mut height_to_process;
 
@@ -171,7 +153,17 @@ impl TendermintBlockScrapper {
         }
 
         while height_to_process < last_block_height {
-            self.process_block(height_to_process).await;
+            // Skip the block if error was encountered during processing
+            match self.process_block(height_to_process).await {
+                Ok(_) => (),
+                Err(e) => {
+                    error!(
+                        "(Tendermint Block Scrapper) Could not parse block {}",
+                        height_to_process
+                    );
+                    error!("(Tendermint Block Scrapper) Error: {}", e)
+                }
+            }
             height_to_process += 1;
         }
 
@@ -195,28 +187,20 @@ impl TendermintBlockScrapper {
                 ])
                 .set(*uptime);
         }
+        Ok(())
     }
 
-    async fn process_block(&mut self, height: usize) {
-        let block = match self.get_block(BlockHeight::Height(height)).await {
-            Ok(block) => block,
-            Err(e) => {
-                error!(
-                    "(Tendermint Block Scrapper) Failed to process block at height {}",
-                    height
-                );
-                error!("{:?}", e);
-                return;
-            }
-        };
+    async fn process_block(&mut self, height: usize) -> anyhow::Result<()> {
+        let block = self
+            .get_block(BlockHeight::Height(height))
+            .await
+            .context(format!("Could not obtain block {}", height))?;
 
-        let block_height = match block.header.height.parse::<usize>() {
-            Ok(height) => height,
-            Err(_) => {
-                error!("(Tendermint Block Scrapper) Couldn't parse block height");
-                return;
-            }
-        };
+        let block_height = block
+            .header
+            .height
+            .parse::<usize>()
+            .context("Could not parse block height")?;
 
         let block_time = block.header.time;
         let block_proposer = block.header.proposer_address.clone();
@@ -247,10 +231,7 @@ impl TendermintBlockScrapper {
             .find(|validator_adress| **validator_adress == block_proposer)
         {
             Some(name) => name,
-            None => {
-                error!("(Tendermint Block Scrapper) Block proposer is not on validator map");
-                return;
-            }
+            None => bail!("Found a proposer that address is not on the validator list"),
         };
 
         TENDERMINT_VALIDATOR_PROPOSED_BLOCKS
@@ -286,26 +267,34 @@ impl TendermintBlockScrapper {
 
         TENDERMINT_CURRENT_BLOCK_HEIGHT
             .with_label_values(&[&self.chain_id.to_string(), &self.network])
-            .set(block_height.try_into().unwrap());
+            .set(
+                block_height
+                    .try_into()
+                    .context("Failed to parse block height to i64")?,
+            );
 
         TENDERMINT_CURRENT_BLOCK_TIME
             .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(block_time.and_utc().timestamp() as f64);
 
         self.processed_height = block_height;
+
+        Ok(())
     }
 }
 
 #[async_trait]
 impl Task for TendermintBlockScrapper {
-    async fn run(&mut self, delay: Duration) {
-        info!("Running Tendermint Block Scrapper");
+    async fn run(&mut self) -> anyhow::Result<()> {
+        self.get_active_validator_set()
+            .await
+            .context("Could not get active validator set")?;
+        self.process_block_window()
+            .await
+            .context("Could not process block window")
+    }
 
-        loop {
-            self.get_active_validator_set().await;
-            self.process_block_window().await;
-
-            sleep(delay).await
-        }
+    fn name(&self) -> &'static str {
+        "Tendermint Block Scrapper"
     }
 }

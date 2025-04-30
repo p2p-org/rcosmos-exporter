@@ -1,11 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
+use anyhow::{bail, Context};
 use async_trait::async_trait;
 
 use serde_json::from_str;
 use sha2::{Digest, Sha256};
-use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::info;
 use urlencoding::encode;
 
 use crate::{
@@ -46,7 +46,7 @@ impl MezoValidatorInfoScrapper {
         }
     }
 
-    async fn get_rpc_validators(&self, path: &str) -> Vec<TendermintValidator> {
+    async fn get_rpc_validators(&self, path: &str) -> anyhow::Result<Vec<TendermintValidator>> {
         info!("(Mezo Validator Info) Fetching RPC validators");
         let mut validators: Vec<TendermintValidator> = Vec::new();
 
@@ -55,55 +55,38 @@ impl MezoValidatorInfoScrapper {
         let mut fetched = 0;
 
         while !all_fetched {
-            let res = match self
+            let res = self
                 .client
                 .with_rpc()
                 .get(&format!("{}?page={}", path, page))
                 .await
-            {
-                Ok(res) => res,
-                Err(e) => {
-                    error!(
-                        "(Mezo Validator Info) Error calling to RPC validators endpoint: {}",
-                        e
-                    );
-                    break;
+                .context(format!("Could not fetch active validators page: {}", page))?;
+
+            let validators_response = from_str::<ValidatorsResponse>(&res)?;
+
+            if let Some(res) = validators_response.result {
+                let count = res.count.parse::<usize>().context("
+                    Could not parse the count of obtained validators when fetching active validators"
+                )?;
+                let total = res.total.parse::<usize>().context(
+                    "Could not parse the total of validators when fetching active validators",
+                )?;
+                if count + fetched == total {
+                    all_fetched = true;
+                } else {
+                    fetched += count;
+                    page += 1;
                 }
+
+                validators.extend(res.validators)
+            } else {
+                bail!("Result key not present at validators rpc endpoint response")
             };
-
-            let fetched_validators: Vec<TendermintValidator> = match from_str::<ValidatorsResponse>(
-                &res,
-            ) {
-                Ok(res) => {
-                    if let Some(res) = res.result {
-                        if res.count.parse::<usize>().unwrap() + fetched
-                            == res.total.parse::<usize>().unwrap()
-                        {
-                            all_fetched = true;
-                        } else {
-                            fetched += res.count.parse::<usize>().unwrap();
-                            page += 1;
-                        }
-
-                        res.validators
-                    } else {
-                        error!("(Mezo Validator Info) Result key not present at validators rpc endpoint response");
-                        break;
-                    }
-                }
-                Err(e) => {
-                    error!("(Mezo Validator Info) Error deserializing JSON: {}", e);
-                    error!("(Mezo Validator Info) Raw JSON: {}", res);
-                    break;
-                }
-            };
-
-            validators.extend(fetched_validators);
         }
-        validators
+        Ok(validators)
     }
 
-    async fn get_rest_validators(&self, path: &str) -> Vec<MezoRESTValidator> {
+    async fn get_rest_validators(&self, path: &str) -> anyhow::Result<Vec<MezoRESTValidator>> {
         info!("(Mezo Validator Info) Fetching REST validators");
 
         let mut pagination_key: Option<String> = None;
@@ -116,46 +99,38 @@ impl MezoValidatorInfoScrapper {
                 url = format!("{}?pagination.key={}", path, encoded_key);
             }
 
-            let res = match self.client.with_rest().get(&url).await {
-                Ok(res) => res,
-                Err(e) => {
-                    error!(
-                        "(Mezo Validator Info) Error calling to REST validators endpoint: {:?}",
-                        e
-                    );
+            let res = self
+                .client
+                .with_rest()
+                .get(&url)
+                .await
+                .context("Could not fetch REST validators")?;
+
+            let rest_validator_response = from_str::<MezoRESTResponse>(&res)
+                .context("Could not deserialize validators REST response")?;
+
+            if let Some(pagination) = rest_validator_response.pagination {
+                pagination_key = pagination.next_key;
+
+                validators.extend(rest_validator_response.validators);
+                if pagination_key.is_none() {
                     break;
                 }
-            };
-
-            let fetched_validators: Vec<MezoRESTValidator> =
-                match from_str::<MezoRESTResponse>(&res) {
-                    Ok(res) => {
-                        if let Some(pagination) = res.pagination {
-                            pagination_key = pagination.next_key
-                        }
-                        res.validators
-                    }
-                    Err(e) => {
-                        error!("(Mezo Validator Info) Error deserializing JSON: {}", e);
-                        error!("(Mezo Validator Info) Raw JSON: {}", res);
-                        break;
-                    }
-                };
-
-            validators.extend(fetched_validators);
-            if pagination_key.is_none() {
-                break;
             }
         }
-        validators
+        Ok(validators)
     }
 
-    async fn process_validators(&mut self) {
-        let rest_validators = self.get_rest_validators("/mezo/poa/v1/validators").await;
+    async fn process_validators(&mut self) -> anyhow::Result<()> {
+        let rest_validators = self
+            .get_rest_validators("/mezo/poa/v1/validators")
+            .await
+            .context("Could not obtain REST validators")?;
 
         info!("(Mezo Validator Info) Processing REST validators");
         for validator in rest_validators {
-            let (_, hash) = bech32::decode(&validator.cons_pub_key_bech32).unwrap();
+            let (_, hash) = bech32::decode(&validator.cons_pub_key_bech32)
+                .context("Could not decode validator address into bech32")?;
 
             let mut hasher = Sha256::new();
 
@@ -186,7 +161,10 @@ impl MezoValidatorInfoScrapper {
                 .set(0);
         }
 
-        let rpc_validators = self.get_rpc_validators("/validators").await;
+        let rpc_validators = self
+            .get_rpc_validators("/validators")
+            .await
+            .context("Could not obtain rpc validators")?;
 
         info!("(Mezo Validator Info) Processing RPC validators");
         for validator in rpc_validators {
@@ -196,7 +174,12 @@ impl MezoValidatorInfoScrapper {
                     &self.chain_id.to_string(),
                     &self.network,
                 ])
-                .set(validator.proposer_priority.parse::<i64>().unwrap());
+                .set(
+                    validator
+                        .proposer_priority
+                        .parse::<i64>()
+                        .context("Could not parse validator proposer priority")?,
+                );
 
             TENDERMINT_VALIDATOR_VOTING_POWER
                 .with_label_values(&[
@@ -204,19 +187,27 @@ impl MezoValidatorInfoScrapper {
                     &self.chain_id.to_string(),
                     &self.network,
                 ])
-                .set(validator.voting_power.parse::<i64>().unwrap());
+                .set(
+                    validator
+                        .voting_power
+                        .parse::<i64>()
+                        .context("Could not parse validator voting power")?,
+                );
         }
+
+        Ok(())
     }
 }
 
 #[async_trait]
 impl Task for MezoValidatorInfoScrapper {
-    async fn run(&mut self, delay: Duration) {
-        info!("Running Mezo Validator Info Scrapper");
-        loop {
-            self.process_validators().await;
+    async fn run(&mut self) -> anyhow::Result<()> {
+        self.process_validators()
+            .await
+            .context("Could not process validators")
+    }
 
-            sleep(delay).await
-        }
+    fn name(&self) -> &'static str {
+        "Mezo Validator Info Scrapper"
     }
 }

@@ -1,9 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::from_str;
-use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     blockchains::tendermint::{
@@ -11,6 +10,7 @@ use crate::{
     },
     core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
 };
+use anyhow::Context;
 
 pub struct TendermintUpgradePlanScrapper {
     client: Arc<BlockchainClient>,
@@ -34,52 +34,45 @@ impl TendermintUpgradePlanScrapper {
             .client
             .with_rest()
             .get("/cosmos/upgrade/v1beta1/current_plan")
-            .await?;
+            .await
+            .context("Could not fetch upgrade plan")?;
 
-        match from_str::<TendermintUpgradePlanResponse>(&res) {
-            Ok(res) => Ok(res),
-            Err(e) => Err(e.into()),
-        }
+        from_str::<TendermintUpgradePlanResponse>(&res)
+            .context("Could not deserialize upgrade plan response")
     }
 
-    async fn process_upgrade_plan(&mut self) {
+    async fn process_upgrade_plan(&mut self) -> anyhow::Result<()> {
         info!("(Tendermint Upgrade Plan Scrapper) Searching for upgrade plan");
 
-        match self.get_upgrade_plan().await {
-            Ok(res) => {
-                if let Some(plan) = res.plan {
-                    info!("(Tendermint Upgrade Plan Scrapper) Found upgrade plan");
-                    let height = match plan.height.parse::<i64>() {
-                        Ok(h) => h,
-                        Err(e) => {
-                            error!("(Tendermint Upgrade Plan Scrapper) Could not parse upgrade plan height");
-                            error!("{:?}", e);
-                            return;
-                        }
-                    };
-                    TENDERMINT_UPGRADE_PLAN
-                        .with_label_values(&[&plan.name, &self.chain_id.to_string(), &self.network])
-                        .set(height);
-                }
-            }
-            Err(e) => {
-                error!("(Tendermint Upgrade Plan Scrapper) Failed to obtain upgrade plan");
-                error!("{:?}", e);
-                return;
-            }
-        };
+        let plan_response = self
+            .get_upgrade_plan()
+            .await
+            .context("Could not obtain upgrade plan")?;
+
+        if let Some(plan) = plan_response.plan {
+            info!("(Tendermint Upgrade Plan Scrapper) Found upgrade plan");
+            let height = plan
+                .height
+                .parse::<i64>()
+                .context("Could not parse plan height")?;
+            TENDERMINT_UPGRADE_PLAN
+                .with_label_values(&[&plan.name, &self.chain_id.to_string(), &self.network])
+                .set(height);
+        }
+
+        Ok(())
     }
 }
 
 #[async_trait]
 impl Task for TendermintUpgradePlanScrapper {
-    async fn run(&mut self, delay: Duration) {
-        info!("Running Tendermint Plan Scrapper");
+    async fn run(&mut self) -> anyhow::Result<()> {
+        self.process_upgrade_plan()
+            .await
+            .context("Failed to process upgrade plan")
+    }
 
-        loop {
-            self.process_upgrade_plan().await;
-
-            sleep(delay).await
-        }
+    fn name(&self) -> &'static str {
+        "Tendermint Upgrade Plan Scrapper"
     }
 }

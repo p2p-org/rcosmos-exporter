@@ -2,8 +2,8 @@ use std::{net::SocketAddr, sync::Arc};
 
 use crate::{
     blockchains::babylon::metrics::REGISTRY as babylon_registry,
-    blockchains::tendermint::metrics::REGISTRY as tendermint_registry,
     blockchains::coredao::metrics::REGISTRY as coredao_registry,
+    blockchains::tendermint::metrics::REGISTRY as tendermint_registry,
     core::blockchain::Blockchain,
 };
 use hyper::{
@@ -14,19 +14,12 @@ use hyper::{
 use prometheus::{Encoder, TextEncoder};
 use tracing::error;
 
-use super::exporter_metrics::{
-    register_exporter_metrics, EXPORTER_BLOCK_WINDOW, EXPORTER_REGISTRY,
-};
+use super::exporter_metrics::{register_exporter_metrics, EXPORTER_REGISTRY};
 
 ///
 /// Serves blockchain and exporter metrics with Prometheus format.
 ///
-pub async fn serve_metrics(
-    prometheus_ip: String,
-    prometheus_port: String,
-    blockchain: Blockchain,
-    block_window: usize,
-) {
+pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, blockchain: Blockchain) {
     let addr: SocketAddr = format!("{}:{}", prometheus_ip, prometheus_port)
         .parse()
         .expect("Unable to parse IP and port");
@@ -34,9 +27,6 @@ pub async fn serve_metrics(
     let blockchain_arc = Arc::new(blockchain);
 
     register_exporter_metrics();
-    EXPORTER_BLOCK_WINDOW
-        .with_label_values(&[])
-        .set(block_window as i64);
 
     let make_svc = make_service_fn(|_| {
         let blockchain_type = blockchain_arc.clone();

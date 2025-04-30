@@ -1,9 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
+use anyhow::{bail, Context, Ok};
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tokio::time::sleep;
-use tracing::{debug, error, info};
+use tracing::info;
 
 use crate::{
     blockchains::coredao::metrics::{
@@ -32,7 +32,7 @@ impl CoreDaoValidatorInfoScrapper {
         }
     }
 
-    async fn get_validators(&self) -> Vec<String> {
+    async fn get_validators(&self) -> anyhow::Result<Vec<String>> {
         info!("(Core DAO Validator Info) Fetching validators");
 
         // Use contract ValidatorSet.sol using function getValidatorOps()
@@ -53,43 +53,28 @@ impl CoreDaoValidatorInfoScrapper {
             payload
         );
 
-        let res = match self.client.with_rpc().post("", &payload).await {
-            Ok(res) => {
-                info!(
-                    "(Core DAO Validator Info) Received response from endpoint: {}",
-                    res
-                );
-                res
-            }
-            Err(e) => {
-                error!(
-                    "(Core DAO Validator Info) Error calling validators endpoint: {}",
-                    e
-                );
-                return Vec::new();
-            }
-        };
+        let res = self
+            .client
+            .with_rpc()
+            .post("", &payload)
+            .await
+            .context("Error fetching validators")?;
 
-        let result: Value = match serde_json::from_str(&res) {
-            Ok(val) => val,
-            Err(e) => {
-                error!("(Core DAO Validator Info) Error parsing JSON: {}", e);
-                return Vec::new();
-            }
-        };
+        let result: Value =
+            serde_json::from_str(&res).context("Error parsing json of the validators response")?;
 
-        let hex_data = match result.get("result") {
-            Some(Value::String(hex)) => hex.trim_start_matches("0x"),
-            _ => {
-                error!("(Core DAO Validator Info) Invalid result format");
-                return Vec::new();
-            }
-        };
+        let hex_data = result
+            .get("result")
+            .and_then(Value::as_str)
+            .context("Invalid result format for validators response")?
+            .trim_start_matches("0x")
+            .to_string();
 
         // Parse the ABI-encoded array of addresses
         // Skip first 64 hex chars (32 bytes) for the offset
         // Next 64 hex chars (32 bytes) contain the array length
-        let length_hex = &hex_data[64..128];
+        let length_hex = &hex_data.get(64..128).context("Could not get length hex")?;
+
         let length = u64::from_str_radix(length_hex, 16).unwrap_or(0) as usize;
 
         let mut validators = Vec::with_capacity(length);
@@ -108,10 +93,10 @@ impl CoreDaoValidatorInfoScrapper {
             "(Core DAO Validator Info) Found {} validators",
             validators.len()
         );
-        validators
+        Ok(validators)
     }
 
-    async fn get_all_candidates(&self) -> Vec<String> {
+    async fn get_all_candidates(&self) -> anyhow::Result<Vec<String>> {
         info!("(Core DAO Validator Info) Fetching all candidates (including inactive validators)");
 
         // Use contract CandidateHub.sol using function getCandidates()
@@ -132,46 +117,28 @@ impl CoreDaoValidatorInfoScrapper {
             payload
         );
 
-        let res = match self.client.with_rpc().post("", &payload).await {
-            Ok(res) => {
-                info!(
-                    "(Core DAO Validator Info) Received response for all candidates: {}",
-                    res
-                );
-                res
-            }
-            Err(e) => {
-                error!(
-                    "(Core DAO Validator Info) Error calling all candidates endpoint: {}",
-                    e
-                );
-                return Vec::new();
-            }
-        };
+        let res = self
+            .client
+            .with_rpc()
+            .post("", &payload)
+            .await
+            .context("Error fetching all candidates")?;
 
-        let result: Value = match serde_json::from_str(&res) {
-            Ok(val) => val,
-            Err(e) => {
-                error!(
-                    "(Core DAO Validator Info) Error parsing JSON for all candidates: {}",
-                    e
-                );
-                return Vec::new();
-            }
-        };
+        let result: Value =
+            serde_json::from_str(&res).context("Error parsing json from all candidates")?;
 
-        let hex_data = match result.get("result") {
-            Some(Value::String(hex)) => hex.trim_start_matches("0x"),
-            _ => {
-                error!("(Core DAO Validator Info) Invalid result format for all candidates");
-                return Vec::new();
-            }
-        };
+        let hex_data = result
+            .get("result")
+            .and_then(Value::as_str)
+            .context("Invalid result format for all candidates response")?
+            .trim_start_matches("0x")
+            .to_string();
 
         // Parse the ABI-encoded array of addresses
         // Skip first 64 hex chars (32 bytes) for the offset
         // Next 64 hex chars (32 bytes) contain the array length
-        let length_hex = &hex_data[64..128];
+        let length_hex = &hex_data.get(64..128).context("Could not get length hex")?;
+
         let length = u64::from_str_radix(length_hex, 16).unwrap_or(0) as usize;
 
         let mut candidates = Vec::with_capacity(length);
@@ -190,10 +157,10 @@ impl CoreDaoValidatorInfoScrapper {
             "(Core DAO Validator Info) Found {} candidates",
             candidates.len()
         );
-        candidates
+        Ok(candidates)
     }
 
-    async fn check_if_jailed(&self, validator_address: &str) -> bool {
+    async fn check_if_jailed(&self, validator_address: &str) -> anyhow::Result<bool> {
         info!(
             "(Core DAO Validator Info) Checking if validator {} is jailed",
             validator_address
@@ -214,43 +181,30 @@ impl CoreDaoValidatorInfoScrapper {
             "id": 1
         });
 
-        let res = match self.client.with_rpc().post("", &payload).await {
-            Ok(res) => res,
-            Err(e) => {
-                error!(
-                    "(Core DAO Validator Info) Error checking if validator is jailed: {}",
-                    e
-                );
-                return false;
-            }
-        };
+        let res = self
+            .client
+            .with_rpc()
+            .post("", &payload)
+            .await
+            .context("Error fetching if validator is jailed")?;
 
         info!(
             "(Core DAO Validator Info) Jail check response for target validator: {}",
             res
         );
 
-        let result: Value = match serde_json::from_str(&res) {
-            Ok(val) => val,
-            Err(e) => {
-                error!("(Core DAO Validator Info) Error parsing JSON for target validator jail check: {}", e);
-                return false;
-            }
-        };
+        let result: Value = serde_json::from_str(&res)
+            .context("Could not deserialize response to check if validator is jailed")?;
 
-        let result_hex = match result.get("result") {
-            Some(Value::String(hex)) => hex,
-            _ => {
-                error!("(Core DAO Validator Info) Invalid jail check result format for target validator");
-                return false;
-            }
-        };
+        let result_hex = result.get("result").and_then(Value::as_str).context(
+            "(Core DAO Validator Info) Invalid jail check result format for target validator",
+        )?;
 
         // The result is 1 if jailed, 0 if not jailed (expression check)
-        result_hex == "0x1"
+        Ok(result_hex == "0x1")
     }
 
-    async fn check_slash_info(&self, validator_address: &str) -> (i64, i64) {
+    async fn check_slash_info(&self, validator_address: &str) -> anyhow::Result<(i64, i64)> {
         info!(
             "(Core DAO Validator Info) Checking slash info for validator {}",
             validator_address
@@ -276,44 +230,20 @@ impl CoreDaoValidatorInfoScrapper {
             payload
         );
 
-        let res = match self.client.with_rpc().post("", &payload).await {
-            Ok(res) => {
-                info!(
-                    "(Core DAO Validator Info) Received slash info response: {}",
-                    res
-                );
-                res
-            }
-            Err(e) => {
-                error!(
-                    "(Core DAO Validator Info) Error checking slash info for {}: {}",
-                    validator_address, e
-                );
-                return (-1, -1);
-            }
-        };
+        let res = self
+            .client
+            .with_rpc()
+            .post("", &payload)
+            .await
+            .context("Could not fetch slashing info")?;
 
-        let result: Value = match serde_json::from_str(&res) {
-            Ok(val) => val,
-            Err(e) => {
-                error!(
-                    "(Core DAO Validator Info) Error parsing JSON for slash info: {}",
-                    e
-                );
-                return (-1, -1);
-            }
-        };
+        let result: Value =
+            serde_json::from_str(&res).context("Could not deserialize slashing info response")?;
 
         // Check if there's an error in the response
         if let Some(error) = result.get("error") {
-            error!(
-                "(Core DAO Validator Info) RPC error in slash info response: {:?}",
-                error
-            );
-            // If we get an execution reverted error, it likely means the validator doesn't exist
-            // or has no slash info, so return -1 value
-            return (-1, -1);
-        }
+            bail!(format!("RPC error in slash info response: {}", error))
+        };
 
         let result_hex = match result.get("result") {
             Some(Value::String(hex)) => {
@@ -325,35 +255,28 @@ impl CoreDaoValidatorInfoScrapper {
                 trimmed
             }
             Some(other) => {
-                error!(
-                    "(Core DAO Validator Info) Unexpected result type for slash info: {:?}",
+                bail!(format!(
+                    "Unexpected result type for slash info: {:?}",
                     other
-                );
-                return (-1, -1);
+                ));
             }
             None => {
-                error!("(Core DAO Validator Info) No result field in slash info response");
-                return (-1, -1);
+                bail!(format!("No result field in slash info response"));
             }
         };
 
         // Check if the result is empty
         if result_hex.is_empty() {
-            info!(
-                "(Core DAO Validator Info) Empty slash info result for {} - likely not slashed",
+            bail!(format!(
+                "Empty slash info result for {} - likely not slashed",
                 validator_address
-            );
-            return (-1, -1);
+            ));
         }
 
         // Parse the result - for empty or error responses, return -1
         // This handles the case where the validator has no slash info
         if result_hex == "0x" || result_hex.len() < 128 {
-            info!(
-                "(Core DAO Validator Info) No slash info for validator {}",
-                validator_address
-            );
-            return (-1, -1);
+            bail!(format!("No slash info for validator {}", validator_address));
         }
 
         // Parse the two uint256 values
@@ -363,74 +286,24 @@ impl CoreDaoValidatorInfoScrapper {
         // The next 64 characters represent the slashing count
         let slash_count_hex = &result_hex[64..128];
 
-        let block_height = match i64::from_str_radix(block_height_hex, 16) {
-            Ok(val) => val,
-            Err(e) => {
-                error!(
-                    "(Core DAO Validator Info) Error parsing block height hex: {}",
-                    e
-                );
-                -1
-            }
-        };
+        let block_height = i64::from_str_radix(block_height_hex, 16).unwrap_or(-1);
 
-        let slash_count = match i64::from_str_radix(slash_count_hex, 16) {
-            Ok(val) => val,
-            Err(e) => {
-                error!(
-                    "(Core DAO Validator Info) Error parsing slash count hex: {}",
-                    e
-                );
-                -1
-            }
-        };
+        let slash_count = i64::from_str_radix(slash_count_hex, 16).unwrap_or(-1);
 
         info!(
             "(Core DAO Validator Info) Parsed slash info - Block Height: {}, Slash Count: {}",
             block_height, slash_count
         );
 
-        (block_height, slash_count)
+        Ok((block_height, slash_count))
     }
-}
 
-#[async_trait]
-impl Task for CoreDaoValidatorInfoScrapper {
-    async fn run(&mut self, delay: Duration) {
-        info!("(Core DAO Validator Info) Starting task");
-
-        // Print the RPC endpoint(s) from the environment variable
-        if let Ok(rpc_endpoints) = std::env::var("RPC_ENDPOINTS") {
-            debug!(
-                "(Core DAO Validator Info) Using RPC endpoints from env: {}",
-                rpc_endpoints
-            );
-        } else {
-            error!("(Core DAO Validator Info) RPC_ENDPOINTS environment variable not set");
-        }
-
-        loop {
-            info!("(Core DAO Validator Info) Executing validator info collection");
-
-            // Collect and update validator metrics
-            self.collect_validator_metrics().await;
-
-            info!(
-                "(Core DAO Validator Info) Task iteration completed, sleeping for {:?}",
-                delay
-            );
-            sleep(delay).await;
-        }
-    }
-}
-
-impl CoreDaoValidatorInfoScrapper {
-    // Add this new method to encapsulate the validator metrics collection logic
-    async fn collect_validator_metrics(&self) {
+    async fn collect_validator_metrics(&self) -> anyhow::Result<()> {
         // Get all active validators and normalize to lowercase
         let active_validators: Vec<String> = self
             .get_validators()
             .await
+            .context("Could not obtain active validators")?
             .into_iter()
             .map(|addr| addr.to_lowercase())
             .collect();
@@ -444,6 +317,7 @@ impl CoreDaoValidatorInfoScrapper {
         let all_candidates: Vec<String> = self
             .get_all_candidates()
             .await
+            .context("Could not obtain all candidates")?
             .into_iter()
             .map(|addr| addr.to_lowercase())
             .collect();
@@ -488,7 +362,11 @@ impl CoreDaoValidatorInfoScrapper {
 
             // Always check metrics for the target validator
             // Check if the target validator is jailed
-            let is_jailed = self.check_if_jailed(&validator).await;
+            let is_jailed = self
+                .check_if_jailed(&validator)
+                .await
+                .context("Could not check if validator is jailed")?;
+
             info!(
                 "(Core DAO Validator Info) Target validator jailed status: {}",
                 is_jailed
@@ -500,7 +378,9 @@ impl CoreDaoValidatorInfoScrapper {
                 .set(if is_jailed { 1 } else { 0 });
 
             // Check the slash info for the target validator
-            let (block_height, slash_count) = self.check_slash_info(&validator).await;
+            let (block_height, slash_count) = self.check_slash_info(&validator).await.context(
+                format!("Could not check slash info for validator: {}", validator),
+            )?;
             info!("(Core DAO Validator Info) Target validator slash info - Block Height: {}, Slash Count: {}", 
                       block_height, slash_count);
 
@@ -513,5 +393,19 @@ impl CoreDaoValidatorInfoScrapper {
                 .with_label_values(&[validator, &self.network, &fires_alerts])
                 .set(slash_count as i64);
         }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Task for CoreDaoValidatorInfoScrapper {
+    async fn run(&mut self) -> anyhow::Result<()> {
+        self.collect_validator_metrics()
+            .await
+            .context("Could not collect validator metrics")
+    }
+
+    fn name(&self) -> &'static str {
+        "Core DAO Validator Info Scrapper"
     }
 }
