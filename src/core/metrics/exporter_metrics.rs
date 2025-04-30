@@ -12,12 +12,15 @@ lazy_static! {
     )
     .unwrap();
     pub static ref EXPORTER_TASK_RUNS: GaugeVec = GaugeVec::new(
-        Opts::new("rcosmos_exporter_task_run", "RCosmos Expoter task runs"),
+        Opts::new("rcosmos_exporter_task_run", "RCosmos Exporter task runs"),
         &["task", "network"]
     )
     .unwrap();
     pub static ref EXPORTER_TASK_ERRORS: GaugeVec = GaugeVec::new(
-        Opts::new("rcosmos_exporter_task_error", "RCosmos Expoter task errors"),
+        Opts::new(
+            "rcosmos_exporter_task_error",
+            "RCosmos Exporter task errors"
+        ),
         &["task", "network"]
     )
     .unwrap();
