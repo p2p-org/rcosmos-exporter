@@ -27,7 +27,11 @@ impl CoreDaoValidatorInfoScrapper {
     ) -> Self {
         Self {
             client,
-            validator_alert_addresses,
+            // Normalize validator alert addresses to lowercase during initialization
+            validator_alert_addresses: validator_alert_addresses
+                .into_iter()
+                .map(|addr| addr.to_lowercase())
+                .collect(),
             network,
         }
     }

@@ -8,7 +8,7 @@ use tracing::{debug, error, info};
 use crate::{
     blockchains::coredao::metrics::{
         COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY,
-        COREDAO_VALIDATOR_SIGNED_BLOCKS,
+        COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK, COREDAO_VALIDATOR_SIGNED_BLOCKS,
     },
     core::{clients::blockchain_client::BlockchainClient, exporter::Task},
 };
@@ -36,7 +36,11 @@ impl CoreDaoBlockScrapper {
             client,
             recent_blocks: VecDeque::with_capacity(100),
             max_blocks: 100,
-            validator_alert_addresses,
+            // Normalize validator alert addresses to lowercase during initialization
+            validator_alert_addresses: validator_alert_addresses
+                .into_iter()
+                .map(|addr| addr.to_lowercase())
+                .collect(),
             last_processed_block: 0,
             network,
             initialized: false,
@@ -159,7 +163,7 @@ impl CoreDaoBlockScrapper {
         Ok(())
     }
 
-    fn calculate_validator_participation(&self) {
+    fn calculate_validator_participation(&mut self) {
         if self.recent_blocks.is_empty() {
             return;
         }
@@ -209,65 +213,46 @@ impl CoreDaoBlockScrapper {
         }
 
         // Calculate and set participation rates for all validators
-        for validator in unique_validators {
-            let blocks_signed = validator_counts.get(&validator).cloned().unwrap_or(0);
-
-            // In an ideal scenario, each validator would sign exactly 3 blocks (one per rotation)
-            // So we calculate participation as (blocks signed / 3) * 100%
+        for validator in &unique_validators {
+            let blocks_signed = validator_counts.get(validator).cloned().unwrap_or(0);
             let participation_rate = (blocks_signed as f64 / 3.0) * 100.0;
-
-            // Check if this is one of our alert validators
             let fires_alerts = self
                 .validator_alert_addresses
                 .contains(&validator)
                 .to_string();
-
             COREDAO_VALIDATOR_PARTICIPATION
-                .with_label_values(&[&validator, &self.network.to_string(), &fires_alerts])
+                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
                 .set(participation_rate);
-
-            // Check if this is one of our alert validators
             if self.validator_alert_addresses.contains(&validator) {
-                info!("(Core DAO Block Scrapper) Alert validator {} signed {} out of 3 expected blocks across 3 rotations ({}%)",
-                      validator, blocks_signed, participation_rate);
+                info!("(Core DAO Block Scrapper) Alert validator {} signed {} out of 3 expected blocks across 3 rotations ({}%)", validator, blocks_signed, participation_rate);
             }
         }
 
-        // Check if alert validators have signed at least once in the latest rotation
-        for target in &self.validator_alert_addresses {
+        // Check recent activity for all validators
+        for validator in &unique_validators {
             // Get blocks for the latest rotation only
             let latest_rotation = &recent_three_rotations[0..blocks_per_round];
-
-            let has_signed = latest_rotation
-                .iter()
-                .any(|(_, validator)| validator == target);
-
+            let has_signed = latest_rotation.iter().any(|(_, v)| v == validator);
             let activity_value = if has_signed { 1.0 } else { 0.0 };
-            let fires_alerts = "true";
-
-            COREDAO_VALIDATOR_RECENT_ACTIVITY
-                .with_label_values(&[target, &self.network.to_string(), fires_alerts])
-                .set(activity_value);
-
-            info!("(Core DAO Block Scrapper) Setting recent activity metric for {} to {} (signed in latest rotation: {})",
-                  target, activity_value, has_signed);
-
-            if !has_signed {
-                info!("(Core DAO Block Scrapper) ALERT: Validator {} has not signed any blocks in the latest rotation!",
-                      target);
-            }
-
-            // Count all blocks signed by the target validator (for logging only)
-            let target_signed_blocks_count = self
-                .recent_blocks
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(validator)
+                .to_string();
+            let block_number_value = latest_rotation
                 .iter()
-                .filter(|(_, validator)| validator == target)
-                .count();
-
-            info!(
-                "(Core DAO Block Scrapper) Validator {} has signed {} blocks in the tracked window",
-                target, target_signed_blocks_count
-            );
+                .rev()
+                .find(|(_, v)| v == validator)
+                .map(|(b, _)| *b)
+                .unwrap_or_else(|| latest_rotation.first().map(|(b, _)| *b).unwrap_or(0));
+            // Set the recent activity metric (1/0) for ALL validators
+            COREDAO_VALIDATOR_RECENT_ACTIVITY
+                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
+                .set(activity_value);
+            // Set the recent activity block metric
+            COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK
+                .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
+                .set(block_number_value as f64);
+            info!("(Core DAO Block Scrapper) Setting recent activity metric for {} to {} (signed in latest rotation: {}, block: {})", validator, activity_value, has_signed, block_number_value);
         }
     }
 }
