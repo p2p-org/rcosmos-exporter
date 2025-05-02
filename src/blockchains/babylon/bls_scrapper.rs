@@ -1,10 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
+use anyhow::{bail, Context};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine};
 use serde_json::from_str;
-use tokio::time::sleep;
-use tracing::{error, info};
+
+use tracing::info;
 
 use crate::{
     blockchains::{
@@ -43,7 +44,7 @@ impl BabylonBlsScrapper {
         }
     }
 
-    async fn get_rpc_validators(&self, path: &str) -> Vec<TendermintValidator> {
+    async fn get_rpc_validators(&self, path: &str) -> anyhow::Result<Vec<TendermintValidator>> {
         info!("(Babylon BLS Scrapper) Fetching RPC validators");
         let mut validators: Vec<TendermintValidator> = Vec::new();
 
@@ -52,48 +53,38 @@ impl BabylonBlsScrapper {
         let mut fetched = 0;
 
         while !all_fetched {
-            let res = match self
+            let res = self
                 .client
                 .with_rpc()
                 .get(&format!("{}&page={}", path, page))
                 .await
-            {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("Error calling to RPC validators endpoint: {}", e);
-                    break;
+                .context(format!(
+                    "Could not fetch active validators page: {}, path: {}",
+                    page, path
+                ))?;
+
+            let validators_response = from_str::<ValidatorsResponse>(&res)?;
+
+            if let Some(res) = validators_response.result {
+                let count = res.count.parse::<usize>().context("
+                    Could not parse the count of obtained validators when fetching active validators"
+                )?;
+                let total = res.total.parse::<usize>().context(
+                    "Could not parse the total of validators when fetching active validators",
+                )?;
+                if count + fetched == total {
+                    all_fetched = true;
+                } else {
+                    fetched += count;
+                    page += 1;
                 }
+
+                validators.extend(res.validators)
+            } else {
+                bail!("Result key not present at validators rpc endpoint response")
             };
-
-            let fetched_validators: Vec<TendermintValidator> =
-                match from_str::<ValidatorsResponse>(&res) {
-                    Ok(res) => {
-                        if let Some(res) = res.result {
-                            if res.count.parse::<usize>().unwrap() + fetched
-                                == res.total.parse::<usize>().unwrap()
-                            {
-                                all_fetched = true;
-                            } else {
-                                fetched += res.count.parse::<usize>().unwrap();
-                                page += 1;
-                            }
-
-                            res.validators
-                        } else {
-                            error!("Result key not present at validators rpc endpoint response");
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        error!("Error deserializing JSON: {}", e);
-                        error!("Raw JSON: {}", res);
-                        break;
-                    }
-                };
-
-            validators.extend(fetched_validators);
         }
-        validators
+        Ok(validators)
     }
 
     async fn get_current_epoch(&self) -> anyhow::Result<usize> {
@@ -102,12 +93,14 @@ impl BabylonBlsScrapper {
             .client
             .with_rest()
             .get("/babylon/epoching/v1/current_epoch")
-            .await?;
+            .await
+            .context("Could not fetch current epoch")?;
 
-        match from_str::<CurrentEpoch>(&res) {
-            Ok(res) => Ok(res.current_epoch.parse::<usize>().unwrap()),
-            Err(e) => Err(e.into()),
-        }
+        from_str::<CurrentEpoch>(&res)
+            .context("Could not deserialize current epoch")?
+            .current_epoch
+            .parse::<usize>()
+            .context("Could not parse current epoch")
     }
 
     async fn get_epoch(&self, epoch: usize) -> anyhow::Result<Epoch> {
@@ -116,12 +109,12 @@ impl BabylonBlsScrapper {
             .client
             .with_rest()
             .get(&format!("/babylon/epoching/v1/epochs/{}", epoch))
-            .await?;
+            .await
+            .context(format!("Could not fetch epoch: {}", epoch))?;
 
-        match from_str::<GetEpochResponse>(&res) {
-            Ok(res) => Ok(res.epoch),
-            Err(e) => Err(e.into()),
-        }
+        Ok(from_str::<GetEpochResponse>(&res)
+            .context("Could not deserialize epoch response")?
+            .epoch)
     }
 
     async fn get_block_txs(&self, block: usize) -> anyhow::Result<Vec<Tx>> {
@@ -133,23 +126,19 @@ impl BabylonBlsScrapper {
                 "/cosmos/tx/v1beta1/txs/block/{}?pagination.limit=1",
                 block
             ))
-            .await?;
+            .await
+            .context(format!("Could not fetch block txs for block: {}", block))?;
 
-        match from_str::<BlockTxs>(&res) {
-            Ok(res) => Ok(res.txs),
-            Err(e) => Err(e.into()),
-        }
+        Ok(from_str::<BlockTxs>(&res)
+            .context("Could not deserialize block txs")?
+            .txs)
     }
 
-    async fn process_bls(&mut self) {
-        let current_epoch = match self.get_current_epoch().await {
-            Ok(epoch) => epoch,
-            Err(e) => {
-                error!("Babylon BLS Scrapper) Could not obtain current epoch");
-                error!("Error: {}", e);
-                return;
-            }
-        };
+    async fn process_bls(&mut self) -> anyhow::Result<()> {
+        let current_epoch = self
+            .get_current_epoch()
+            .await
+            .context("Could not obtain current epoch")?;
 
         BABYLON_CURRENT_EPOCH
             .with_label_values(&[&self.chain_id.to_string(), &self.network])
@@ -159,7 +148,7 @@ impl BabylonBlsScrapper {
 
         if epoch_to_process == self.processed_epoch {
             info!("(Babylon BLS Scrapper) Epoch to be processed: {}, has been already processed. Skipping... ", epoch_to_process);
-            return;
+            return Ok(());
         }
 
         info!(
@@ -167,61 +156,34 @@ impl BabylonBlsScrapper {
             epoch_to_process
         );
 
-        let last_finalized_epoch = match self.get_epoch(epoch_to_process).await {
-            Ok(epoch) => epoch,
-            Err(e) => {
-                error!(
-                    "(Babylon BLS Scrapper) Could not obtain last finalized epoch num {}",
-                    epoch_to_process
-                );
-                error!("Error: {}", e);
-                return;
-            }
-        };
+        let last_finalized_epoch = self
+            .get_epoch(epoch_to_process)
+            .await
+            .context(format!("Could not obtain epoch {}", epoch_to_process))?;
 
-        let epoch_first_block = match last_finalized_epoch.first_block_height.parse::<usize>() {
-            Ok(u) => u,
-            Err(e) => {
-                error!(
-                    "Babylon BLS Scrapper) Could not parse usize from epoch first block {}",
-                    last_finalized_epoch.first_block_height
-                );
-                error!("Error: {}", e);
-                return;
-            }
-        };
+        let epoch_first_block = last_finalized_epoch
+            .first_block_height
+            .parse::<usize>()
+            .context("Could not parse last finalized epoch first block height")?;
 
         let validators = self
             .get_rpc_validators(&format!("/validators?height={}", epoch_first_block))
-            .await;
+            .await
+            .context("Could not obtain RPC validators")?;
 
-        let block_txs = match self.get_block_txs(epoch_first_block).await {
-            Ok(txs) => txs,
-            Err(e) => {
-                error!(
-                    "(Babylon BLS Scrapper) Could not obtain block txs for block: {}",
-                    epoch_first_block
-                );
-                error!("Error: {}", e);
-                return;
-            }
-        };
+        let block_txs = self
+            .get_block_txs(epoch_first_block)
+            .await
+            .context("Could not obtain epoch first block txs")?;
 
         let mut validators_missing_block = Vec::new();
         for tx in block_txs {
             for message in tx.body.messages {
                 for vote in message.extended_commit_info.votes {
                     if vote.extension_signature.is_none() {
-                        let address_bytes = match general_purpose::STANDARD
+                        let address_bytes = general_purpose::STANDARD
                             .decode(vote.validator.address)
-                        {
-                            Ok(b) => b,
-                            Err(e) => {
-                                error!("(Babylon BLS Scrapper) Could not decode validator addres");
-                                error!("Error: {}", e);
-                                return;
-                            }
-                        };
+                            .context("Could not decode validator address inside block txs")?;
                         let address: String = address_bytes
                             .iter()
                             .map(|byte| format!("{:02x}", byte))
@@ -256,18 +218,17 @@ impl BabylonBlsScrapper {
         }
 
         self.processed_epoch = epoch_to_process;
+        Ok(())
     }
 }
 
 #[async_trait]
 impl Task for BabylonBlsScrapper {
-    async fn run(&mut self, delay: Duration) {
-        info!("Running Babylon BLS Scrapper");
+    async fn run(&mut self) -> anyhow::Result<()> {
+        self.process_bls().await.context("Could not process BLS")
+    }
 
-        loop {
-            self.process_bls().await;
-
-            sleep(delay).await
-        }
+    fn name(&self) -> &'static str {
+        "Babylon BLS Scrapper"
     }
 }

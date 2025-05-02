@@ -1,9 +1,9 @@
-use std::{sync::Arc, time::Duration, usize};
+use std::{sync::Arc, usize};
 
+use anyhow::Context;
 use async_trait::async_trait;
 use serde_json::from_str;
-use tokio::time::sleep;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use urlencoding::encode;
 
 use crate::{
@@ -35,15 +35,24 @@ impl TendermintProposalScrapper {
 
     async fn get_last_block_height(&mut self) -> anyhow::Result<usize> {
         info!("Tendermint Proposal Scrapper) Getting last block height");
-        let res = self.client.with_rpc().get("/block").await?;
+        let res = self
+            .client
+            .with_rpc()
+            .get("/block")
+            .await
+            .context("Could not fetch last block")?;
 
-        match from_str::<TendermintBlockResponse>(&res) {
-            Ok(res) => Ok(res.result.block.header.height.parse::<usize>().unwrap()),
-            Err(e) => Err(e.into()),
-        }
+        from_str::<TendermintBlockResponse>(&res)
+            .context("Could not parse block response")?
+            .result
+            .block
+            .header
+            .height
+            .parse::<usize>()
+            .context("Could not parse last block height")
     }
 
-    async fn get_proposals(&mut self, path: &str) -> Vec<Proposal> {
+    async fn get_proposals(&mut self, path: &str) -> anyhow::Result<Vec<Proposal>> {
         info!("(Tendermint Proposal Scrapper) Fetching proposals");
         let mut pagination_key: Option<String> = None;
         let mut proposals: Vec<Proposal> = Vec::new();
@@ -55,49 +64,26 @@ impl TendermintProposalScrapper {
                 url = format!("{}?pagination.key={}", path, encoded_key);
             }
 
-            let res = match self.client.with_rest().get(&url).await {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("(Tendermint Proposal Scrapper) Error calling to REST proposal endpoint: {:?}", e);
-                    break;
-                }
-            };
+            let res = self.client.with_rest().get(&url).await?;
 
-            let fetched_proposals: Vec<Proposal> = match from_str::<TendermintProposalsResponse>(
-                &res,
-            ) {
-                Ok(res) => {
-                    pagination_key = res.pagination.next_key;
-                    res.proposals
-                }
-                Err(e) => {
-                    error!("(Tendermint Proposal Scrapper) Error deserializing Proposal Response JSON {}", e);
-                    error!("Raw JSON: {}", res);
-                    break;
-                }
-            };
+            let proposal_response = from_str::<TendermintProposalsResponse>(&res)?;
 
-            proposals.extend(fetched_proposals);
+            pagination_key = proposal_response.pagination.next_key;
+            proposals.extend(proposal_response.proposals);
             if pagination_key.is_none() {
                 break;
             }
         }
-        proposals
+        Ok(proposals)
     }
 
-    async fn process_proposals(&mut self) {
-        let last_block_height = match self.get_last_block_height().await {
-            Ok(height) => height,
-            Err(e) => {
-                error!(
-                    "(Tendermint Proposal Scrapper) Could not obtain last block height: {:?}",
-                    e
-                );
-                return;
-            }
-        };
+    async fn process_proposals(&mut self) -> anyhow::Result<()> {
+        let last_block_height = self.get_last_block_height().await?;
 
-        let proposals = self.get_proposals("/cosmos/gov/v1/proposals").await;
+        let proposals = self
+            .get_proposals("/cosmos/gov/v1/proposals")
+            .await
+            .context("Could not obtain proposals")?;
 
         info!("(Tendermint Proposal Scrapper) Searching for upgrade proposals");
         for proposal in proposals.iter() {
@@ -227,18 +213,19 @@ impl TendermintProposalScrapper {
                 ])
                 .set(0);
         }
+        Ok(())
     }
 }
 
 #[async_trait]
 impl Task for TendermintProposalScrapper {
-    async fn run(&mut self, delay: Duration) {
-        info!("(Running Tendermint Proposal Scrapper");
+    async fn run(&mut self) -> anyhow::Result<()> {
+        self.process_proposals()
+            .await
+            .context("Failed to process proposals")
+    }
 
-        loop {
-            self.process_proposals().await;
-
-            sleep(delay).await
-        }
+    fn name(&self) -> &'static str {
+        "Tendermint Proposal Scrapper"
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rcosmos-exporter"
-version = "0.9.2"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
@@ -25,3 +25,4 @@ sha2 = "0.10.8"
 bech32 = "0.11.0"
 anyhow = "1.0.97"
 openssl = { version = "0.10", features = ["vendored"] }
+tokio-util = "0.7.15"

@@ -1,9 +1,7 @@
-use std::time::Duration;
-
+use anyhow::Context;
 use async_trait::async_trait;
 use reqwest::Client;
-use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     blockchains::tendermint::metrics::{
@@ -34,31 +32,27 @@ impl TendermintNodeStatusScrapper {
     }
 
     async fn get_status(&self) -> anyhow::Result<TendermintStatusResponse> {
-        let response = match self
+        let response = self
             .client
             .get(format!("{}/status", self.endpoint))
             .send()
             .await
-        {
-            Ok(res) => res,
-            Err(e) => return Err(e.into()),
-        };
+            .context("Could not fetch status from node")?;
 
-        let status: TendermintStatusResponse = response.json().await?;
+        let status: TendermintStatusResponse = response
+            .json()
+            .await
+            .context("Could not deserialize status response")?;
         Ok(status)
     }
 
-    async fn process_status(&self) {
+    async fn process_status(&self) -> anyhow::Result<()> {
         info!("(Tendermint Node Status) Obtaining node status");
 
-        let status = match self.get_status().await {
-            Ok(status) => status,
-            Err(e) => {
-                error!("(Tendermint Node Status) Could not obtain status");
-                error!("(Tendermint Node Status) Error: {}", e);
-                return;
-            }
-        };
+        let status = self
+            .get_status()
+            .await
+            .context("Could not obtain node status")?;
 
         let chain_id = &status.result.node_info.network;
 
@@ -86,7 +80,7 @@ impl TendermintNodeStatusScrapper {
                     .sync_info
                     .latest_block_height
                     .parse::<i64>()
-                    .expect("Could not parse latest block height"),
+                    .context("Could not parse latest block height")?,
             );
         TENDERMINT_NODE_LATEST_BLOCK_TIME
             .with_label_values(&[&self.name, &chain_id, &self.network])
@@ -106,7 +100,7 @@ impl TendermintNodeStatusScrapper {
                     .sync_info
                     .earliest_block_height
                     .parse::<i64>()
-                    .expect("Could not parse earliest block height"),
+                    .context("Could not parse earliest block height")?,
             );
         TENDERMINT_NODE_EARLIEST_BLOCK_TIME
             .with_label_values(&[&self.name, &chain_id, &self.network])
@@ -118,18 +112,19 @@ impl TendermintNodeStatusScrapper {
                     .and_utc()
                     .timestamp() as f64,
             );
+        Ok(())
     }
 }
 
 #[async_trait]
 impl Task for TendermintNodeStatusScrapper {
-    async fn run(&mut self, delay: Duration) {
-        info!("(Running Tendermint Node Status Scrapper");
+    async fn run(&mut self) -> anyhow::Result<()> {
+        self.process_status()
+            .await
+            .context("Failed to process node status")
+    }
 
-        loop {
-            self.process_status().await;
-
-            sleep(delay).await
-        }
+    fn name(&self) -> &'static str {
+        "Tendermint Node Status Scrapper"
     }
 }

@@ -3,13 +3,13 @@ use rand::rngs::SmallRng;
 use rand::seq::IndexedRandom;
 use rand::SeedableRng;
 use reqwest::{Client, ClientBuilder, StatusCode};
+use serde_json;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::{debug, error, warn};
-use serde_json;
 
 use crate::core::metrics::exporter_metrics::EXPORTER_HTTP_REQUESTS;
 
@@ -19,15 +19,17 @@ struct Endpoint {
     health_url: String,
     healthy: bool,
     consecutive_failures: usize,
+    network: String,
 }
 
 impl Endpoint {
-    fn new(url: String, health_url: String) -> Self {
+    fn new(url: String, health_url: String, network: String) -> Self {
         Endpoint {
             url: url.to_string(),
             health_url: health_url.to_string(),
             healthy: true,
             consecutive_failures: 0,
+            network,
         }
     }
 
@@ -35,29 +37,28 @@ impl Endpoint {
         let health_url = format!("{}{}", self.url, self.health_url);
 
         match client.get(&health_url).send().await {
-            Ok(response) if response.status() == StatusCode::OK => {
+            Ok(response) => {
+                let status = response.status();
                 EXPORTER_HTTP_REQUESTS
                     .with_label_values(&[
                         &self.url,
                         &self.health_url,
-                        &response.status().as_u16().to_string(),
+                        &status.as_u16().to_string(),
+                        &self.network,
                     ])
                     .inc();
 
-                true
+                if status == StatusCode::OK {
+                    true
+                } else {
+                    warn!(
+                        "(HTTP Client) Health check failed for {} with status {}",
+                        health_url, status
+                    );
+                    false
+                }
             }
-            Ok(response) => {
-                warn!("(HTTP Client) Health check failed for {}", health_url);
-                EXPORTER_HTTP_REQUESTS
-                    .with_label_values(&[
-                        &self.url,
-                        &self.health_url,
-                        &response.status().as_u16().to_string(),
-                    ])
-                    .inc();
-                false
-            }
-            _ => {
+            Err(_) => {
                 warn!("(HTTP Client) Health check failed for {}", health_url);
                 false
             }
@@ -90,10 +91,11 @@ impl HttpClient {
     pub fn new(
         urls: Vec<(String, String)>,
         health_check_interval: Option<Duration>,
+        network: String,
     ) -> Option<Self> {
         let endpoints = urls
             .into_iter()
-            .map(|(url, health_url)| Endpoint::new(url, health_url))
+            .map(|(url, health_url)| Endpoint::new(url, health_url, network.clone()))
             .collect();
 
         let client = ClientBuilder::new()
@@ -180,34 +182,36 @@ impl HttpClient {
                 let response = self.client.get(&url).send().await;
 
                 match response {
-                    Ok(res) if res.status() == StatusCode::OK => {
-                        EXPORTER_HTTP_REQUESTS
-                            .with_label_values(&[
-                                &endpoint.url,
-                                metric_path,
-                                &res.status().as_u16().to_string(),
-                            ])
-                            .inc();
-                        return Ok(res.text().await?);
-                    }
                     Ok(res) => {
+                        let status_str = res.status().as_u16().to_string();
                         EXPORTER_HTTP_REQUESTS
                             .with_label_values(&[
                                 &endpoint.url,
                                 metric_path,
-                                &res.status().as_u16().to_string(),
+                                &status_str,
+                                &endpoint.network,
                             ])
                             .inc();
-                        warn!(
-                            "(HTTP Client) Attempt {} failed for {}, using {}: No healthy response",
-                            attempt + 1,
-                            path,
-                            url
-                        );
+
+                        if res.status() == StatusCode::OK {
+                            return Ok(res.text().await?);
+                        } else {
+                            warn!(
+                                "(HTTP Client) Attempt {} failed for {}, using {}: No healthy response",
+                                attempt + 1,
+                                path,
+                                url
+                            );
+                        }
                     }
-                    _ => {
+                    Err(_) => {
                         EXPORTER_HTTP_REQUESTS
-                            .with_label_values(&[&endpoint.url, path, "error"])
+                            .with_label_values(&[
+                                &endpoint.url,
+                                metric_path,
+                                "error",
+                                &endpoint.network,
+                            ])
                             .inc();
                         warn!(
                             "(HTTP Client) Attempt {} failed for {}, using {}: No HTTP response",
@@ -225,13 +229,22 @@ impl HttpClient {
         Err(HTTPClientErrors::NoHealthyEndpoints(path.to_string()))
     }
 
-    pub async fn post<T: serde::Serialize>(&self, path: &str, body: T) -> Result<String, HTTPClientErrors> {
+    pub async fn post<T: serde::Serialize>(
+        &self,
+        path: &str,
+        body: T,
+    ) -> Result<String, HTTPClientErrors> {
         debug!("Making POST call to {}", path);
 
         // Convert the body to a JSON string
         let body_string = match serde_json::to_string(&body) {
             Ok(json) => json,
-            Err(e) => return Err(HTTPClientErrors::NoHealthyEndpoints(format!("JSON serialization error: {}", e))),
+            Err(e) => {
+                return Err(HTTPClientErrors::NoHealthyEndpoints(format!(
+                    "JSON serialization error: {}",
+                    e
+                )))
+            }
         };
 
         let endpoints = self.endpoints.read().await;
@@ -250,7 +263,7 @@ impl HttpClient {
                 } else {
                     format!("{}/{}", endpoint.url, path)
                 };
-                
+
                 let metric_path = if path.contains("?") {
                     path.split("?").next().unwrap_or("")
                 } else {
@@ -258,8 +271,9 @@ impl HttpClient {
                 };
 
                 debug!("Attempting POST request to: {}", url);
-                
-                let response = self.client
+
+                let response = self
+                    .client
                     .post(&url)
                     .header("Content-Type", "application/json")
                     .body(body_string.clone())
@@ -267,42 +281,42 @@ impl HttpClient {
                     .await;
 
                 match response {
-                    Ok(res) if res.status() == StatusCode::OK => {
-                        EXPORTER_HTTP_REQUESTS
-                            .with_label_values(&[
-                                &endpoint.url,
-                                metric_path,
-                                &res.status().as_u16().to_string(),
-                            ])
-                            .inc();
-                        return Ok(res.text().await?);
-                    }
                     Ok(res) => {
+                        let status_str = res.status().as_u16().to_string();
                         EXPORTER_HTTP_REQUESTS
                             .with_label_values(&[
                                 &endpoint.url,
                                 metric_path,
-                                &res.status().as_u16().to_string(),
+                                &status_str,
+                                &endpoint.network,
+                            ])
+                            .inc();
+
+                        if res.status() == StatusCode::OK {
+                            return Ok(res.text().await?);
+                        } else {
+                            warn!(
+                                    "(HTTP Client) Attempt {} failed for {}, using {}: No healthy response",
+                                    attempt + 1,
+                                    path,
+                                    url
+                                );
+                        }
+                    }
+                    Err(_) => {
+                        EXPORTER_HTTP_REQUESTS
+                            .with_label_values(&[
+                                &endpoint.url,
+                                metric_path,
+                                "error",
+                                &endpoint.network,
                             ])
                             .inc();
                         warn!(
-                            "(HTTP Client) Attempt {} failed for {}, using {}: No healthy response, status: {}",
+                            "(HTTP Client) Attempt {} failed for {}, using {}: No HTTP response",
                             attempt + 1,
                             path,
-                            url,
-                            res.status()
-                        );
-                    }
-                    Err(e) => {
-                        EXPORTER_HTTP_REQUESTS
-                            .with_label_values(&[&endpoint.url, path, "error"])
-                            .inc();
-                        warn!(
-                            "(HTTP Client) Attempt {} failed for {}, using {}: Error: {}",
-                            attempt + 1,
-                            path,
-                            url,
-                            e
+                            url
                         );
                     }
                 }

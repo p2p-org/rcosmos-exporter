@@ -1,11 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
+use anyhow::{bail, Context};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine};
 use serde_json::from_str;
 use sha2::{Digest, Sha256};
-use tokio::time::sleep;
-use tracing::{error, info, warn};
+use tracing::info;
 use urlencoding::encode;
 
 use crate::{
@@ -42,7 +42,7 @@ impl TendermintValidatorInfoScrapper {
         }
     }
 
-    async fn get_rpc_validators(&self, path: &str) -> Vec<TendermintValidator> {
+    async fn get_rpc_validators(&self, path: &str) -> anyhow::Result<Vec<TendermintValidator>> {
         info!("(Tendermint Validator Info) Fetching RPC validators");
         let mut validators: Vec<TendermintValidator> = Vec::new();
 
@@ -51,51 +51,42 @@ impl TendermintValidatorInfoScrapper {
         let mut fetched = 0;
 
         while !all_fetched {
-            let res = match self
+            let res = self
                 .client
                 .with_rpc()
                 .get(&format!("{}?page={}", path, page))
                 .await
-            {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("Error calling to RPC validators endpoint: {}", e);
-                    break;
+                .context(format!("Could not fetch active validators page: {}", page))?;
+
+            let validators_response =
+                from_str::<ValidatorsResponse>(&res).context("Could not decode JSON response")?;
+
+            if let Some(res) = validators_response.result {
+                let count = res.count.parse::<usize>().context("
+                    Could not parse the count of obtained validators when fetching active validators"
+                )?;
+                let total = res.total.parse::<usize>().context(
+                    "Could not parse the total of validators when fetching active validators",
+                )?;
+                if count + fetched == total {
+                    all_fetched = true;
+                } else {
+                    fetched += count;
+                    page += 1;
                 }
+
+                validators.extend(res.validators)
+            } else {
+                bail!("Result key not present at validators rpc endpoint response")
             };
-
-            let fetched_validators: Vec<TendermintValidator> =
-                match from_str::<ValidatorsResponse>(&res) {
-                    Ok(res) => {
-                        if let Some(res) = res.result {
-                            if res.count.parse::<usize>().unwrap() + fetched
-                                == res.total.parse::<usize>().unwrap()
-                            {
-                                all_fetched = true;
-                            } else {
-                                fetched += res.count.parse::<usize>().unwrap();
-                                page += 1;
-                            }
-
-                            res.validators
-                        } else {
-                            error!("Result key not present at validators rpc endpoint response");
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        error!("Error deserializing JSON: {}", e);
-                        error!("Raw JSON: {}", res);
-                        break;
-                    }
-                };
-
-            validators.extend(fetched_validators);
         }
-        validators
+        Ok(validators)
     }
 
-    async fn get_rest_validators(&self, path: &str) -> Vec<TendermintRESTValidator> {
+    async fn get_rest_validators(
+        &self,
+        path: &str,
+    ) -> anyhow::Result<Vec<TendermintRESTValidator>> {
         info!("(Tendermint Validator Info) Fetching REST validators");
 
         let mut pagination_key: Option<String> = None;
@@ -108,52 +99,37 @@ impl TendermintValidatorInfoScrapper {
                 url = format!("{}?pagination.key={}", path, encoded_key);
             }
 
-            let res = match self.client.with_rest().get(&url).await {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("Error calling to REST validators endpoint: {:?}", e);
-                    break;
-                }
-            };
+            let res = self
+                .client
+                .with_rest()
+                .get(&url)
+                .await
+                .context("Could not fetch rest validators")?;
 
-            let fetched_validators: Vec<TendermintRESTValidator> =
-                match from_str::<TendermintRESTResponse>(&res) {
-                    Ok(res) => {
-                        pagination_key = res.pagination.next_key;
-                        res.validators
-                    }
-                    Err(e) => {
-                        error!(
-                            "Error deserializing JSON from REST validator endpoint: {}",
-                            e
-                        );
-                        error!("Raw JSON: {}", res);
-                        break;
-                    }
-                };
+            let rest_validator_response = from_str::<TendermintRESTResponse>(&res)
+                .context("Could not deserialize REST validators response")?;
 
-            validators.extend(fetched_validators);
+            pagination_key = rest_validator_response.pagination.next_key;
+
+            validators.extend(rest_validator_response.validators);
             if pagination_key.is_none() {
                 break;
             }
         }
-        validators
+        Ok(validators)
     }
 
-    async fn process_validators(&mut self) {
+    async fn process_validators(&mut self) -> anyhow::Result<()> {
         let rest_validators = self
             .get_rest_validators("/cosmos/staking/v1beta1/validators")
-            .await;
+            .await
+            .context("Could not obtain REST validators")?;
 
         info!("(Tendermint Validator Info) Processing REST validators");
         for validator in rest_validators {
-            let bytes = match general_purpose::STANDARD.decode(&validator.consensus_pubkey.key) {
-                Ok(b) => b,
-                Err(_) => {
-                    warn!("Could not base64 decode validator pub key");
-                    continue;
-                }
-            };
+            let bytes = general_purpose::STANDARD
+                .decode(&validator.consensus_pubkey.key)
+                .context("Could not validator pub key")?;
 
             let mut hasher = Sha256::new();
             // Process the input data
@@ -200,7 +176,10 @@ impl TendermintValidatorInfoScrapper {
                 .set(if jailed { 1 } else { 0 });
         }
 
-        let rpc_validators = self.get_rpc_validators("/validators").await;
+        let rpc_validators = self
+            .get_rpc_validators("/validators")
+            .await
+            .context("Could not obtain RPC validators")?;
 
         info!("(Tendermint Validator Info) Processing RPC validators");
         for validator in rpc_validators {
@@ -210,7 +189,12 @@ impl TendermintValidatorInfoScrapper {
                     &self.chain_id.to_string(),
                     &self.network,
                 ])
-                .set(validator.proposer_priority.parse::<i64>().unwrap());
+                .set(
+                    validator
+                        .proposer_priority
+                        .parse::<i64>()
+                        .context("Could not parse validator proposer priority")?,
+                );
 
             TENDERMINT_VALIDATOR_VOTING_POWER
                 .with_label_values(&[
@@ -218,19 +202,27 @@ impl TendermintValidatorInfoScrapper {
                     &self.chain_id.to_string(),
                     &self.network,
                 ])
-                .set(validator.voting_power.parse::<i64>().unwrap());
+                .set(
+                    validator
+                        .voting_power
+                        .parse::<i64>()
+                        .context("Could not parse validator voting power")?,
+                );
         }
+
+        Ok(())
     }
 }
 
 #[async_trait]
 impl Task for TendermintValidatorInfoScrapper {
-    async fn run(&mut self, delay: Duration) {
-        info!("Running Tendermint Validator Scrapper");
-        loop {
-            self.process_validators().await;
+    async fn run(&mut self) -> anyhow::Result<()> {
+        self.process_validators()
+            .await
+            .context("Failed to process validators")
+    }
 
-            sleep(delay).await
-        }
+    fn name(&self) -> &'static str {
+        "Tendermint Validator Info Scrapper"
     }
 }
