@@ -23,6 +23,7 @@ pub struct CoreDaoBlockScrapper {
     // Validator addresses to monitor and alert on
     validator_alert_addresses: Vec<String>,
     network: String,
+    initialized: bool,
 }
 
 impl CoreDaoBlockScrapper {
@@ -38,6 +39,7 @@ impl CoreDaoBlockScrapper {
             validator_alert_addresses,
             last_processed_block: 0,
             network,
+            initialized: false,
         }
     }
 
@@ -273,23 +275,27 @@ impl CoreDaoBlockScrapper {
 #[async_trait]
 impl Task for CoreDaoBlockScrapper {
     async fn run(&mut self) -> anyhow::Result<()> {
-        for target_address in &self.validator_alert_addresses {
-            debug!(
-                "(Core DAO Block Scrapper) Forcibly initializing recent activity metric for {}",
-                target_address
-            );
-            COREDAO_VALIDATOR_RECENT_ACTIVITY
-                .with_label_values(&[target_address, &self.network.to_string(), "true"])
-                .set(-1.0); // Initialize with -1 to indicate "not enough data yet"
+        if !self.initialized {
+            for target_address in &self.validator_alert_addresses {
+                debug!(
+                    "(Core DAO Block Scrapper) Forcibly initializing recent activity metric for {}",
+                    target_address
+                );
+                COREDAO_VALIDATOR_RECENT_ACTIVITY
+                    .with_label_values(&[target_address, &self.network.to_string(), "true"])
+                    .set(-1.0); // Initialize with -1 to indicate "not enough data yet"
+            }
+
+            // Initialize last_processed_block to the current latest block
+            let latest_block = self
+                .get_latest_block_number()
+                .await
+                .context("Failed to obtain initial latest block")?;
+
+            self.last_processed_block = latest_block.saturating_sub(self.max_blocks as u64);
+
+            self.initialized = true;
         }
-
-        // Initialize last_processed_block to the current latest block
-        let latest_block = self
-            .get_latest_block_number()
-            .await
-            .context("Failed to obtain initial latest block")?;
-
-        self.last_processed_block = latest_block.saturating_sub(self.max_blocks as u64);
 
         self.process_new_blocks()
             .await
