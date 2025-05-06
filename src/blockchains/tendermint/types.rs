@@ -267,3 +267,24 @@ pub struct TendermintUpgradePlan {
     pub name: String,
     pub height: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintTxResponse {
+    pub result: TendermintTxResponseResult,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintTxResponseResult {
+    pub txs: Vec<TendermintTx>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TendermintTx {
+    pub tx_result: TendermintTxResult,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintTxResult {
+    pub gas_wanted: String,
+    pub gas_used: String,
+}

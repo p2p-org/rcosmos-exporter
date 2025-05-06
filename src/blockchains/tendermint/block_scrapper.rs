@@ -1,11 +1,15 @@
 use anyhow::{bail, Context};
 use async_trait::async_trait;
+use base64::{engine::general_purpose, Engine};
 use serde_json::from_str;
 use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::{
-    blockchains::tendermint::types::{TendermintValidator, ValidatorsResponse},
+    blockchains::tendermint::{
+        metrics::{TENDERMINT_BLOCK_TXS, TENDERMINT_BLOCK_TX_SIZE},
+        types::{TendermintValidator, ValidatorsResponse},
+    },
     core::{
         block_height::BlockHeight, block_window::BlockWindow, chain_id::ChainId,
         clients::blockchain_client::BlockchainClient, exporter::Task,
@@ -14,11 +18,12 @@ use crate::{
 
 use super::{
     metrics::{
-        TENDERMINT_CURRENT_BLOCK_HEIGHT, TENDERMINT_CURRENT_BLOCK_TIME,
-        TENDERMINT_VALIDATOR_MISSED_BLOCKS, TENDERMINT_VALIDATOR_PROPOSED_BLOCKS,
-        TENDERMINT_VALIDATOR_UPTIME,
+        TENDERMINT_BLOCK_GAS_USED, TENDERMINT_BLOCK_GAS_WANTED, TENDERMINT_BLOCK_TX_GAS_USED,
+        TENDERMINT_BLOCK_TX_GAS_WANTED, TENDERMINT_CURRENT_BLOCK_HEIGHT,
+        TENDERMINT_CURRENT_BLOCK_TIME, TENDERMINT_VALIDATOR_MISSED_BLOCKS,
+        TENDERMINT_VALIDATOR_PROPOSED_BLOCKS, TENDERMINT_VALIDATOR_UPTIME,
     },
-    types::{TendermintBlock, TendermintBlockResponse},
+    types::{TendermintBlock, TendermintBlockResponse, TendermintTx, TendermintTxResponse},
 };
 
 pub struct TendermintBlockScrapper {
@@ -100,6 +105,20 @@ impl TendermintBlockScrapper {
         Ok(())
     }
 
+    async fn get_block_txs(&mut self, height: usize) -> anyhow::Result<Vec<TendermintTx>> {
+        let res = self
+            .client
+            .with_rpc()
+            .get(&format!("tx_search?query=\"tx.height={}\"", height))
+            .await
+            .context(format!("Could not fetch txs for height {}", height))?;
+
+        Ok(from_str::<TendermintTxResponse>(&res)
+            .context("Could not deserialize txs response")?
+            .result
+            .txs)
+    }
+
     async fn get_block(&mut self, height: BlockHeight) -> anyhow::Result<TendermintBlock> {
         let path = match height {
             BlockHeight::Height(h) => {
@@ -161,7 +180,7 @@ impl TendermintBlockScrapper {
                         "(Tendermint Block Scrapper) Could not parse block {}",
                         height_to_process
                     );
-                    error!("(Tendermint Block Scrapper) Error: {}", e)
+                    error!("(Tendermint Block Scrapper) Error: {:?}", e)
                 }
             }
             height_to_process += 1;
@@ -205,6 +224,81 @@ impl TendermintBlockScrapper {
         let block_time = block.header.time;
         let block_proposer = block.header.proposer_address.clone();
         let block_signatures = block.last_commit.signatures.clone();
+
+        TENDERMINT_BLOCK_TXS
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
+            .set(block.data.txs.len() as f64);
+
+        let mut block_avg_tx_size: f64 = 0.0;
+        let mut block_gas_wanted: f64 = 0.0;
+        let mut block_gas_used: f64 = 0.0;
+        let mut block_avg_tx_gas_wanted: f64 = 0.0;
+        let mut block_avg_tx_gas_used: f64 = 0.0;
+
+        if !block.data.txs.is_empty() {
+            block_avg_tx_size = block
+                .data
+                .txs
+                .iter()
+                .filter_map(|tx| {
+                    general_purpose::STANDARD
+                        .decode(tx)
+                        .context("Could not decode tx")
+                        .ok()
+                        .map(|decoded| decoded.len())
+                })
+                .sum::<usize>() as f64
+                / block.data.txs.len() as f64;
+
+            let txs_info = self
+                .get_block_txs(height)
+                .await
+                .context(format!("Could not obtain txs info from block {}", height))?;
+
+            let mut gas_wanted = Vec::new();
+            let mut gas_used = Vec::new();
+
+            for tx in txs_info {
+                gas_wanted.push(
+                    tx.tx_result
+                        .gas_wanted
+                        .parse::<usize>()
+                        .context("Could not parse tx gas used")?,
+                );
+                gas_used.push(
+                    tx.tx_result
+                        .gas_used
+                        .parse::<usize>()
+                        .context("Could not parse tx gas used")?,
+                );
+            }
+
+            block_gas_wanted = gas_wanted.iter().sum::<usize>() as f64;
+            block_gas_used = gas_used.iter().sum::<usize>() as f64;
+            block_avg_tx_gas_wanted =
+                gas_wanted.iter().sum::<usize>() as f64 / gas_wanted.len() as f64;
+            block_avg_tx_gas_used = gas_used.iter().sum::<usize>() as f64 / gas_used.len() as f64;
+        }
+
+        TENDERMINT_BLOCK_TX_SIZE
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
+            .set(block_avg_tx_size);
+
+        TENDERMINT_BLOCK_GAS_WANTED
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
+            .set(block_gas_wanted);
+
+        TENDERMINT_BLOCK_GAS_USED
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
+            .set(block_gas_used);
+
+        TENDERMINT_BLOCK_TX_GAS_WANTED
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
+            .set(block_avg_tx_gas_wanted);
+
+        TENDERMINT_BLOCK_TX_GAS_USED
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
+            .set(block_avg_tx_gas_used);
 
         for sig in block_signatures.iter() {
             if !sig.validator_address.is_empty()

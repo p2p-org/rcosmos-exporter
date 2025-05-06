@@ -134,6 +134,39 @@ lazy_static! {
         &["name", "chain_id", "network"]
     )
     .unwrap();
+    pub static ref TENDERMINT_BLOCK_TXS: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_block_txs", "Block number of transactions"),
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_BLOCK_TX_SIZE: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_block_tx_size", "Block average transaction size"),
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_BLOCK_GAS_WANTED: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_block_gas_wanted", "Block gas wanted"),
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_BLOCK_GAS_USED: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_block_gas_used", "Block gas used"),
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_BLOCK_TX_GAS_WANTED: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_block_tx_gas_wanted",
+            "Block tx average gas wanted"
+        ),
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_BLOCK_TX_GAS_USED: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_block_tx_gas_used", "Block tx average gas used"),
+        &["chain_id", "network"]
+    )
+    .unwrap();
 }
 
 pub fn register_custom_metrics() {
@@ -190,5 +223,23 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_NODE_EARLIEST_BLOCK_TIME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_BLOCK_TXS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_BLOCK_TX_SIZE.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_BLOCK_GAS_WANTED.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_BLOCK_GAS_USED.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_BLOCK_TX_GAS_WANTED.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_BLOCK_TX_GAS_USED.clone()))
         .unwrap();
 }
