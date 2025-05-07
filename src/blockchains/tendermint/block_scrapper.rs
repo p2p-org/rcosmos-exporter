@@ -173,16 +173,9 @@ impl TendermintBlockScrapper {
 
         while height_to_process < last_block_height {
             // Skip the block if error was encountered during processing
-            match self.process_block(height_to_process).await {
-                Ok(_) => (),
-                Err(e) => {
-                    error!(
-                        "(Tendermint Block Scrapper) Could not parse block {}",
-                        height_to_process
-                    );
-                    error!("(Tendermint Block Scrapper) Error: {:?}", e)
-                }
-            }
+            self.process_block(height_to_process)
+                .await
+                .context(format!("Failed to process block {}", height_to_process))?;
             height_to_process += 1;
         }
 
