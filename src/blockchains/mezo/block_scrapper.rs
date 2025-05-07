@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine};
 use serde_json::from_str;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     blockchains::tendermint::{
