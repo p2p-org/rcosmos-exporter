@@ -40,12 +40,7 @@ impl Endpoint {
             Ok(response) => {
                 let status = response.status();
                 EXPORTER_HTTP_REQUESTS
-                    .with_label_values(&[
-                        &self.url,
-                        &self.health_url,
-                        &status.as_u16().to_string(),
-                        &self.network,
-                    ])
+                    .with_label_values(&[&self.url, &status.as_u16().to_string(), &self.network])
                     .inc();
 
                 if status == StatusCode::OK {
@@ -171,13 +166,6 @@ impl HttpClient {
         for attempt in 0..5 {
             if let Some(endpoint) = healthy_endpoints.choose(&mut rng) {
                 let url = format!("{}/{}", endpoint.url, path);
-                let metric_path: Vec<&str> = path.split("?").collect();
-
-                let metric_path = if !metric_path.is_empty() {
-                    metric_path[0]
-                } else {
-                    ""
-                };
 
                 let response = self.client.get(&url).send().await;
 
@@ -185,12 +173,7 @@ impl HttpClient {
                     Ok(res) => {
                         let status_str = res.status().as_u16().to_string();
                         EXPORTER_HTTP_REQUESTS
-                            .with_label_values(&[
-                                &endpoint.url,
-                                metric_path,
-                                &status_str,
-                                &endpoint.network,
-                            ])
+                            .with_label_values(&[&endpoint.url, &status_str, &endpoint.network])
                             .inc();
 
                         if res.status() == StatusCode::OK {
@@ -206,12 +189,7 @@ impl HttpClient {
                     }
                     Err(_) => {
                         EXPORTER_HTTP_REQUESTS
-                            .with_label_values(&[
-                                &endpoint.url,
-                                metric_path,
-                                "error",
-                                &endpoint.network,
-                            ])
+                            .with_label_values(&[&endpoint.url, "error", &endpoint.network])
                             .inc();
                         warn!(
                             "(HTTP Client) Attempt {} failed for {}, using {}: No HTTP response",
@@ -264,12 +242,6 @@ impl HttpClient {
                     format!("{}/{}", endpoint.url, path)
                 };
 
-                let metric_path = if path.contains("?") {
-                    path.split("?").next().unwrap_or("")
-                } else {
-                    path
-                };
-
                 debug!("Attempting POST request to: {}", url);
 
                 let response = self
@@ -284,12 +256,7 @@ impl HttpClient {
                     Ok(res) => {
                         let status_str = res.status().as_u16().to_string();
                         EXPORTER_HTTP_REQUESTS
-                            .with_label_values(&[
-                                &endpoint.url,
-                                metric_path,
-                                &status_str,
-                                &endpoint.network,
-                            ])
+                            .with_label_values(&[&endpoint.url, &status_str, &endpoint.network])
                             .inc();
 
                         if res.status() == StatusCode::OK {
@@ -305,12 +272,7 @@ impl HttpClient {
                     }
                     Err(_) => {
                         EXPORTER_HTTP_REQUESTS
-                            .with_label_values(&[
-                                &endpoint.url,
-                                metric_path,
-                                "error",
-                                &endpoint.network,
-                            ])
+                            .with_label_values(&[&endpoint.url, "error", &endpoint.network])
                             .inc();
                         warn!(
                             "(HTTP Client) Attempt {} failed for {}, using {}: No HTTP response",

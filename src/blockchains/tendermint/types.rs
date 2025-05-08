@@ -309,3 +309,98 @@ pub struct TendermintNodeInfoResponse {
     pub default_node_info: DefaultNodeInfo,
     pub application_version: TendermintApplicationVersion,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintDelegationRESTResponse {
+    pub delegation_responses: Vec<TendermintDelegationResponse>,
+    pub pagination: TendermintRESTPagination,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintDelegationResponse {
+    pub delegation: TendermintDelegation,
+    pub balance: TendermintBalance,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintDelegation {
+    pub delegator_address: String,
+    pub validator_address: String,
+    pub shares: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintBalance {
+    pub denom: String,
+    pub amount: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintCommissionRESTResponse {
+    pub commission: TendermintCommisionResponse,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintCommisionResponse {
+    pub commission: Vec<TendermintCommision>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintCommision {
+    pub denom: String,
+    pub amount: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintRewardsRESTResponse {
+    pub rewards: TendermintRewardsResponse,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintRewardsResponse {
+    pub rewards: Vec<TendermintReward>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintReward {
+    pub denom: String,
+    pub amount: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TendermintSelfBondRewardResponse {
+    pub self_bond_rewards: Vec<TendermintReward>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintUnbondingDelegationEntry {
+    pub creation_height: String,
+    pub completion_time: String,
+    pub initial_balance: String,
+    pub balance: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintUnbondingDelegation {
+    pub delegator_address: String,
+    pub validator_address: String,
+    pub entries: Vec<TendermintUnbondingDelegationEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintValidatorUnbondingDelegationsResponse {
+    pub unbonding_responses: Vec<TendermintUnbondingDelegation>,
+    pub pagination: TendermintRESTPagination,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintSlash {
+    pub validator_period: String,
+    pub fraction: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TendermintValidatorSlashesResponse {
+    pub slashes: Vec<TendermintSlash>,
+    pub pagination: TendermintRESTPagination,
+}

@@ -8,7 +8,7 @@ lazy_static! {
             "rcosmos_exporter_http_request",
             "RCosmos Exporter HTTP requests"
         ),
-        &["endpoint", "path", "status_code", "network"]
+        &["endpoint", "status_code", "network"]
     )
     .unwrap();
     pub static ref EXPORTER_TASK_RUNS: GaugeVec = GaugeVec::new(

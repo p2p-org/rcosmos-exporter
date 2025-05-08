@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
@@ -9,15 +9,33 @@ use tracing::info;
 use urlencoding::encode;
 
 use crate::{
-    blockchains::tendermint::types::{
-        TendermintRESTResponse, TendermintRESTValidator, TendermintValidator, ValidatorsResponse,
+    blockchains::tendermint::{
+        metrics::{
+            TENDERMINT_VALIDATOR_COMMISSIONS, TENDERMINT_VALIDATOR_COMMISSION_MAX_CHANGE_RATE,
+            TENDERMINT_VALIDATOR_COMMISSION_MAX_RATE, TENDERMINT_VALIDATOR_COMMISSION_RATE,
+            TENDERMINT_VALIDATOR_DELEGATIONS, TENDERMINT_VALIDATOR_DELEGATOR_SHARES,
+            TENDERMINT_VALIDATOR_REWARDS, TENDERMINT_VALIDATOR_SLASHES,
+            TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS,
+        },
+        types::{
+            TendermintRESTResponse, TendermintRESTValidator, TendermintValidator,
+            ValidatorsResponse,
+        },
     },
     core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
 };
 
-use super::metrics::{
-    TENDERMINT_VALIDATORS, TENDERMINT_VALIDATOR_JAILED, TENDERMINT_VALIDATOR_PROPOSER_PRIORITY,
-    TENDERMINT_VALIDATOR_TOKENS, TENDERMINT_VALIDATOR_VOTING_POWER,
+use super::{
+    metrics::{
+        TENDERMINT_VALIDATORS, TENDERMINT_VALIDATOR_JAILED, TENDERMINT_VALIDATOR_PROPOSER_PRIORITY,
+        TENDERMINT_VALIDATOR_TOKENS, TENDERMINT_VALIDATOR_VOTING_POWER,
+    },
+    types::{
+        TendermintCommissionRESTResponse, TendermintDelegationRESTResponse,
+        TendermintDelegationResponse, TendermintRewardsRESTResponse,
+        TendermintSelfBondRewardResponse, TendermintSlash, TendermintUnbondingDelegation,
+        TendermintValidatorSlashesResponse, TendermintValidatorUnbondingDelegationsResponse,
+    },
 };
 
 pub struct TendermintValidatorInfoScrapper {
@@ -83,6 +101,180 @@ impl TendermintValidatorInfoScrapper {
         Ok(validators)
     }
 
+    async fn get_validator_delegations_count(
+        &self,
+        validator_address: String,
+    ) -> anyhow::Result<usize> {
+        let mut pagination_key: Option<String> = None;
+        let mut delegations: Vec<TendermintDelegationResponse> = Vec::new();
+
+        loop {
+            let mut url = format!(
+                "/cosmos/staking/v1beta1/validators/{}/delegations",
+                validator_address
+            );
+            if let Some(key) = &pagination_key {
+                let encoded_key = encode(key);
+                url = format!("{}?pagination.key={}", url, encoded_key);
+            }
+
+            let res = self
+                .client
+                .with_rest()
+                .get(&url)
+                .await
+                .context("Could not fetch validator delegation")?;
+
+            let res = from_str::<TendermintDelegationRESTResponse>(&res)
+                .context("Could not deserialize delegations response")?;
+
+            pagination_key = res.pagination.next_key;
+
+            delegations.extend(res.delegation_responses);
+            if pagination_key.is_none() {
+                break;
+            }
+        }
+
+        Ok(delegations.len())
+    }
+
+    async fn get_validator_unbonding_delegations_count(
+        &self,
+        validator_address: String,
+    ) -> anyhow::Result<usize> {
+        let mut pagination_key: Option<String> = None;
+        let mut delegations: Vec<TendermintUnbondingDelegation> = Vec::new();
+
+        loop {
+            let mut url = format!(
+                "/cosmos/staking/v1beta1/validators/{}/unbonding_delegations",
+                validator_address
+            );
+            if let Some(key) = &pagination_key {
+                let encoded_key = encode(key);
+                url = format!("{}?pagination.key={}", url, encoded_key);
+            }
+
+            let res = self
+                .client
+                .with_rest()
+                .get(&url)
+                .await
+                .context("Could not fetch validator delegation")?;
+
+            let res = from_str::<TendermintValidatorUnbondingDelegationsResponse>(&res)
+                .context("Could not deserialize delegations response")?;
+
+            pagination_key = res.pagination.next_key;
+
+            delegations.extend(res.unbonding_responses);
+            if pagination_key.is_none() {
+                break;
+            }
+        }
+
+        Ok(delegations.len())
+    }
+
+    async fn get_validator_reward(
+        &self,
+        validator_address: String,
+    ) -> anyhow::Result<HashMap<String, f64>> {
+        let res = self
+            .client
+            .with_rest()
+            .get(&format!(
+                "/cosmos/distribution/v1beta1/validators/{}/outstanding_rewards",
+                validator_address
+            ))
+            .await
+            .context("Could not fetch validator reward")?;
+
+        let rewards = from_str::<TendermintRewardsRESTResponse>(&res)
+            .context("Could not deserialize validator reward")?
+            .rewards
+            .rewards;
+
+        let mut rewards_map = HashMap::new();
+
+        for reward in rewards {
+            rewards_map.insert(
+                reward.denom,
+                reward
+                    .amount
+                    .parse::<f64>()
+                    .context("Could not parse reward amount")?,
+            );
+        }
+        Ok(rewards_map)
+    }
+
+    async fn get_validator_commision(
+        &self,
+        validator_address: String,
+    ) -> anyhow::Result<HashMap<String, f64>> {
+        let res = self
+            .client
+            .with_rest()
+            .get(&format!(
+                "/cosmos/distribution/v1beta1/validators/{}/commission",
+                validator_address
+            ))
+            .await
+            .context("Could not fetch validator commision")?;
+
+        let commissions = from_str::<TendermintCommissionRESTResponse>(&res)
+            .context("Could not deserialize validator commision")?
+            .commission
+            .commission;
+
+        let mut commission_map = HashMap::new();
+
+        for commission in commissions {
+            commission_map.insert(
+                commission.denom,
+                commission
+                    .amount
+                    .parse::<f64>()
+                    .context("Could not parse commission amount")?,
+            );
+        }
+        Ok(commission_map)
+    }
+
+    async fn get_validator_self_bond_rewards(
+        &self,
+        validator_address: String,
+    ) -> anyhow::Result<HashMap<String, f64>> {
+        let res = self
+            .client
+            .with_rest()
+            .get(&format!(
+                "/cosmos/distribution/v1beta1/validators/{}",
+                validator_address
+            ))
+            .await
+            .context("Could not fetch validator self bond rewards")?;
+
+        let self_bond_rewards = from_str::<TendermintSelfBondRewardResponse>(&res)
+            .context("Could not deserialize validator self bond rewards")?
+            .self_bond_rewards;
+
+        let mut self_bond_rewards_map = HashMap::new();
+
+        for reward in self_bond_rewards {
+            self_bond_rewards_map.insert(
+                reward.denom,
+                reward
+                    .amount
+                    .parse::<f64>()
+                    .context("Could not parse commission amount")?,
+            );
+        }
+        Ok(self_bond_rewards_map)
+    }
+
     async fn get_rest_validators(
         &self,
         path: &str,
@@ -119,6 +311,44 @@ impl TendermintValidatorInfoScrapper {
         Ok(validators)
     }
 
+    async fn get_validator_slashes_count(
+        &self,
+        validator_address: String,
+    ) -> anyhow::Result<usize> {
+        let mut pagination_key: Option<String> = None;
+        let mut slashes: Vec<TendermintSlash> = Vec::new();
+
+        loop {
+            let mut url = format!(
+                "/cosmos/distribution/v1beta1/validators/{}/slashes",
+                validator_address
+            );
+            if let Some(key) = &pagination_key {
+                let encoded_key = encode(key);
+                url = format!("{}?pagination.key={}", url, encoded_key);
+            }
+
+            let res = self
+                .client
+                .with_rest()
+                .get(&url)
+                .await
+                .context("Could not fetch validator slashes")?;
+
+            let res = from_str::<TendermintValidatorSlashesResponse>(&res)
+                .context("Could not deserialize validator slashes")?;
+
+            pagination_key = res.pagination.next_key;
+
+            slashes.extend(res.slashes);
+            if pagination_key.is_none() {
+                break;
+            }
+        }
+
+        Ok(slashes.len())
+    }
+
     async fn process_validators(&mut self) -> anyhow::Result<()> {
         let rest_validators = self
             .get_rest_validators("/cosmos/staking/v1beta1/validators")
@@ -141,8 +371,58 @@ impl TendermintValidatorInfoScrapper {
             let address = address.to_uppercase();
 
             let name = &validator.description.moniker;
-            let tokens: f64 = validator.tokens.parse().unwrap_or(0.0);
+            let tokens: f64 = validator
+                .tokens
+                .parse()
+                .context("Could not parse validator tokens")?;
+            let delegator_shares: f64 = validator
+                .delegator_shares
+                .parse()
+                .context("Could not parse validator shares")?;
             let jailed = validator.jailed;
+
+            let slashes = self
+                .get_validator_slashes_count(validator.operator_address.clone())
+                .await
+                .context("Could not obtain the number of slashes")?;
+            let delegations = self
+                .get_validator_delegations_count(validator.operator_address.clone())
+                .await
+                .context("Could not obtain the number of delegations")?;
+            let unbonding_delegations = self
+                .get_validator_unbonding_delegations_count(validator.operator_address.clone())
+                .await
+                .context("Could not obtain the number of unbonding delegations")?;
+            let commissions = self
+                .get_validator_commision(validator.operator_address.clone())
+                .await
+                .context("Could not obtain validator commissions")?;
+            let rewards = self
+                .get_validator_reward(validator.operator_address.clone())
+                .await
+                .context("Could not obtain validator rewards")?;
+            let self_bond_rewards = self
+                .get_validator_self_bond_rewards(validator.operator_address.clone())
+                .await
+                .context("Could not obtain self bond rewards")?;
+            let rate = validator
+                .commission
+                .commission_rates
+                .rate
+                .parse::<f64>()
+                .context("Could not parse validator commission rate")?;
+            let max_rate = validator
+                .commission
+                .commission_rates
+                .max_rate
+                .parse::<f64>()
+                .context("Could not parse validator commission max rate")?;
+            let max_change_rate = validator
+                .commission
+                .commission_rates
+                .max_change_rate
+                .parse::<f64>()
+                .context("Could not parse validator commission max change rate")?;
             let fires_alerts = self
                 .validator_alert_addresses
                 .contains(&address)
@@ -157,6 +437,96 @@ impl TendermintValidatorInfoScrapper {
                     &fires_alerts,
                 ])
                 .set(0);
+            TENDERMINT_VALIDATOR_SLASHES
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                    &fires_alerts,
+                ])
+                .set(slashes as f64);
+            TENDERMINT_VALIDATOR_DELEGATOR_SHARES
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
+                .set(delegator_shares);
+            TENDERMINT_VALIDATOR_DELEGATIONS
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
+                .set(delegations as f64);
+            TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
+                .set(unbonding_delegations as f64);
+            for commision in commissions {
+                TENDERMINT_VALIDATOR_COMMISSIONS
+                    .with_label_values(&[
+                        name,
+                        &address,
+                        &commision.0,
+                        &self.chain_id.to_string(),
+                        &self.network.to_string(),
+                    ])
+                    .set(commision.1);
+            }
+            TENDERMINT_VALIDATOR_COMMISSION_RATE
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
+                .set(rate);
+            TENDERMINT_VALIDATOR_COMMISSION_MAX_RATE
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
+                .set(max_rate);
+            TENDERMINT_VALIDATOR_COMMISSION_MAX_CHANGE_RATE
+                .with_label_values(&[
+                    name,
+                    &address,
+                    &self.chain_id.to_string(),
+                    &self.network.to_string(),
+                ])
+                .set(max_change_rate);
+            for reward in rewards {
+                TENDERMINT_VALIDATOR_REWARDS
+                    .with_label_values(&[
+                        name,
+                        &address,
+                        &reward.0,
+                        &self.chain_id.to_string(),
+                        &self.network.to_string(),
+                    ])
+                    .set(reward.1);
+            }
+            for reward in self_bond_rewards {
+                TENDERMINT_VALIDATOR_REWARDS
+                    .with_label_values(&[
+                        name,
+                        &address,
+                        &reward.0,
+                        &self.chain_id.to_string(),
+                        &self.network.to_string(),
+                    ])
+                    .set(reward.1);
+            }
             TENDERMINT_VALIDATOR_TOKENS
                 .with_label_values(&[
                     name,
