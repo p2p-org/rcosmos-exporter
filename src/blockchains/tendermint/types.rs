@@ -288,3 +288,24 @@ pub struct TendermintTxResult {
     pub gas_wanted: String,
     pub gas_used: String,
 }
+
+#[derive(Deserialize, Debug)]
+pub struct DefaultNodeInfo {
+    pub moniker: String,
+    pub network: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TendermintApplicationVersion {
+    pub name: String,
+    pub app_name: String,
+    pub version: String,
+    pub cosmos_sdk_version: String,
+    pub git_commit: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TendermintNodeInfoResponse {
+    pub default_node_info: DefaultNodeInfo,
+    pub application_version: TendermintApplicationVersion,
+}

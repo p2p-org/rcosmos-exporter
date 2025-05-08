@@ -95,13 +95,17 @@ async fn main() {
         }
         Mode::Node => {
             let name = env::var("NODE_NAME").expect("You must pass NODE_NAME env var.");
-            let endpoint = env::var("NODE_ENDPOINT").expect("You must pass NODE_ENDPOINT env var.");
+            let rpc_endpoint =
+                env::var("NODE_RPC_ENDPOINT").expect("You must pass NODE_RPC_ENDPOINT env var.");
+            let rest_endpoint =
+                env::var("NODE_REST_ENDPOINT").expect("You must pass NODE_REST_ENDPOINT env var.");
 
             info!("--------------------------------------------------------------------");
             info!("MODE: {}", mode);
             info!("NODE_NAME: {}", name);
             info!("NETWORK: {}", network);
-            info!("NODE_ENDPOINT: {}", endpoint);
+            info!("NODE_RPC_ENDPOINT: {}", rpc_endpoint);
+            info!("NODE_REST_ENDPOINT: {}", rest_endpoint);
             info!("--------------------------------------------------------------------");
 
             blockchains::tendermint::metrics::register_custom_metrics();
@@ -109,7 +113,8 @@ async fn main() {
             let node_status_scrapper = ExporterTask::new(
                 Box::new(TendermintNodeStatusScrapper::new(
                     name,
-                    endpoint,
+                    rpc_endpoint,
+                    rest_endpoint,
                     network.clone(),
                 )),
                 Duration::from_secs(5),

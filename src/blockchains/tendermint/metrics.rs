@@ -167,6 +167,34 @@ lazy_static! {
         &["chain_id", "network"]
     )
     .unwrap();
+    pub static ref TENDERMINT_NODE_APP_NAME: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_node_app_name", "Node app name"),
+        &["name", "chain_id", "network", "app_name"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_APP_VERSION: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_node_app_version", "Node app version"),
+        &["name", "chain_id", "network", "version"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_APP_COMMIT: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_node_app_commit", "Node app commit"),
+        &["name", "chain_id", "network", "commit"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_COSMOS_SDK_VERSION: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_node_cosmos_sdk_version",
+            "Node cosmos sdk version"
+        ),
+        &["name", "chain_id", "network", "version"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_NODE_MONIKER: GaugeVec = GaugeVec::new(
+        Opts::new("tendermint_node_moniker", "Node moniker"),
+        &["name", "chain_id", "network", "moniker"]
+    )
+    .unwrap();
 }
 
 pub fn register_custom_metrics() {
@@ -241,5 +269,20 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_BLOCK_TX_GAS_USED.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_APP_NAME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_APP_VERSION.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_APP_COMMIT.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_COSMOS_SDK_VERSION.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_NODE_MONIKER.clone()))
         .unwrap();
 }
