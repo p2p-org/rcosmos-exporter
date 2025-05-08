@@ -1,16 +1,11 @@
 use crate::core::chain_id::ChainIdFetcher;
 
 use blockchains::{
-    babylon::{
-        bls_scrapper::BabylonBlsScrapper,
-        // cubist::{
-        //     client::Client as CubistClient, cubist_metrics_scrapper::BabylonCubistMetricScrapper,
-        // },
-    },
+    babylon::bls_scrapper::BabylonBlsScrapper,
     coredao::{
         block_scrapper::CoreDaoBlockScrapper, validator_info_scrapper::CoreDaoValidatorInfoScrapper,
     },
-    mezo::validator_info_scrapper::MezoValidatorInfoScrapper,
+    mezo::{block_scrapper::MezoBlockScrapper, validator_info_scrapper::MezoValidatorInfoScrapper},
     tendermint::{
         block_scrapper::TendermintBlockScrapper, chain_id::TendermintChainIdFetcher,
         node_status_scrapper::TendermintNodeStatusScrapper,
@@ -243,7 +238,7 @@ pub async fn network_exporter(
                 .unwrap();
 
             let block_scrapper = ExporterTask::new(
-                Box::new(TendermintBlockScrapper::new(
+                Box::new(MezoBlockScrapper::new(
                     Arc::clone(&client),
                     block_window,
                     chain_id.clone(),

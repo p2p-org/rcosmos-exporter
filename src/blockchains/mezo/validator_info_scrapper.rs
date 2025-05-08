@@ -116,6 +116,8 @@ impl MezoValidatorInfoScrapper {
                 if pagination_key.is_none() {
                     break;
                 }
+            } else {
+                break;
             }
         }
         Ok(validators)
