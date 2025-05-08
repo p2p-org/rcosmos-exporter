@@ -167,6 +167,86 @@ lazy_static! {
         &["chain_id", "network"]
     )
     .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_SLASHES: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_slashes",
+            "Number of slashes of a validator"
+        ),
+        &["name", "address", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_DELEGATOR_SHARES: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_delegator_share",
+            "Delegators share on the validator"
+        ),
+        &["name", "address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_DELEGATIONS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_delegations",
+            "Number of delegations on the validator"
+        ),
+        &["name", "address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_unbonding_delegations",
+            "Number of unbonding delegations on the validator"
+        ),
+        &["name", "address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_REWARDS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_rewards",
+            "Rewards obtained by the validator"
+        ),
+        &["name", "address", "denom", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_SELF_BOND_REWARDS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_self_bond_rewards",
+            "Self bond rewards of a validator"
+        ),
+        &["name", "address", "denom", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_COMMISSIONS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_commissions",
+            "Commissions obtained by the validator"
+        ),
+        &["name", "address", "denom", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_COMMISSION_RATE: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_commission_rate",
+            "Current commission rate of the validator"
+        ),
+        &["name", "address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_COMMISSION_MAX_RATE: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_commission_max_rate",
+            "Validator commission max rate"
+        ),
+        &["name", "address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_COMMISSION_MAX_CHANGE_RATE: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_commission_max_rate_change",
+            "Validator commission max change rate"
+        ),
+        &["name", "address", "chain_id", "network"]
+    )
+    .unwrap();
 }
 
 pub fn register_custom_metrics() {
@@ -241,5 +321,37 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_BLOCK_TX_GAS_USED.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_SLASHES.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_DELEGATOR_SHARES.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_DELEGATIONS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_REWARDS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_SELF_BOND_REWARDS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_COMMISSIONS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_COMMISSION_RATE.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_COMMISSION_MAX_RATE.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(
+            TENDERMINT_VALIDATOR_COMMISSION_MAX_CHANGE_RATE.clone(),
+        ))
         .unwrap();
 }
