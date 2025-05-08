@@ -202,7 +202,7 @@ lazy_static! {
     pub static ref TENDERMINT_VALIDATOR_REWARDS: GaugeVec = GaugeVec::new(
         Opts::new(
             "tendermint_validator_rewards",
-            "Number of delegations on the validator"
+            "Rewards obtained by the validator"
         ),
         &["name", "address", "denom", "chain_id", "network"]
     )
@@ -226,7 +226,7 @@ lazy_static! {
     pub static ref TENDERMINT_VALIDATOR_COMMISSION_RATE: GaugeVec = GaugeVec::new(
         Opts::new(
             "tendermint_validator_commission_rate",
-            "Commissions obtained by the validator"
+            "Current commission rate of the validator"
         ),
         &["name", "address", "chain_id", "network"]
     )
@@ -234,7 +234,7 @@ lazy_static! {
     pub static ref TENDERMINT_VALIDATOR_COMMISSION_MAX_RATE: GaugeVec = GaugeVec::new(
         Opts::new(
             "tendermint_validator_commission_max_rate",
-            "Commissions obtained by the validator"
+            "Validator commission max rate"
         ),
         &["name", "address", "chain_id", "network"]
     )
@@ -242,7 +242,7 @@ lazy_static! {
     pub static ref TENDERMINT_VALIDATOR_COMMISSION_MAX_CHANGE_RATE: GaugeVec = GaugeVec::new(
         Opts::new(
             "tendermint_validator_commission_max_rate_change",
-            "Commissions obtained by the validator"
+            "Validator commission max change rate"
         ),
         &["name", "address", "chain_id", "network"]
     )
@@ -332,6 +332,9 @@ pub fn register_custom_metrics() {
         .register(Box::new(TENDERMINT_VALIDATOR_DELEGATIONS.clone()))
         .unwrap();
     REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS.clone()))
+        .unwrap();
+    REGISTRY
         .register(Box::new(TENDERMINT_VALIDATOR_REWARDS.clone()))
         .unwrap();
     REGISTRY
@@ -350,8 +353,5 @@ pub fn register_custom_metrics() {
         .register(Box::new(
             TENDERMINT_VALIDATOR_COMMISSION_MAX_CHANGE_RATE.clone(),
         ))
-        .unwrap();
-    REGISTRY
-        .register(Box::new(TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS.clone()))
         .unwrap();
 }
