@@ -1,11 +1,13 @@
 use serde::Deserialize;
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct NotarySessionResponse {
     pub notary_sessions: Vec<NotarySession>,
     pub pagination: Option<Pagination>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct Pagination {
     pub next_key: Option<String>,

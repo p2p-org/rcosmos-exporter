@@ -21,25 +21,10 @@ impl LombardLedgerScrapper {
 impl Task for LombardLedgerScrapper {
     async fn run(&mut self) -> anyhow::Result<()> {
         info!("LombardLedgerScrapper running: checking notary session signatures");
-        let mut all_sessions = Vec::new();
-        let mut pagination_key: Option<String> = None;
-        loop {
-            let mut url = "lombard-finance/ledger/notary/list_notary_session".to_string();
-            if let Some(ref key) = pagination_key {
-                url = format!("{}?pagination.key={}", url, urlencoding::encode(key));
-            }
-            let resp = self.rest_client.get(&url).await?;
-            let resp: NotarySessionResponse = serde_json::from_str(&resp)?;
-            all_sessions.extend(resp.notary_sessions);
-            match resp.pagination.and_then(|p| p.next_key) {
-                Some(next) if !next.is_empty() => pagination_key = Some(next),
-                _ => break,
-            }
-        }
-        // Sort sessions by id (as u64), descending, and take the last 10
-        all_sessions.sort_by(|a, b| b.id.parse::<u64>().unwrap_or(0).cmp(&a.id.parse::<u64>().unwrap_or(0)));
-        let last_sessions = all_sessions.into_iter().take(10);
-        for session in last_sessions {
+        let url = "lombard-finance/ledger/notary/list_notary_session?pagination.limit=10&pagination.reverse=true";
+        let resp = self.rest_client.get(url).await?;
+        let resp: NotarySessionResponse = serde_json::from_str(&resp)?;
+        for session in resp.notary_sessions {
             let all_signatures_missing = session.signatures.iter().all(|sig| sig.is_none() || sig.as_ref().unwrap().is_empty());
             if all_signatures_missing {
                 info!("Session {}: all signatures missing, skipping", session.id);
