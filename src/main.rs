@@ -32,7 +32,20 @@ mod core;
 
 #[tokio::main]
 async fn main() {
-    dotenv().ok();
+    let mut env_file = None;
+    let mut args = std::env::args().peekable();
+    while let Some(arg) = args.next() {
+        if arg == "--env" {
+            if let Some(file) = args.next() {
+                env_file = Some(file);
+            }
+        }
+    }
+    if let Some(file) = env_file {
+        dotenv::from_filename(file).ok();
+    } else {
+        dotenv().ok();
+    }
 
     tracing_subscriber::fmt().with_target(false).init();
 
@@ -324,6 +337,15 @@ pub async fn network_exporter(
                 Duration::from_secs(300),
             );
 
+            let proposal_scrapper = ExporterTask::new(
+                Box::new(TendermintProposalScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
             let bls_scrapper = ExporterTask::new(
                 Box::new(BabylonBlsScrapper::new(
                     Arc::clone(&client),
@@ -357,6 +379,7 @@ pub async fn network_exporter(
                 .add_task(consensus_scrapper)
                 .add_task(upgrade_plan_scrapper)
                 .add_task(bls_scrapper)
+                .add_task(proposal_scrapper)
             // .add_task(cubist_metrics_exporter)
         }
         Blockchain::CoreDao => {
