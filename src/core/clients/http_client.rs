@@ -70,7 +70,6 @@ pub enum HTTPClientErrors {
     NoHealthyEndpoints(String),
 }
 
-#[derive(Clone)]
 pub struct HttpClient {
     endpoints: Arc<RwLock<Vec<Endpoint>>>,
     client: Client,
