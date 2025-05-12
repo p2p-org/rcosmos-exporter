@@ -323,6 +323,15 @@ pub async fn network_exporter(
                 Duration::from_secs(300),
             );
 
+            let proposal_scrapper = ExporterTask::new(
+                Box::new(TendermintProposalScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
             let bls_scrapper = ExporterTask::new(
                 Box::new(BabylonBlsScrapper::new(
                     Arc::clone(&client),
@@ -356,6 +365,7 @@ pub async fn network_exporter(
                 .add_task(consensus_scrapper)
                 .add_task(upgrade_plan_scrapper)
                 .add_task(bls_scrapper)
+                .add_task(proposal_scrapper)
             // .add_task(cubist_metrics_exporter)
         }
         Blockchain::CoreDao => {
