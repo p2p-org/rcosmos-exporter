@@ -235,14 +235,6 @@ lazy_static! {
         &["name", "address", "denom", "chain_id", "network"]
     )
     .unwrap();
-    pub static ref TENDERMINT_VALIDATOR_SELF_BOND_REWARDS: GaugeVec = GaugeVec::new(
-        Opts::new(
-            "tendermint_validator_self_bond_rewards",
-            "Self bond rewards of a validator"
-        ),
-        &["name", "address", "denom", "chain_id", "network"]
-    )
-    .unwrap();
     pub static ref TENDERMINT_VALIDATOR_COMMISSIONS: GaugeVec = GaugeVec::new(
         Opts::new(
             "tendermint_validator_commissions",
@@ -379,9 +371,6 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_VALIDATOR_REWARDS.clone()))
-        .unwrap();
-    REGISTRY
-        .register(Box::new(TENDERMINT_VALIDATOR_SELF_BOND_REWARDS.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_VALIDATOR_COMMISSIONS.clone()))

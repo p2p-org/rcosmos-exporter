@@ -401,10 +401,6 @@ impl TendermintValidatorInfoScrapper {
                 .get_validator_reward(validator.operator_address.clone())
                 .await
                 .context("Could not obtain validator rewards")?;
-            let self_bond_rewards = self
-                .get_validator_self_bond_rewards(validator.operator_address.clone())
-                .await
-                .context("Could not obtain self bond rewards")?;
             let rate = validator
                 .commission
                 .commission_rates
@@ -506,17 +502,6 @@ impl TendermintValidatorInfoScrapper {
                 ])
                 .set(max_change_rate);
             for reward in rewards {
-                TENDERMINT_VALIDATOR_REWARDS
-                    .with_label_values(&[
-                        name,
-                        &address,
-                        &reward.0,
-                        &self.chain_id.to_string(),
-                        &self.network.to_string(),
-                    ])
-                    .set(reward.1);
-            }
-            for reward in self_bond_rewards {
                 TENDERMINT_VALIDATOR_REWARDS
                     .with_label_values(&[
                         name,
