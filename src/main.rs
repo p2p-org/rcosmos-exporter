@@ -13,6 +13,7 @@ use blockchains::{
         upgrade_plan_scrapper::TendermintUpgradePlanScrapper,
         validator_info_scrapper::TendermintValidatorInfoScrapper,
     },
+    lombard::ledger_scrapper::LombardLedgerScrapper,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -49,9 +50,6 @@ async fn main() {
 
     let validator_alert_addresses =
         env::var("VALIDATOR_ALERT_ADDRESSES").unwrap_or_else(|_| "".to_string());
-
-    let validator_operator_addresses = env::var("VALIDATOR_OPERATOR_ADDRESSES").unwrap_or_else(|_| "".to_string());
-    let validator_operator_addresses = split_validator_addresses(validator_operator_addresses);
 
     let blockchain = env::var("BLOCKCHAIN").expect("You must passs BLOCKCHAIN env var.");
     let mode = env::var("MODE").expect("You must pass MODE env var.");
@@ -93,7 +91,6 @@ async fn main() {
                 block_window,
                 network.clone(),
                 validator_alert_addresses,
-                validator_operator_addresses,
             )
             .await
         }
@@ -165,7 +162,6 @@ pub async fn network_exporter(
     block_window: usize,
     network: String,
     validator_alert_addresses: String,
-    validator_operator_addresses: Vec<String>,
 ) -> BlockchainExporter {
     let rpc = HttpClient::new(split_urls(rpc_endpoints), None, network.clone());
     let rest = HttpClient::new(split_urls(rest_endpoints), None, network.clone());
@@ -394,7 +390,9 @@ pub async fn network_exporter(
                 .add_task(validator_info_scrapper)
         }
         Blockchain::Lombard => {
-            let rest_client = Arc::new(rest.clone().unwrap());
+            let validator_operator_addresses = env::var("VALIDATOR_OPERATOR_ADDRESSES").unwrap_or_else(|_| "".to_string());
+            let validator_operator_addresses = split_validator_addresses(validator_operator_addresses);
+
             let client = BlockchainClientBuilder::new()
                 .with_rest(rest)
                 .with_rpc(rpc)
@@ -452,8 +450,8 @@ pub async fn network_exporter(
             );
 
             let ledger_scrapper = ExporterTask::new(
-                Box::new(blockchains::lombard::ledger_scrapper::LombardLedgerScrapper::new(
-                    Arc::clone(&rest_client),
+                Box::new(LombardLedgerScrapper::new(
+                    Arc::clone(&client),
                     validator_operator_addresses.clone(),
                     network.clone(),
                 )),
