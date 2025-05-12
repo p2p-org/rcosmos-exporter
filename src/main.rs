@@ -13,6 +13,7 @@ use blockchains::{
         upgrade_plan_scrapper::TendermintUpgradePlanScrapper,
         validator_info_scrapper::TendermintValidatorInfoScrapper,
     },
+    lombard::ledger_scrapper::LombardLedgerScrapper,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -410,6 +411,82 @@ pub async fn network_exporter(
             BlockchainExporter::new()
                 .add_task(block_scrapper)
                 .add_task(validator_info_scrapper)
+        }
+        Blockchain::Lombard => {
+            let validator_operator_addresses = env::var("VALIDATOR_OPERATOR_ADDRESSES").unwrap_or_else(|_| "".to_string());
+            let validator_operator_addresses = split_validator_addresses(validator_operator_addresses);
+
+            let client = BlockchainClientBuilder::new()
+                .with_rest(rest)
+                .with_rpc(rpc)
+                .build()
+                .await;
+
+            let client = Arc::new(client);
+
+            let chain_id = TendermintChainIdFetcher::new(Arc::clone(&client))
+                .get_chain_id()
+                .await
+                .unwrap();
+
+            // Register Lombard custom metrics
+            blockchains::lombard::metrics::register_ledger_metrics();
+            blockchains::tendermint::metrics::register_custom_metrics();
+
+            let block_scrapper = ExporterTask::new(
+                Box::new(TendermintBlockScrapper::new(
+                    Arc::clone(&client),
+                    block_window,
+                    chain_id.clone(),
+                    network.clone(),
+                    validator_alert_addresses.clone(),
+                )),
+                Duration::from_secs(30),
+            );
+
+            let validator_info_scrapper = ExporterTask::new(
+                Box::new(TendermintValidatorInfoScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                    validator_alert_addresses.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
+            let proposal_scrapper = ExporterTask::new(
+                Box::new(TendermintProposalScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
+            let upgrade_plan_scrapper = ExporterTask::new(
+                Box::new(TendermintUpgradePlanScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
+            let ledger_scrapper = ExporterTask::new(
+                Box::new(LombardLedgerScrapper::new(
+                    Arc::clone(&client),
+                    validator_operator_addresses.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(1800),
+            );
+
+            BlockchainExporter::new()
+                .add_task(block_scrapper)
+                .add_task(validator_info_scrapper)
+                .add_task(proposal_scrapper)
+                .add_task(upgrade_plan_scrapper)
+                .add_task(ledger_scrapper)
         }
     }
 }

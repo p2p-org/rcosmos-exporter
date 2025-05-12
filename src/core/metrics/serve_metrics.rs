@@ -47,6 +47,11 @@ pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, block
                             families.extend(tendermint_registry.gather());
                             families
                         }
+                        Blockchain::Lombard => {
+                            let mut families = Vec::new();
+                            families.extend(tendermint_registry.gather());
+                            families
+                        }
                     };
 
                     metric_families.extend(EXPORTER_REGISTRY.gather());
