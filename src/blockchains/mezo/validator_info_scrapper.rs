@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use serde_json::from_str;
 use sha2::{Digest, Sha256};
 use tracing::info;
-use urlencoding::encode;
 
 use crate::{
     blockchains::{

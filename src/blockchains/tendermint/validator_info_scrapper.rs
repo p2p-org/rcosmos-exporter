@@ -32,9 +32,9 @@ use super::{
     },
     types::{
         TendermintCommissionRESTResponse, TendermintDelegationRESTResponse,
-        TendermintDelegationResponse, TendermintRewardsRESTResponse,
-        TendermintSelfBondRewardResponse, TendermintSlash, TendermintUnbondingDelegation,
-        TendermintValidatorSlashesResponse, TendermintValidatorUnbondingDelegationsResponse,
+        TendermintDelegationResponse, TendermintRewardsRESTResponse, TendermintSlash,
+        TendermintUnbondingDelegation, TendermintValidatorSlashesResponse,
+        TendermintValidatorUnbondingDelegationsResponse,
     },
 };
 
@@ -243,38 +243,6 @@ impl TendermintValidatorInfoScrapper {
         Ok(commission_map)
     }
 
-    async fn get_validator_self_bond_rewards(
-        &self,
-        validator_address: String,
-    ) -> anyhow::Result<HashMap<String, f64>> {
-        let res = self
-            .client
-            .with_rest()
-            .get(&format!(
-                "/cosmos/distribution/v1beta1/validators/{}",
-                validator_address
-            ))
-            .await
-            .context("Could not fetch validator self bond rewards")?;
-
-        let self_bond_rewards = from_str::<TendermintSelfBondRewardResponse>(&res)
-            .context("Could not deserialize validator self bond rewards")?
-            .self_bond_rewards;
-
-        let mut self_bond_rewards_map = HashMap::new();
-
-        for reward in self_bond_rewards {
-            self_bond_rewards_map.insert(
-                reward.denom,
-                reward
-                    .amount
-                    .parse::<f64>()
-                    .context("Could not parse commission amount")?,
-            );
-        }
-        Ok(self_bond_rewards_map)
-    }
-
     async fn get_rest_validators(
         &self,
         path: &str,
@@ -401,10 +369,6 @@ impl TendermintValidatorInfoScrapper {
                 .get_validator_reward(validator.operator_address.clone())
                 .await
                 .context("Could not obtain validator rewards")?;
-            let self_bond_rewards = self
-                .get_validator_self_bond_rewards(validator.operator_address.clone())
-                .await
-                .context("Could not obtain self bond rewards")?;
             let rate = validator
                 .commission
                 .commission_rates
@@ -506,17 +470,6 @@ impl TendermintValidatorInfoScrapper {
                 ])
                 .set(max_change_rate);
             for reward in rewards {
-                TENDERMINT_VALIDATOR_REWARDS
-                    .with_label_values(&[
-                        name,
-                        &address,
-                        &reward.0,
-                        &self.chain_id.to_string(),
-                        &self.network.to_string(),
-                    ])
-                    .set(reward.1);
-            }
-            for reward in self_bond_rewards {
                 TENDERMINT_VALIDATOR_REWARDS
                     .with_label_values(&[
                         name,
