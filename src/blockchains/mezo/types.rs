@@ -6,7 +6,6 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct MezoRESTResponse {
     pub validators: Vec<MezoRESTValidator>,
-    pub pagination: Option<TendermintMezoPagination>,
 }
 
 #[derive(Debug, Deserialize)]

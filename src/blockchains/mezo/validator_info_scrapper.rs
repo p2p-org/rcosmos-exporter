@@ -89,38 +89,16 @@ impl MezoValidatorInfoScrapper {
     async fn get_rest_validators(&self, path: &str) -> anyhow::Result<Vec<MezoRESTValidator>> {
         info!("(Mezo Validator Info) Fetching REST validators");
 
-        let mut pagination_key: Option<String> = None;
-        let mut validators: Vec<MezoRESTValidator> = Vec::new();
+        let res = self
+            .client
+            .with_rest()
+            .get(&path)
+            .await
+            .context("Could not fetch REST validators")?;
+        let rest_validator_response = from_str::<MezoRESTResponse>(&res)
+            .context("Could not deserialize validators REST response")?;
 
-        loop {
-            let mut url = path.to_string();
-            if let Some(key) = &pagination_key {
-                let encoded_key = encode(key);
-                url = format!("{}?pagination.key={}", path, encoded_key);
-            }
-
-            let res = self
-                .client
-                .with_rest()
-                .get(&url)
-                .await
-                .context("Could not fetch REST validators")?;
-
-            let rest_validator_response = from_str::<MezoRESTResponse>(&res)
-                .context("Could not deserialize validators REST response")?;
-
-            if let Some(pagination) = rest_validator_response.pagination {
-                pagination_key = pagination.next_key;
-
-                validators.extend(rest_validator_response.validators);
-                if pagination_key.is_none() {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-        Ok(validators)
+        Ok(rest_validator_response.validators)
     }
 
     async fn process_validators(&mut self) -> anyhow::Result<()> {
