@@ -31,7 +31,20 @@ mod core;
 
 #[tokio::main]
 async fn main() {
-    dotenv().ok();
+    let mut env_file = None;
+    let mut args = std::env::args().peekable();
+    while let Some(arg) = args.next() {
+        if arg == "--env" {
+            if let Some(file) = args.next() {
+                env_file = Some(file);
+            }
+        }
+    }
+    if let Some(file) = env_file {
+        dotenv::from_filename(file).ok();
+    } else {
+        dotenv().ok();
+    }
 
     tracing_subscriber::fmt().with_target(false).init();
 
