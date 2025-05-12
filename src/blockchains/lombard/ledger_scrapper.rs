@@ -17,7 +17,7 @@ impl LombardLedgerScrapper {
     }
 
     async fn process_ledger(&mut self) -> anyhow::Result<()> {
-        info!("LombardLedgerScrapper running: checking notary session signatures");
+        info!("(Lombard Ledger Scrapper) Running: checking notary session signatures");
         let url = "lombard-finance/ledger/notary/list_notary_session?pagination.limit=10&pagination.reverse=true";
         let resp = self.client.with_rest().get(url).await?;
         let resp: NotarySessionResponse = serde_json::from_str(&resp)?;
