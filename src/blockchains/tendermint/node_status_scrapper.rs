@@ -22,6 +22,12 @@ pub struct TendermintNodeStatusScrapper {
     rest_endpoint: String,
     name: String,
     network: String,
+
+    app_name: Option<String>,
+    app_version: Option<String>,
+    app_commit: Option<String>,
+    cosmos_sdk_version: Option<String>,
+    node_moniker: Option<String>,
 }
 
 impl TendermintNodeStatusScrapper {
@@ -32,6 +38,11 @@ impl TendermintNodeStatusScrapper {
             rpc_endpoint,
             rest_endpoint,
             network,
+            app_name: None,
+            app_version: None,
+            app_commit: None,
+            cosmos_sdk_version: None,
+            node_moniker: None,
         }
     }
 
@@ -137,7 +148,7 @@ impl TendermintNodeStatusScrapper {
         Ok(())
     }
 
-    async fn process_node_info(&self) -> anyhow::Result<()> {
+    async fn process_node_info(&mut self) -> anyhow::Result<()> {
         info!("(Tendermint Node Status) Obtaining node info");
 
         let node_info = self
@@ -147,46 +158,59 @@ impl TendermintNodeStatusScrapper {
 
         let chain_id = &node_info.default_node_info.network;
 
-        TENDERMINT_NODE_APP_NAME
-            .with_label_values(&[
-                &self.name,
-                &chain_id,
-                &self.network,
-                &node_info.application_version.name,
-            ])
-            .set(0.0);
-        TENDERMINT_NODE_APP_VERSION
-            .with_label_values(&[
-                &self.name,
-                &chain_id,
-                &self.network,
-                &node_info.application_version.version,
-            ])
-            .set(0.0);
-        TENDERMINT_NODE_APP_COMMIT
-            .with_label_values(&[
-                &self.name,
-                &chain_id,
-                &self.network,
-                &node_info.application_version.git_commit,
-            ])
-            .set(0.0);
-        TENDERMINT_NODE_COSMOS_SDK_VERSION
-            .with_label_values(&[
-                &self.name,
-                &chain_id,
-                &self.network,
-                &node_info.application_version.cosmos_sdk_version,
-            ])
-            .set(0.0);
-        TENDERMINT_NODE_MONIKER
-            .with_label_values(&[
-                &self.name,
-                &chain_id,
-                &self.network,
-                &node_info.default_node_info.moniker,
-            ])
-            .set(0.0);
+        // Helper macro to DRY the code
+        macro_rules! update_metric {
+            ($field:ident, $value:expr, $metric:ident) => {{
+                let new_value = $value.clone();
+                if self.$field.as_ref() != Some(&new_value) {
+                    if let Some(ref old_value) = self.$field {
+                        // Remove old label
+                        let _ = $metric.remove_label_values(&[
+                            &self.name,
+                            chain_id,
+                            &self.network,
+                            old_value,
+                        ]);
+                    }
+
+                    // Set new value
+                    $metric
+                        .with_label_values(&[&self.name, chain_id, &self.network, &new_value])
+                        .set(1.0);
+
+                    // Update stored field
+                    self.$field = Some(new_value);
+                }
+            }};
+        }
+
+        // Now apply it to each metric
+        update_metric!(
+            app_name,
+            node_info.application_version.name,
+            TENDERMINT_NODE_APP_NAME
+        );
+        update_metric!(
+            app_version,
+            node_info.application_version.version,
+            TENDERMINT_NODE_APP_VERSION
+        );
+        update_metric!(
+            app_commit,
+            node_info.application_version.git_commit,
+            TENDERMINT_NODE_APP_COMMIT
+        );
+        update_metric!(
+            cosmos_sdk_version,
+            node_info.application_version.cosmos_sdk_version,
+            TENDERMINT_NODE_COSMOS_SDK_VERSION
+        );
+        update_metric!(
+            node_moniker,
+            node_info.default_node_info.moniker,
+            TENDERMINT_NODE_MONIKER
+        );
+
         Ok(())
     }
 }

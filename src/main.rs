@@ -5,6 +5,7 @@ use blockchains::{
     coredao::{
         block_scrapper::CoreDaoBlockScrapper, validator_info_scrapper::CoreDaoValidatorInfoScrapper,
     },
+    lombard::ledger_scrapper::LombardLedgerScrapper,
     mezo::{block_scrapper::MezoBlockScrapper, validator_info_scrapper::MezoValidatorInfoScrapper},
     tendermint::{
         block_scrapper::TendermintBlockScrapper, chain_id::TendermintChainIdFetcher,
@@ -13,7 +14,6 @@ use blockchains::{
         upgrade_plan_scrapper::TendermintUpgradePlanScrapper,
         validator_info_scrapper::TendermintValidatorInfoScrapper,
     },
-    lombard::ledger_scrapper::LombardLedgerScrapper,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -21,7 +21,10 @@ use core::{
     blockchain::Blockchain,
     clients::{blockchain_client::BlockchainClientBuilder, http_client::HttpClient},
     exporter::{BlockchainExporter, ExporterTask, Mode},
-    metrics::serve_metrics::serve_metrics,
+    metrics::{
+        exporter_metrics::{register_app_version_info, start_heartbeat},
+        serve_metrics::serve_metrics,
+    },
 };
 use dotenv::dotenv;
 use std::{env, sync::Arc, time::Duration};
@@ -138,6 +141,8 @@ async fn main() {
         }
     };
 
+    register_app_version_info(network.clone());
+    start_heartbeat(network.clone()).await;
     exporter.print_tasks().await;
     exporter.start(token.clone(), sender, network.clone());
 
@@ -413,8 +418,10 @@ pub async fn network_exporter(
                 .add_task(validator_info_scrapper)
         }
         Blockchain::Lombard => {
-            let validator_operator_addresses = env::var("VALIDATOR_OPERATOR_ADDRESSES").unwrap_or_else(|_| "".to_string());
-            let validator_operator_addresses = split_validator_addresses(validator_operator_addresses);
+            let validator_operator_addresses =
+                env::var("VALIDATOR_OPERATOR_ADDRESSES").unwrap_or_else(|_| "".to_string());
+            let validator_operator_addresses =
+                split_validator_addresses(validator_operator_addresses);
 
             let client = BlockchainClientBuilder::new()
                 .with_rest(rest)
