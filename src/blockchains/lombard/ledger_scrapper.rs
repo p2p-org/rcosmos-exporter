@@ -9,11 +9,12 @@ use std::sync::Arc;
 pub struct LombardLedgerScrapper {
     client: Arc<BlockchainClient>,
     validator_operator_addresses: Vec<String>,
+    network: String,
 }
 
 impl LombardLedgerScrapper {
-    pub fn new(client: Arc<BlockchainClient>, validator_operator_addresses: Vec<String>, _network: String) -> Self {
-        Self { client, validator_operator_addresses }
+    pub fn new(client: Arc<BlockchainClient>, validator_operator_addresses: Vec<String>, network: String) -> Self {
+        Self { client, validator_operator_addresses, network }
     }
 
     async fn process_ledger(&mut self) -> anyhow::Result<()> {
@@ -53,7 +54,7 @@ impl LombardLedgerScrapper {
                     let metric_value = if missed && any_signature_present { 1 } else { 0 };
                     info!("(Lombard Ledger Scrapper) Session {}: validator {} missed? {} (idx={})", session.id, validator, metric_value == 1, idx);
                     LOMBARD_VALIDATOR_SIGNATURE_MISSED
-                        .with_label_values(&[validator, &session.id])
+                        .with_label_values(&[validator, &session.id, &self.network])
                         .set(metric_value);
                 } else {
                     info!("Session {}: validator {} not found in participants", session.id, validator);
@@ -73,4 +74,3 @@ impl Task for LombardLedgerScrapper {
         "Lombard Ledger Scrapper"
     }
 }
-

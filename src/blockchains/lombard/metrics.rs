@@ -8,7 +8,7 @@ lazy_static! {
             "lombard_validator_signature_missed",
             "1 if validator missed signature in notary session, 0 if not missed"
         ),
-        &["validator", "session_id"]
+        &["validator", "session_id", "network"]
     ).unwrap();
 }
 
