@@ -187,7 +187,7 @@ impl TendermintNodeStatusScrapper {
         // Now apply it to each metric
         update_metric!(
             app_name,
-            node_info.application_version.name,
+            node_info.application_version.app_name,
             TENDERMINT_NODE_APP_NAME
         );
         update_metric!(
