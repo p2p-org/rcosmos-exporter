@@ -91,13 +91,13 @@ impl BlockchainExporter {
                 let mut task = task_clone.lock().await;
 
                 loop {
+                    EXPORTER_TASK_RUNS
+                        .with_label_values(&[&task.name(), &network])
+                        .inc();
+
                     // Always allow the task to run to completion
                     match task.run().await {
-                        Ok(_) => {
-                            EXPORTER_TASK_RUNS
-                                .with_label_values(&[&task.name(), &network])
-                                .inc();
-                        }
+                        Ok(_) => {}
                         Err(e) => {
                             error!("Task: {} errored.\n{:?}", task.name(), e);
                             EXPORTER_TASK_ERRORS
