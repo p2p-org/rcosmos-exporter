@@ -7,6 +7,9 @@ use blockchains::{
     },
     lombard::ledger_scrapper::LombardLedgerScrapper,
     mezo::{block_scrapper::MezoBlockScrapper, validator_info_scrapper::MezoValidatorInfoScrapper},
+    namada::{
+        block_scrapper::NamadaBlockScrapper, validator_info_scrapper::NamadaValidatorInfoScrapper,
+    },
     tendermint::{
         block_scrapper::TendermintBlockScrapper, chain_id::TendermintChainIdFetcher,
         node_status_scrapper::TendermintNodeStatusScrapper,
@@ -494,6 +497,58 @@ pub async fn network_exporter(
                 .add_task(proposal_scrapper)
                 .add_task(upgrade_plan_scrapper)
                 .add_task(ledger_scrapper)
+        }
+        Blockchain::Namada => {
+            let client = BlockchainClientBuilder::new()
+                .with_rest(rest)
+                .with_rpc(rpc)
+                .build()
+                .await;
+
+            let client = Arc::new(client);
+
+            let chain_id = TendermintChainIdFetcher::new(Arc::clone(&client))
+                .get_chain_id()
+                .await
+                .unwrap();
+
+            let block_scrapper = ExporterTask::new(
+                Box::new(NamadaBlockScrapper::new(
+                    Arc::clone(&client),
+                    block_window,
+                    chain_id.clone(),
+                    network.clone(),
+                    validator_alert_addresses.clone(),
+                )),
+                Duration::from_secs(30),
+            );
+
+            let validator_info_scrapper: ExporterTask = ExporterTask::new(
+                Box::new(NamadaValidatorInfoScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                    validator_alert_addresses.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
+            // Namada does not have upgrade plan endpoint
+            // let upgrade_plan_scrapper = ExporterTask::new(
+            //     Box::new(TendermintUpgradePlanScrapper::new(
+            //         Arc::clone(&client),
+            //         chain_id.clone(),
+            //         network.clone(),
+            //     )),
+            //     Duration::from_secs(300),
+            // );
+
+            blockchains::tendermint::metrics::register_custom_metrics();
+
+            BlockchainExporter::new()
+                .add_task(block_scrapper)
+                .add_task(validator_info_scrapper)
+            //.add_task(upgrade_plan_scrapper)
         }
     }
 }

@@ -5,7 +5,7 @@ use thiserror::Error;
 use super::clients::http_client::HTTPClientErrors;
 
 #[derive(Clone)]
-pub struct ChainId(pub String); 
+pub struct ChainId(pub String);
 
 impl ChainId {
     pub fn new(chain_id: String) -> Self {

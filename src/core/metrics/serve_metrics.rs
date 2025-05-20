@@ -41,6 +41,7 @@ pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, block
                         Blockchain::Tendermint => tendermint_registry.gather(),
                         Blockchain::Mezo => tendermint_registry.gather(),
                         Blockchain::CoreDao => coredao_registry.gather(),
+                        Blockchain::Namada => tendermint_registry.gather(),
                         Blockchain::Babylon => {
                             let mut families = Vec::new();
                             families.extend(babylon_registry.gather());
