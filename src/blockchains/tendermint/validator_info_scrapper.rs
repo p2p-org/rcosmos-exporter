@@ -22,7 +22,11 @@ use crate::{
             ValidatorsResponse,
         },
     },
-    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{
+        chain_id::ChainId,
+        clients::{blockchain_client::BlockchainClient, path::Path},
+        exporter::Task,
+    },
 };
 
 use super::{
@@ -66,18 +70,17 @@ impl TendermintValidatorInfoScrapper {
 
         let mut all_fetched = false;
         let mut page = 1;
-        let mut fetched = 0;
 
         while !all_fetched {
+            let url = format!("{}?page={}", path, page);
             let res = self
                 .client
                 .with_rpc()
-                .get(&format!("{}?page={}", path, page))
+                .get(Path::ensure_leading_slash(&url))
                 .await
                 .context(format!("Could not fetch active validators page: {}", page))?;
 
-            let validators_response =
-                from_str::<ValidatorsResponse>(&res).context("Could not decode JSON response")?;
+            let validators_response = serde_json::from_str::<ValidatorsResponse>(&res)?;
 
             if let Some(res) = validators_response.result {
                 let count = res.count.parse::<usize>().context("
@@ -86,10 +89,9 @@ impl TendermintValidatorInfoScrapper {
                 let total = res.total.parse::<usize>().context(
                     "Could not parse the total of validators when fetching active validators",
                 )?;
-                if count + fetched == total {
+                if count + validators.len() == total {
                     all_fetched = true;
                 } else {
-                    fetched += count;
                     page += 1;
                 }
 
@@ -103,7 +105,7 @@ impl TendermintValidatorInfoScrapper {
 
     async fn get_validator_delegations_count(
         &self,
-        validator_address: String,
+        validator_address: &str,
     ) -> anyhow::Result<usize> {
         let mut pagination_key: Option<String> = None;
         let mut delegations: Vec<TendermintDelegationResponse> = Vec::new();
@@ -121,7 +123,7 @@ impl TendermintValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(&url)
+                .get(Path::ensure_leading_slash(&url))
                 .await
                 .context("Could not fetch validator delegation")?;
 
@@ -141,7 +143,7 @@ impl TendermintValidatorInfoScrapper {
 
     async fn get_validator_unbonding_delegations_count(
         &self,
-        validator_address: String,
+        validator_address: &str,
     ) -> anyhow::Result<usize> {
         let mut pagination_key: Option<String> = None;
         let mut delegations: Vec<TendermintUnbondingDelegation> = Vec::new();
@@ -159,7 +161,7 @@ impl TendermintValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(&url)
+                .get(Path::ensure_leading_slash(&url))
                 .await
                 .context("Could not fetch validator delegation")?;
 
@@ -179,15 +181,16 @@ impl TendermintValidatorInfoScrapper {
 
     async fn get_validator_reward(
         &self,
-        validator_address: String,
+        validator_address: &str,
     ) -> anyhow::Result<HashMap<String, f64>> {
+        let url = format!(
+            "/cosmos/distribution/v1beta1/validators/{}/outstanding_rewards",
+            validator_address
+        );
         let res = self
             .client
             .with_rest()
-            .get(&format!(
-                "/cosmos/distribution/v1beta1/validators/{}/outstanding_rewards",
-                validator_address
-            ))
+            .get(Path::ensure_leading_slash(&url))
             .await
             .context("Could not fetch validator reward")?;
 
@@ -212,15 +215,16 @@ impl TendermintValidatorInfoScrapper {
 
     async fn get_validator_commision(
         &self,
-        validator_address: String,
+        validator_address: &str,
     ) -> anyhow::Result<HashMap<String, f64>> {
+        let url = format!(
+            "/cosmos/distribution/v1beta1/validators/{}/commission",
+            validator_address
+        );
         let res = self
             .client
             .with_rest()
-            .get(&format!(
-                "/cosmos/distribution/v1beta1/validators/{}/commission",
-                validator_address
-            ))
+            .get(Path::ensure_leading_slash(&url))
             .await
             .context("Could not fetch validator commision")?;
 
@@ -262,7 +266,7 @@ impl TendermintValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(&url)
+                .get(Path::ensure_leading_slash(&url))
                 .await
                 .context("Could not fetch rest validators")?;
 
@@ -281,7 +285,7 @@ impl TendermintValidatorInfoScrapper {
 
     async fn get_validator_slashes_count(
         &self,
-        validator_address: String,
+        validator_address: &str,
     ) -> anyhow::Result<usize> {
         let mut pagination_key: Option<String> = None;
         let mut slashes: Vec<TendermintSlash> = Vec::new();
@@ -299,7 +303,7 @@ impl TendermintValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(&url)
+                .get(Path::ensure_leading_slash(&url))
                 .await
                 .context("Could not fetch validator slashes")?;
 
@@ -330,7 +334,6 @@ impl TendermintValidatorInfoScrapper {
                 .context("Could not validator pub key")?;
 
             let mut hasher = Sha256::new();
-            // Process the input data
             hasher.update(bytes);
             let hash = hasher.finalize();
             let hash = &hash[..20];
@@ -350,23 +353,23 @@ impl TendermintValidatorInfoScrapper {
             let jailed = validator.jailed;
 
             let slashes = self
-                .get_validator_slashes_count(validator.operator_address.clone())
+                .get_validator_slashes_count(&validator.operator_address)
                 .await
                 .context("Could not obtain the number of slashes")?;
             let delegations = self
-                .get_validator_delegations_count(validator.operator_address.clone())
+                .get_validator_delegations_count(&validator.operator_address)
                 .await
                 .context("Could not obtain the number of delegations")?;
             let unbonding_delegations = self
-                .get_validator_unbonding_delegations_count(validator.operator_address.clone())
+                .get_validator_unbonding_delegations_count(&validator.operator_address)
                 .await
                 .context("Could not obtain the number of unbonding delegations")?;
             let commissions = self
-                .get_validator_commision(validator.operator_address.clone())
+                .get_validator_commision(&validator.operator_address)
                 .await
                 .context("Could not obtain validator commissions")?;
             let rewards = self
-                .get_validator_reward(validator.operator_address.clone())
+                .get_validator_reward(&validator.operator_address)
                 .await
                 .context("Could not obtain validator rewards")?;
             let rate = validator
