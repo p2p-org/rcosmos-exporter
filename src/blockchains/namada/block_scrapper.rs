@@ -5,7 +5,11 @@ use tracing::info;
 
 use crate::{
     blockchains::namada::types::{Validator},
-    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{
+        chain_id::ChainId,
+        clients::{blockchain_client::BlockchainClient, path::Path},
+        exporter::Task
+    },
 };
 
 use super::metrics::{
@@ -42,7 +46,7 @@ impl NamadaBlockScrapper {
         let res = self
             .client
             .with_rest()
-            .get("/api/v1/chain/epoch/latest")
+            .get(Path::ensure_leading_slash("/api/v1/chain/epoch/latest"))
             .await
             .context("Could not fetch current epoch")?;
         let value = serde_json::from_str::<serde_json::Value>(&res)?;
@@ -53,12 +57,11 @@ impl NamadaBlockScrapper {
         Ok(epoch_str.parse()?)
     }
 
-    // For non-paginated endpoint
     async fn get_validators_all(&self) -> anyhow::Result<Vec<Validator>> {
         let res = self
             .client
             .with_rest()
-            .get("/api/v1/pos/validator/all")
+            .get(Path::ensure_leading_slash("/api/v1/pos/validator/all"))
             .await
             .context("Could not fetch all validators")?;
         Ok(serde_json::from_str(&res)?)
@@ -89,7 +92,7 @@ impl NamadaBlockScrapper {
         let res = self
             .client
             .with_rest()
-            .get(&url)
+            .get(Path::ensure_leading_slash(url))
             .await
             .context("Could not fetch paginated validators")?;
         let value: serde_json::Value = serde_json::from_str(&res)?;
@@ -97,7 +100,6 @@ impl NamadaBlockScrapper {
         Ok(serde_json::from_value(results.clone())?)
     }
 
-    // Use the non-paginated version by default
     async fn get_validators(&self) -> anyhow::Result<Vec<Validator>> {
         self.get_validators_all().await
     }
@@ -109,7 +111,7 @@ impl NamadaBlockScrapper {
             .set(current_epoch as i64);
 
         // Fetch latest block info
-        let block_res = self.client.with_rest().get("/api/v1/chain/block/latest").await?;
+        let block_res = self.client.with_rest().get(Path::ensure_leading_slash("/api/v1/chain/block/latest")).await?;
         let block_json: serde_json::Value = serde_json::from_str(&block_res)?;
         let block = &block_json["block"];
         let height = block["height"].as_u64().unwrap_or(0);
@@ -166,7 +168,7 @@ impl NamadaBlockScrapper {
                 .contains(&validator.address)
                 .to_string();
 
-            // Set metrics based on validator state from the all validators response
+            // Use the validator object directly
             let state = validator.state.as_deref().unwrap_or("unknown");
             let is_jailed = state == "jailed";
             NAMADA_VALIDATOR_MISSED_BLOCKS
