@@ -2,7 +2,6 @@ use std::sync::Arc;
 use anyhow::Context;
 use async_trait::async_trait;
 use tracing::info;
-use serde_json::from_str;
 
 use crate::{
     blockchains::namada::types::{Validator},
@@ -31,7 +30,7 @@ impl NamadaValidatorInfoScrapper {
         let res = self
             .client
             .with_rest()
-            .get("api/v1/pos/validator/all")
+            .get("/api/v1/pos/validator/all")
             .await
             .context("Could not fetch validators")?;
         Ok(serde_json::from_str(&res)?)

@@ -42,7 +42,7 @@ impl NamadaBlockScrapper {
         let res = self
             .client
             .with_rest()
-            .get("api/v1/chain/epoch/latest")
+            .get("/api/v1/chain/epoch/latest")
             .await
             .context("Could not fetch current epoch")?;
         let value = serde_json::from_str::<serde_json::Value>(&res)?;
@@ -58,7 +58,7 @@ impl NamadaBlockScrapper {
         let res = self
             .client
             .with_rest()
-            .get("api/v1/pos/validator/all")
+            .get("/api/v1/pos/validator/all")
             .await
             .context("Could not fetch all validators")?;
         Ok(serde_json::from_str(&res)?)
@@ -66,7 +66,7 @@ impl NamadaBlockScrapper {
 
     #[allow(dead_code)]
     async fn get_validators_paginated(&self, page: Option<u32>, state: Option<&[&str]>, sort_field: Option<&str>, sort_order: Option<&str>) -> anyhow::Result<Vec<Validator>> {
-        let mut url = String::from("api/v1/pos/validator");
+        let mut url = String::from("/api/v1/pos/validator");
         let mut params = vec![];
         if let Some(page) = page {
             params.push(format!("page={}", page));
@@ -109,7 +109,7 @@ impl NamadaBlockScrapper {
             .set(current_epoch as i64);
 
         // Fetch latest block info
-        let block_res = self.client.with_rest().get("api/v1/chain/block/latest").await?;
+        let block_res = self.client.with_rest().get("/api/v1/chain/block/latest").await?;
         let block_json: serde_json::Value = serde_json::from_str(&block_res)?;
         let block = &block_json["block"];
         let height = block["height"].as_u64().unwrap_or(0);
@@ -117,12 +117,40 @@ impl NamadaBlockScrapper {
         let gas_used = block["gas_used"].as_u64().unwrap_or(0);
         let gas_wanted = block["gas_wanted"].as_u64().unwrap_or(0);
 
-        NAMADA_CURRENT_BLOCK_HEIGHT.with_label_values(&[&self.chain_id.to_string(), &self.network]).set(height as i64);
+        NAMADA_CURRENT_BLOCK_HEIGHT
+            .with_label_values(&[
+                &self.chain_id.to_string(),
+                &self.network
+            ])
+            .set(height as i64);
+
         // Convert time_str to unix timestamp if possible
-        let block_time = chrono::DateTime::parse_from_rfc3339(time_str).map(|dt| dt.timestamp()).unwrap_or(0);
-        NAMADA_CURRENT_BLOCK_TIME.with_label_values(&[&self.chain_id.to_string(), &self.network]).set(block_time);
-        NAMADA_BLOCK_GAS_USED.with_label_values(&[&self.chain_id.to_string(), &self.network, &height.to_string()]).set(gas_used as i64);
-        NAMADA_BLOCK_GAS_WANTED.with_label_values(&[&self.chain_id.to_string(), &self.network, &height.to_string()]).set(gas_wanted as i64);
+        let block_time = chrono::DateTime::parse_from_rfc3339(time_str)
+            .map(|dt| dt.timestamp())
+            .unwrap_or(0);
+
+        NAMADA_CURRENT_BLOCK_TIME
+            .with_label_values(&[
+                &self.chain_id.to_string(),
+                &self.network
+            ])
+            .set(block_time);
+
+        NAMADA_BLOCK_GAS_USED
+            .with_label_values(&[
+                &self.chain_id.to_string(),
+                &self.network,
+                &height.to_string()
+            ])
+            .set(gas_used as i64);
+
+        NAMADA_BLOCK_GAS_WANTED
+            .with_label_values(&[
+                &self.chain_id.to_string(),
+                &self.network,
+                &height.to_string()
+            ])
+            .set(gas_wanted as i64);
 
         let epoch_to_process = current_epoch - 1;
         if epoch_to_process == self.processed_epoch {
@@ -138,27 +166,31 @@ impl NamadaBlockScrapper {
                 .contains(&validator.address)
                 .to_string();
 
-            // Missed blocks (signing info)
-            let signing_info_url = format!("api/v1/pos/validator/{}/signing-info", validator.address);
-            let signing_info_res = self.client.with_rest().get(&signing_info_url).await;
-            let missed_blocks = if let Ok(signing_info_res) = signing_info_res {
-                let signing_info: serde_json::Value = serde_json::from_str(&signing_info_res).unwrap_or_default();
-                signing_info["missed_blocks_counter"].as_u64().unwrap_or(0)
-            } else { 0 };
+            // Set metrics based on validator state from the all validators response
+            let state = validator.state.as_deref().unwrap_or("unknown");
+            let is_jailed = state == "jailed";
             NAMADA_VALIDATOR_MISSED_BLOCKS
-                .with_label_values(&[&validator.address, &self.chain_id.to_string(), &self.network])
-                .set(missed_blocks as i64);
+                .with_label_values(&[
+                    &validator.address,
+                    &self.chain_id.to_string(),
+                    &self.network
+                ])
+                .set(if is_jailed { 1 } else { 0 });
 
-            // Uptime
-            let uptime_url = format!("api/v1/pos/validator/{}/uptime", validator.address);
-            let uptime_res = self.client.with_rest().get(&uptime_url).await;
-            let uptime_val = if let Ok(uptime_res) = uptime_res {
-                let uptime_json: serde_json::Value = serde_json::from_str(&uptime_res).unwrap_or_default();
-                uptime_json["uptime"].as_f64().unwrap_or(0.0)
-            } else { 0.0 };
+            // Calculate uptime based on validator state
+            let uptime = match state {
+                "consensus" | "belowCapacity" => 100,
+                "belowThreshold" => 50,
+                "inactive" | "jailed" | "unknown" => 0,
+                _ => 0,
+            };
             NAMADA_VALIDATOR_UPTIME
-                .with_label_values(&[&validator.address, &self.chain_id.to_string(), &self.network])
-                .set((uptime_val * 100.0) as i64); // as percentage
+                .with_label_values(&[
+                    &validator.address,
+                    &self.chain_id.to_string(),
+                    &self.network
+                ])
+                .set(uptime);
         }
 
         self.processed_epoch = epoch_to_process;
