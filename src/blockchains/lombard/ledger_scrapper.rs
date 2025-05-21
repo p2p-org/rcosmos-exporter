@@ -30,9 +30,20 @@ impl LombardLedgerScrapper {
                 .with_label_values(&[&self.network])
                 .set(session.id.parse::<i64>().unwrap_or(0));
 
+            let current_session_id = &session.id;
+            let current_session_id_num = current_session_id.parse::<i64>().unwrap_or(0);
 
             for validator in &self.validator_operator_addresses {
                 info!("(Lombard Ledger Scrapper) Latest session {}: participants: {:?}", session.id, session.val_set.participants.iter().map(|p| &p.operator).collect::<Vec<_>>());
+
+                for sid in (current_session_id_num.saturating_sub(10))..=current_session_id_num {
+                    let sid_str = sid.to_string();
+                    if sid_str != *current_session_id {
+                        let _ = LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION
+                            .remove_label_values(&[validator, &sid_str, &self.network]);
+                    }
+                }
+
                 if let Some(idx) = session.val_set.participants.iter().position(|p| &p.operator == validator) {
                     let signed = session.signatures.get(idx).map_or(false, |sig| {
                         match sig {
@@ -42,12 +53,12 @@ impl LombardLedgerScrapper {
                     });
                     info!("(Lombard Ledger Scrapper) Latest session {}: validator {} signed? {} (idx={})", session.id, validator, signed, idx);
                     LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION
-                        .with_label_values(&[validator, &self.network])
+                        .with_label_values(&[validator, &session.id, &self.network])
                         .set(if signed { 1 } else { 0 });
                 } else {
                     info!("Latest session {}: validator {} not found in participants", session.id, validator);
                     LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION
-                        .with_label_values(&[validator, &self.network])
+                        .with_label_values(&[validator, &session.id, &self.network])
                         .set(0);
                 }
             }

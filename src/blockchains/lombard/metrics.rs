@@ -16,7 +16,7 @@ lazy_static! {
             "lombard_validator_signed_latest_session",
             "1 if validator signed in the latest notary session, 0 if not"
         ),
-        &["validator", "network"]
+        &["validator", "session_id", "network"]
     ).unwrap();
 }
 
