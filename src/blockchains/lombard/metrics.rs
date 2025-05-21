@@ -1,6 +1,6 @@
+use crate::blockchains::tendermint::metrics::REGISTRY as TENDERMINT_REGISTRY;
 use lazy_static::lazy_static;
 use prometheus::{IntGaugeVec, Opts};
-use crate::blockchains::tendermint::metrics::REGISTRY as TENDERMINT_REGISTRY;
 
 lazy_static! {
     pub static ref LOMBARD_VALIDATOR_SIGNATURE_MISSED: IntGaugeVec = IntGaugeVec::new(
@@ -9,7 +9,8 @@ lazy_static! {
             "1 if validator missed signature in notary session, 0 if not missed"
         ),
         &["validator", "session_id", "network"]
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 pub fn register_ledger_metrics() {

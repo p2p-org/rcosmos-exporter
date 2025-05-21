@@ -12,7 +12,7 @@ use crate::{
     },
     core::{
         block_height::BlockHeight, block_window::BlockWindow, chain_id::ChainId,
-        clients::blockchain_client::BlockchainClient, exporter::Task,
+        clients::blockchain_client::BlockchainClient, clients::path::Path, exporter::Task,
     },
 };
 
@@ -66,7 +66,7 @@ impl MezoBlockScrapper {
             let res = self
                 .client
                 .with_rpc()
-                .get(&format!("/validators?page={}", page))
+                .get(Path::from(format!("/validators?page={}", page).as_str()))
                 .await
                 .context(format!("Could not fetch active validators page: {}", page))?;
 
@@ -122,7 +122,7 @@ impl MezoBlockScrapper {
         let res = self
             .client
             .with_rpc()
-            .get(&path)
+            .get(Path::from(path.as_str()))
             .await
             .context(format!("Could not fetch block {}", path))?;
 

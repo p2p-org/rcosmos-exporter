@@ -62,20 +62,9 @@ impl TryFrom<String> for Path {
         Path::new(path)
     }
 }
-
-impl TryFrom<&String> for Path {
-    type Error = PathError;
-
-    fn try_from(path: &String) -> Result<Self, Self::Error> {
-        Path::new(path)
-    }
-}
-
-impl TryFrom<&str> for Path {
-    type Error = PathError;
-
-    fn try_from(path: &str) -> Result<Self, Self::Error> {
-        Path::new(path)
+impl From<&str> for Path {
+    fn from(path: &str) -> Self {
+        Path::ensure_leading_slash(path)
     }
 }
 
@@ -118,7 +107,10 @@ mod tests {
 
     #[test]
     fn test_path_normalization() {
-        assert_eq!(Path::ensure_leading_slash("/api/test").as_str(), "/api/test");
+        assert_eq!(
+            Path::ensure_leading_slash("/api/test").as_str(),
+            "/api/test"
+        );
         assert_eq!(Path::ensure_leading_slash("api/test").as_str(), "/api/test");
     }
 
@@ -143,7 +135,5 @@ mod tests {
     fn test_try_from_str() {
         let path: Result<Path, _> = Path::try_from("/foo/bar");
         assert!(path.is_ok());
-        let path: Result<Path, _> = Path::try_from("foo/bar");
-        assert!(path.is_err());
     }
-} 
+}

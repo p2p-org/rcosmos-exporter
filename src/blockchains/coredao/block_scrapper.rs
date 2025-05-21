@@ -10,7 +10,7 @@ use crate::{
         COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY,
         COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK, COREDAO_VALIDATOR_SIGNED_BLOCKS,
     },
-    core::{clients::blockchain_client::BlockchainClient, exporter::Task, clients::path::Path},
+    core::{clients::blockchain_client::BlockchainClient, clients::path::Path, exporter::Task},
 };
 
 pub struct CoreDaoBlockScrapper {

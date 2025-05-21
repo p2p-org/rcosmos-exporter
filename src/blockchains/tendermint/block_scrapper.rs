@@ -12,7 +12,7 @@ use crate::{
     },
     core::{
         block_height::BlockHeight, block_window::BlockWindow, chain_id::ChainId,
-        clients::blockchain_client::BlockchainClient, exporter::Task,
+        clients::blockchain_client::BlockchainClient, clients::path::Path, exporter::Task,
     },
 };
 
@@ -67,7 +67,7 @@ impl TendermintBlockScrapper {
             let res = self
                 .client
                 .with_rpc()
-                .get(&format!("/validators?page={}", page))
+                .get(Path::from(format!("/validators?page={}", page).as_str()))
                 .await
                 .context(format!("Could not fetch active validators page: {}", page))?;
 
@@ -109,7 +109,9 @@ impl TendermintBlockScrapper {
         let res = self
             .client
             .with_rpc()
-            .get(&format!("tx_search?query=\"tx.height={}\"", height))
+            .get(Path::from(
+                format!("tx_search?query=\"tx.height={}\"", height).as_str(),
+            ))
             .await
             .context(format!("Could not fetch txs for height {}", height))?;
 
@@ -137,7 +139,7 @@ impl TendermintBlockScrapper {
         let res = self
             .client
             .with_rpc()
-            .get(&path)
+            .get(Path::from(path.as_str()))
             .await
             .context(format!("Could not fetch block {}", path))?;
 

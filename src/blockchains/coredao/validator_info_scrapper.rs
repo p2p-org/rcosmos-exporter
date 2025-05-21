@@ -10,7 +10,7 @@ use crate::{
         COREDAO_VALIDATORS, COREDAO_VALIDATOR_JAILED, COREDAO_VALIDATOR_SLASH_BLOCK,
         COREDAO_VALIDATOR_SLASH_COUNT,
     },
-    core::{clients::blockchain_client::BlockchainClient, exporter::Task, clients::path::Path},
+    core::{clients::blockchain_client::BlockchainClient, clients::path::Path, exporter::Task},
 };
 
 pub struct CoreDaoValidatorInfoScrapper {

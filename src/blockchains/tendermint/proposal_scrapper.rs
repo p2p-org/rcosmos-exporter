@@ -1,5 +1,6 @@
 use std::{sync::Arc, usize};
 
+use crate::core::clients::path::Path;
 use anyhow::Context;
 use async_trait::async_trait;
 use serde_json::from_str;
@@ -38,7 +39,7 @@ impl TendermintProposalScrapper {
         let res = self
             .client
             .with_rpc()
-            .get("/block")
+            .get(Path::ensure_leading_slash("/block"))
             .await
             .context("Could not fetch last block")?;
 
@@ -64,7 +65,11 @@ impl TendermintProposalScrapper {
                 url = format!("{}?pagination.key={}", path, encoded_key);
             }
 
-            let res = self.client.with_rest().get(&url).await?;
+            let res = self
+                .client
+                .with_rest()
+                .get(Path::ensure_leading_slash(&url))
+                .await?;
 
             let proposal_response = from_str::<TendermintProposalsResponse>(&res)?;
 

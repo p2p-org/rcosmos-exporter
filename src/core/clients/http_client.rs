@@ -11,8 +11,8 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::{debug, error, warn};
 
-use crate::core::metrics::exporter_metrics::EXPORTER_HTTP_REQUESTS;
 use super::path::Path;
+use crate::core::metrics::exporter_metrics::EXPORTER_HTTP_REQUESTS;
 
 #[derive(Debug, Clone)]
 struct Endpoint {
@@ -160,8 +160,8 @@ impl HttpClient {
         });
     }
 
-    pub async fn get<T: AsRef<str>>(&self, path: T) -> Result<String, HTTPClientErrors> {
-        let path = Path::ensure_leading_slash(path.as_ref());
+    pub async fn get(&self, path: impl Into<Path>) -> Result<String, HTTPClientErrors> {
+        let path = Path::ensure_leading_slash(&path.into());
         debug!("Making call to {}", path);
 
         let endpoints = self.endpoints.read().await;
@@ -171,6 +171,14 @@ impl HttpClient {
 
         for attempt in 0..5 {
             if let Some(endpoint) = healthy_endpoints.choose(&mut rng) {
+                debug_assert!(
+                    !endpoint.url.ends_with('/'),
+                    "Endpoint URL should not end with a slash"
+                );
+                debug_assert!(
+                    path.as_str().starts_with('/'),
+                    "Path should start with a slash"
+                );
                 let url = format!("{}{}", endpoint.url, path.as_str());
 
                 let response = self.client.get(&url).send().await;
@@ -238,6 +246,16 @@ impl HttpClient {
 
         for attempt in 0..5 {
             if let Some(endpoint) = healthy_endpoints.choose(&mut rng) {
+                // Defensive: ensure no double slash in URL construction
+                debug_assert!(
+                    !endpoint.url.ends_with('/'),
+                    "Endpoint URL should not end with a slash"
+                );
+                debug_assert!(
+                    path.as_str().starts_with('/'),
+                    "Path should start with a slash"
+                );
+
                 let url = format!("{}{}", endpoint.url, path.as_str());
 
                 debug!("Attempting POST request to: {}", url);

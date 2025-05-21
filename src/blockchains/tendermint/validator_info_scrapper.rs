@@ -284,10 +284,7 @@ impl TendermintValidatorInfoScrapper {
         Ok(validators)
     }
 
-    async fn get_validator_slashes_count(
-        &self,
-        validator_address: &str,
-    ) -> anyhow::Result<usize> {
+    async fn get_validator_slashes_count(&self, validator_address: &str) -> anyhow::Result<usize> {
         let mut pagination_key: Option<String> = None;
         let mut slashes: Vec<TendermintSlash> = Vec::new();
 

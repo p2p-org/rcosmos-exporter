@@ -12,7 +12,10 @@ use crate::{
         babylon::types::{CurrentEpoch, GetEpochResponse},
         tendermint::types::{TendermintValidator, ValidatorsResponse},
     },
-    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{
+        chain_id::ChainId, clients::blockchain_client::BlockchainClient, clients::path::Path,
+        exporter::Task,
+    },
 };
 
 use super::{
@@ -56,7 +59,10 @@ impl BabylonBlsScrapper {
             let res = self
                 .client
                 .with_rpc()
-                .get(&format!("{}&page={}", path, page))
+                .get(Path::ensure_leading_slash(&format!(
+                    "{}&page={}",
+                    path, page
+                )))
                 .await
                 .context(format!(
                     "Could not fetch active validators page: {}, path: {}",
@@ -92,7 +98,9 @@ impl BabylonBlsScrapper {
         let res = self
             .client
             .with_rest()
-            .get("/babylon/epoching/v1/current_epoch")
+            .get(Path::ensure_leading_slash(
+                "/babylon/epoching/v1/current_epoch",
+            ))
             .await
             .context("Could not fetch current epoch")?;
 
@@ -108,7 +116,10 @@ impl BabylonBlsScrapper {
         let res = self
             .client
             .with_rest()
-            .get(&format!("/babylon/epoching/v1/epochs/{}", epoch))
+            .get(Path::ensure_leading_slash(&format!(
+                "/babylon/epoching/v1/epochs/{}",
+                epoch
+            )))
             .await
             .context(format!("Could not fetch epoch: {}", epoch))?;
 
@@ -122,10 +133,10 @@ impl BabylonBlsScrapper {
         let res = self
             .client
             .with_rest()
-            .get(&format!(
+            .get(Path::ensure_leading_slash(&format!(
                 "/cosmos/tx/v1beta1/txs/block/{}?pagination.limit=1",
                 block
-            ))
+            )))
             .await
             .context(format!("Could not fetch block txs for block: {}", block))?;
 

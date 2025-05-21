@@ -1,5 +1,8 @@
 use lazy_static::lazy_static;
-use prometheus::{register_int_gauge_vec, IntGaugeVec, Registry, GaugeVec, register_gauge_vec, register_counter_vec, CounterVec};
+use prometheus::{
+    register_counter_vec, register_gauge_vec, register_int_gauge_vec, CounterVec, GaugeVec,
+    IntGaugeVec, Registry,
+};
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
@@ -71,10 +74,17 @@ pub fn register_custom_metrics() {
         .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_PARTICIPATION: {}", e));
     REGISTRY
         .register(Box::new(COREDAO_VALIDATOR_RECENT_ACTIVITY.clone()))
-        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_RECENT_ACTIVITY: {}", e));
+        .unwrap_or_else(|e| {
+            eprintln!("Error registering COREDAO_VALIDATOR_RECENT_ACTIVITY: {}", e)
+        });
     REGISTRY
         .register(Box::new(COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK.clone()))
-        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK: {}", e));
+        .unwrap_or_else(|e| {
+            eprintln!(
+                "Error registering COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK: {}",
+                e
+            )
+        });
     REGISTRY
         .register(Box::new(COREDAO_VALIDATOR_SIGNED_BLOCKS.clone()))
         .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_SIGNED_BLOCKS: {}", e));
