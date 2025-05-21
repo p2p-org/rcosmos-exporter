@@ -10,7 +10,7 @@ use crate::{
         COREDAO_VALIDATORS, COREDAO_VALIDATOR_JAILED, COREDAO_VALIDATOR_SLASH_BLOCK,
         COREDAO_VALIDATOR_SLASH_COUNT,
     },
-    core::{clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{clients::blockchain_client::BlockchainClient, exporter::Task, clients::path::Path},
 };
 
 pub struct CoreDaoValidatorInfoScrapper {
@@ -60,7 +60,7 @@ impl CoreDaoValidatorInfoScrapper {
         let res = self
             .client
             .with_rpc()
-            .post("", &payload)
+            .post(Path::ensure_leading_slash(""), &payload)
             .await
             .context("Error fetching validators")?;
 
@@ -124,7 +124,7 @@ impl CoreDaoValidatorInfoScrapper {
         let res = self
             .client
             .with_rpc()
-            .post("", &payload)
+            .post(Path::ensure_leading_slash(""), &payload)
             .await
             .context("Error fetching all candidates")?;
 
@@ -188,7 +188,7 @@ impl CoreDaoValidatorInfoScrapper {
         let res = self
             .client
             .with_rpc()
-            .post("", &payload)
+            .post(Path::ensure_leading_slash(""), &payload)
             .await
             .context("Error fetching if validator is jailed")?;
 
@@ -237,7 +237,7 @@ impl CoreDaoValidatorInfoScrapper {
         let res = self
             .client
             .with_rpc()
-            .post("", &payload)
+            .post(Path::ensure_leading_slash(""), &payload)
             .await
             .context("Could not fetch slashing info")?;
 

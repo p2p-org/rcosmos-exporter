@@ -25,8 +25,13 @@ struct Endpoint {
 
 impl Endpoint {
     fn new(url: String, health_url: String, network: String) -> Self {
+        let url = if url.ends_with('/') {
+            url.trim_end_matches('/').to_string()
+        } else {
+            url
+        };
         Endpoint {
-            url: url.to_string(),
+            url,
             health_url: Path::ensure_leading_slash(health_url),
             healthy: true,
             consecutive_failures: 0,
@@ -208,12 +213,12 @@ impl HttpClient {
         Err(HTTPClientErrors::NoHealthyEndpoints(path.to_string()))
     }
 
-    pub async fn post<T: serde::Serialize, P: AsRef<str>>(
+    pub async fn post<T: serde::Serialize>(
         &self,
-        path: P,
+        path: Path,
         body: T,
     ) -> Result<String, HTTPClientErrors> {
-        let path = Path::ensure_leading_slash(path.as_ref());
+        let path = Path::ensure_leading_slash(path);
         debug!("Making POST call to {}", path);
 
         let body_string = match serde_json::to_string(&body) {

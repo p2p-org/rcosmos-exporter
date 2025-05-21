@@ -80,7 +80,8 @@ impl TendermintValidatorInfoScrapper {
                 .await
                 .context(format!("Could not fetch active validators page: {}", page))?;
 
-            let validators_response = serde_json::from_str::<ValidatorsResponse>(&res)?;
+            let validators_response =
+                from_str::<ValidatorsResponse>(&res).context("Could not decode JSON response")?;
 
             if let Some(res) = validators_response.result {
                 let count = res.count.parse::<usize>().context("
