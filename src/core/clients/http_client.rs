@@ -32,7 +32,7 @@ impl Endpoint {
         };
         Endpoint {
             url,
-            health_url: Path::from(health_url.as_str()),
+            health_url: Path::from(health_url),
             healthy: true,
             consecutive_failures: 0,
             network,

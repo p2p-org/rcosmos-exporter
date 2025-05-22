@@ -112,7 +112,7 @@ impl BabylonBlsScrapper {
             .client
             .with_rest()
             .get(Path::from(
-                format!("/babylon/epoching/v1/epochs/{}", epoch).as_str(),
+                format!("/babylon/epoching/v1/epochs/{}", epoch),
             ))
             .await
             .context(format!("Could not fetch epoch: {}", epoch))?;
@@ -128,7 +128,7 @@ impl BabylonBlsScrapper {
             .client
             .with_rest()
             .get(Path::from(
-                format!("/cosmos/tx/v1beta1/txs/block/{}?pagination.limit=1", block).as_str(),
+                format!("/cosmos/tx/v1beta1/txs/block/{}?pagination.limit=1", block),
             ))
             .await
             .context(format!("Could not fetch block txs for block: {}", block))?;
