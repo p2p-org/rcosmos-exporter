@@ -10,6 +10,7 @@ use blockchains::{
     namada::{
         block_scrapper::NamadaBlockScrapper, validator_info_scrapper::NamadaValidatorInfoScrapper,
     },
+    noble::validator_info_scrapper::NobleValidatorInfoScrapper,
     tendermint::{
         block_scrapper::TendermintBlockScrapper, chain_id::TendermintChainIdFetcher,
         node_status_scrapper::TendermintNodeStatusScrapper,
@@ -549,6 +550,57 @@ pub async fn network_exporter(
                 .add_task(block_scrapper)
                 .add_task(validator_info_scrapper)
             //.add_task(upgrade_plan_scrapper)
+        }
+        Blockchain::Noble => {
+            let client = BlockchainClientBuilder::new()
+                .with_rest(rest)
+                .with_rpc(rpc)
+                .build()
+                .await;
+
+            let client = Arc::new(client);
+
+            let chain_id = TendermintChainIdFetcher::new(Arc::clone(&client))
+                .get_chain_id()
+                .await
+                .unwrap();
+
+            let block_scrapper = ExporterTask::new(
+                Box::new(TendermintBlockScrapper::new(
+                    Arc::clone(&client),
+                    block_window,
+                    chain_id.clone(),
+                    network.clone(),
+                    validator_alert_addresses.clone(),
+                )),
+                Duration::from_secs(30),
+            );
+
+            let validator_info_scrapper = ExporterTask::new(
+                Box::new(NobleValidatorInfoScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                    validator_alert_addresses.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
+            let upgrade_plan_scrapper = ExporterTask::new(
+                Box::new(TendermintUpgradePlanScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(300),
+            );
+
+            blockchains::tendermint::metrics::register_custom_metrics();
+
+            BlockchainExporter::new()
+                .add_task(block_scrapper)
+                .add_task(validator_info_scrapper)
+                .add_task(upgrade_plan_scrapper)
         }
     }
 }
