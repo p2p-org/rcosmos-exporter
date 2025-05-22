@@ -34,9 +34,7 @@ impl TendermintUpgradePlanScrapper {
         let res = self
             .client
             .with_rest()
-            .get(Path::ensure_leading_slash(
-                "/cosmos/upgrade/v1beta1/current_plan",
-            ))
+            .get(Path::from("/cosmos/upgrade/v1beta1/current_plan"))
             .await
             .context("Could not fetch upgrade plan")?;
 

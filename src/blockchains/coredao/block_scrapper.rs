@@ -60,7 +60,7 @@ impl CoreDaoBlockScrapper {
         let res = self
             .client
             .with_rpc()
-            .post(Path::ensure_leading_slash(""), &payload)
+            .post(Path::from(""), &payload)
             .await
             .context("Could not fetch latest block number")?;
 
@@ -89,7 +89,7 @@ impl CoreDaoBlockScrapper {
         let res = self
             .client
             .with_rpc()
-            .post(Path::ensure_leading_slash(""), &payload)
+            .post(Path::from(""), &payload)
             .await
             .context(format!("Error fetching block: {}", block_number))?;
 

@@ -39,7 +39,7 @@ impl TendermintProposalScrapper {
         let res = self
             .client
             .with_rpc()
-            .get(Path::ensure_leading_slash("/block"))
+            .get(Path::from("/block"))
             .await
             .context("Could not fetch last block")?;
 
@@ -68,7 +68,7 @@ impl TendermintProposalScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(Path::ensure_leading_slash(&url))
+                .get(Path::from(url.as_str()))
                 .await?;
 
             let proposal_response = from_str::<TendermintProposalsResponse>(&res)?;

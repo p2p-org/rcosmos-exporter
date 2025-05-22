@@ -60,7 +60,7 @@ impl CoreDaoValidatorInfoScrapper {
         let res = self
             .client
             .with_rpc()
-            .post(Path::ensure_leading_slash(""), &payload)
+            .post(Path::from(""), &payload)
             .await
             .context("Error fetching validators")?;
 
@@ -124,7 +124,7 @@ impl CoreDaoValidatorInfoScrapper {
         let res = self
             .client
             .with_rpc()
-            .post(Path::ensure_leading_slash(""), &payload)
+            .post(Path::from(""), &payload)
             .await
             .context("Error fetching all candidates")?;
 
@@ -188,7 +188,7 @@ impl CoreDaoValidatorInfoScrapper {
         let res = self
             .client
             .with_rpc()
-            .post(Path::ensure_leading_slash(""), &payload)
+            .post(Path::from(""), &payload)
             .await
             .context("Error fetching if validator is jailed")?;
 
@@ -237,7 +237,7 @@ impl CoreDaoValidatorInfoScrapper {
         let res = self
             .client
             .with_rpc()
-            .post(Path::ensure_leading_slash(""), &payload)
+            .post(Path::from(""), &payload)
             .await
             .context("Could not fetch slashing info")?;
 

@@ -76,7 +76,7 @@ impl TendermintValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rpc()
-                .get(Path::ensure_leading_slash(&url))
+                .get(Path::from(url.as_str()))
                 .await
                 .context(format!("Could not fetch active validators page: {}", page))?;
 
@@ -124,7 +124,7 @@ impl TendermintValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(Path::ensure_leading_slash(&url))
+                .get(Path::from(url.as_str()))
                 .await
                 .context("Could not fetch validator delegation")?;
 
@@ -162,7 +162,7 @@ impl TendermintValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(Path::ensure_leading_slash(&url))
+                .get(Path::from(url.as_str()))
                 .await
                 .context("Could not fetch validator delegation")?;
 
@@ -191,7 +191,7 @@ impl TendermintValidatorInfoScrapper {
         let res = self
             .client
             .with_rest()
-            .get(Path::ensure_leading_slash(&url))
+            .get(Path::from(url.as_str()))
             .await
             .context("Could not fetch validator reward")?;
 
@@ -225,7 +225,7 @@ impl TendermintValidatorInfoScrapper {
         let res = self
             .client
             .with_rest()
-            .get(Path::ensure_leading_slash(&url))
+            .get(Path::from(url.as_str()))
             .await
             .context("Could not fetch validator commision")?;
 
@@ -267,7 +267,7 @@ impl TendermintValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(Path::ensure_leading_slash(&url))
+                .get(Path::from(url.as_str()))
                 .await
                 .context("Could not fetch rest validators")?;
 
@@ -301,7 +301,7 @@ impl TendermintValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(Path::ensure_leading_slash(&url))
+                .get(Path::from(url.as_str()))
                 .await
                 .context("Could not fetch validator slashes")?;
 

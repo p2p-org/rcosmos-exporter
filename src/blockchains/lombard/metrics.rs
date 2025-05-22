@@ -9,8 +9,8 @@ lazy_static! {
             "ID of the latest notary session"
         ),
         &["network"]
-    ).unwrap();
-
+    )
+    .unwrap();
     pub static ref LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION: IntGaugeVec = IntGaugeVec::new(
         Opts::new(
             "lombard_validator_signed_latest_session",

@@ -32,7 +32,7 @@ impl Endpoint {
         };
         Endpoint {
             url,
-            health_url: Path::ensure_leading_slash(health_url),
+            health_url: Path::from(health_url.as_str()),
             healthy: true,
             consecutive_failures: 0,
             network,
@@ -160,8 +160,7 @@ impl HttpClient {
         });
     }
 
-    pub async fn get(&self, path: impl Into<Path>) -> Result<String, HTTPClientErrors> {
-        let path = Path::ensure_leading_slash(&path.into());
+    pub async fn get(&self, path: Path) -> Result<String, HTTPClientErrors> {
         debug!("Making call to {}", path);
 
         let endpoints = self.endpoints.read().await;
@@ -226,7 +225,7 @@ impl HttpClient {
         path: Path,
         body: T,
     ) -> Result<String, HTTPClientErrors> {
-        let path = Path::ensure_leading_slash(path);
+        let path = Path::from(path);
         debug!("Making POST call to {}", path);
 
         let body_string = match serde_json::to_string(&body) {
