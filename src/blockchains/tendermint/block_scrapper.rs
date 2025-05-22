@@ -139,7 +139,7 @@ impl TendermintBlockScrapper {
         let res = self
             .client
             .with_rpc()
-            .get(Path::from(path.as_str()))
+            .get(Path::from(path.clone()))
             .await
             .context(format!("Could not fetch block {}", path))?;
 
