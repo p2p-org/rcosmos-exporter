@@ -109,10 +109,9 @@ impl TendermintBlockScrapper {
         let res = self
             .client
             .with_rpc()
-            .get(Path::from(format!(
-                "tx_search?query=\"tx.height={}\"",
-                height
-            )))
+            .get(Path::from(
+                format!("tx_search?query=\"tx.height={}\"", height),
+            ))
             .await
             .context(format!("Could not fetch txs for height {}", height))?;
 
