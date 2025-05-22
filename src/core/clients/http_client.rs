@@ -11,12 +11,13 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::{debug, error, warn};
 
+use super::path::Path;
 use crate::core::metrics::exporter_metrics::EXPORTER_HTTP_REQUESTS;
 
 #[derive(Debug, Clone)]
 struct Endpoint {
     url: String,
-    health_url: String,
+    health_url: Path,
     healthy: bool,
     consecutive_failures: usize,
     network: String,
@@ -24,9 +25,14 @@ struct Endpoint {
 
 impl Endpoint {
     fn new(url: String, health_url: String, network: String) -> Self {
+        let url = if url.ends_with('/') {
+            url.trim_end_matches('/').to_string()
+        } else {
+            url
+        };
         Endpoint {
-            url: url.to_string(),
-            health_url: health_url.to_string(),
+            url,
+            health_url: Path::from(health_url),
             healthy: true,
             consecutive_failures: 0,
             network,
@@ -154,7 +160,7 @@ impl HttpClient {
         });
     }
 
-    pub async fn get(&self, path: &str) -> Result<String, HTTPClientErrors> {
+    pub async fn get(&self, path: Path) -> Result<String, HTTPClientErrors> {
         debug!("Making call to {}", path);
 
         let endpoints = self.endpoints.read().await;
@@ -162,10 +168,17 @@ impl HttpClient {
 
         let mut rng = SmallRng::from_os_rng();
 
-        // Retry up to 5 times
         for attempt in 0..5 {
             if let Some(endpoint) = healthy_endpoints.choose(&mut rng) {
-                let url = format!("{}/{}", endpoint.url, path);
+                debug_assert!(
+                    !endpoint.url.ends_with('/'),
+                    "Endpoint URL should not end with a slash"
+                );
+                debug_assert!(
+                    path.as_str().starts_with('/'),
+                    "Path should start with a slash"
+                );
+                let url = format!("{}{}", endpoint.url, path.as_str());
 
                 let response = self.client.get(&url).send().await;
 
@@ -209,12 +222,12 @@ impl HttpClient {
 
     pub async fn post<T: serde::Serialize>(
         &self,
-        path: &str,
+        path: Path,
         body: T,
     ) -> Result<String, HTTPClientErrors> {
+        let path = Path::from(path);
         debug!("Making POST call to {}", path);
 
-        // Convert the body to a JSON string
         let body_string = match serde_json::to_string(&body) {
             Ok(json) => json,
             Err(e) => {
@@ -230,17 +243,19 @@ impl HttpClient {
 
         let mut rng = SmallRng::from_os_rng();
 
-        // Retry up to 5 times
         for attempt in 0..5 {
             if let Some(endpoint) = healthy_endpoints.choose(&mut rng) {
-                // Fix URL formatting to avoid double slashes
-                let url = if path.is_empty() {
-                    endpoint.url.clone()
-                } else if path.starts_with("/") {
-                    format!("{}{}", endpoint.url, path)
-                } else {
-                    format!("{}/{}", endpoint.url, path)
-                };
+                // Defensive: ensure no double slash in URL construction
+                debug_assert!(
+                    !endpoint.url.ends_with('/'),
+                    "Endpoint URL should not end with a slash"
+                );
+                debug_assert!(
+                    path.as_str().starts_with('/'),
+                    "Path should start with a slash"
+                );
+
+                let url = format!("{}{}", endpoint.url, path.as_str());
 
                 debug!("Attempting POST request to: {}", url);
 
@@ -263,11 +278,11 @@ impl HttpClient {
                             return Ok(res.text().await?);
                         } else {
                             warn!(
-                                    "(HTTP Client) Attempt {} failed for {}, using {}: No healthy response",
-                                    attempt + 1,
-                                    path,
-                                    url
-                                );
+                                "(HTTP Client) Attempt {} failed for {}, using {}: No healthy response",
+                                attempt + 1,
+                                path,
+                                url
+                            );
                         }
                     }
                     Err(_) => {

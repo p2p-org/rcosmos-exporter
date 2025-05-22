@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::core::clients::path::Path;
 use async_trait::async_trait;
 use serde_json::from_str;
 use tracing::info;
@@ -33,7 +34,7 @@ impl TendermintUpgradePlanScrapper {
         let res = self
             .client
             .with_rest()
-            .get("/cosmos/upgrade/v1beta1/current_plan")
+            .get(Path::from("/cosmos/upgrade/v1beta1/current_plan"))
             .await
             .context("Could not fetch upgrade plan")?;
 

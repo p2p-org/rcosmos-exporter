@@ -10,7 +10,7 @@ use crate::{
         COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY,
         COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK, COREDAO_VALIDATOR_SIGNED_BLOCKS,
     },
-    core::{clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{clients::blockchain_client::BlockchainClient, clients::path::Path, exporter::Task},
 };
 
 pub struct CoreDaoBlockScrapper {
@@ -60,7 +60,7 @@ impl CoreDaoBlockScrapper {
         let res = self
             .client
             .with_rpc()
-            .post("", &payload)
+            .post(Path::from(""), &payload)
             .await
             .context("Could not fetch latest block number")?;
 
@@ -89,7 +89,7 @@ impl CoreDaoBlockScrapper {
         let res = self
             .client
             .with_rpc()
-            .post("", &payload)
+            .post(Path::from(""), &payload)
             .await
             .context(format!("Error fetching block: {}", block_number))?;
 
