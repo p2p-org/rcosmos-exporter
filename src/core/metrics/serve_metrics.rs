@@ -52,6 +52,7 @@ pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, block
                             families.extend(tendermint_registry.gather());
                             families
                         }
+                        Blockchain::Noble => tendermint_registry.gather(),
                     };
 
                     metric_families.extend(EXPORTER_REGISTRY.gather());

@@ -1,4 +1,8 @@
-use crate::blockchains::lombard::metrics::LOMBARD_VALIDATOR_SIGNATURE_MISSED;
+use async_trait::async_trait;
+use crate::blockchains::lombard::metrics::{
+    LOMBARD_LATEST_SESSION_ID,
+    LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION,
+};
 use crate::blockchains::lombard::types::NotarySessionResponse;
 use crate::core::clients::blockchain_client::BlockchainClient;
 use crate::core::clients::path::Path;
@@ -28,8 +32,8 @@ impl LombardLedgerScrapper {
 
     async fn process_ledger(&mut self) -> anyhow::Result<()> {
         info!("(Lombard Ledger Scrapper) Running: checking notary session signatures");
-        let url = "lombard-finance/ledger/notary/list_notary_session?pagination.limit=10&pagination.reverse=true";
-        let resp = self.client.with_rest().get(Path::from(url)).await?;
+        let url = "lombard-finance/ledger/notary/list_notary_session?pagination.limit=1&pagination.reverse=true";
+        let resp = self.client.with_rest().get(url).await?;
         let resp: NotarySessionResponse = serde_json::from_str(&resp)?;
         for session in resp.notary_sessions {
             let all_signatures_missing = session.signatures.iter().all(|sig| match sig {
@@ -45,51 +49,45 @@ impl LombardLedgerScrapper {
                 Some(s) if !s.is_empty() => true,
                 _ => false,
             });
+        if let Some(session) = resp.notary_sessions.first() {
+            LOMBARD_LATEST_SESSION_ID
+                .with_label_values(&[&self.network])
+                .set(session.id.parse::<i64>().unwrap_or(0));
+
+            let current_session_id = &session.id;
+            let current_session_id_num = current_session_id.parse::<i64>().unwrap_or(0);
+
             for validator in &self.validator_operator_addresses {
-                // Log the participants for debugging
-                info!(
-                    "(Lombard Ledger Scrapper) Session {}: participants: {:?}",
-                    session.id,
-                    session
-                        .val_set
-                        .participants
-                        .iter()
-                        .map(|p| &p.operator)
-                        .collect::<Vec<_>>()
-                );
-                if let Some(idx) = session
-                    .val_set
-                    .participants
-                    .iter()
-                    .position(|p| &p.operator == validator)
-                {
-                    let missed = session.signatures.get(idx).map_or(true, |sig| match sig {
-                        None => true,
-                        Some(s) => s.is_empty(),
+                info!("(Lombard Ledger Scrapper) Latest session {}: participants: {:?}", session.id, session.val_set.participants.iter().map(|p| &p.operator).collect::<Vec<_>>());
+
+                for sid in (current_session_id_num.saturating_sub(10))..=current_session_id_num {
+                    let sid_str = sid.to_string();
+                    if sid_str != *current_session_id {
+                        let _ = LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION
+                            .remove_label_values(&[validator, &sid_str, &self.network]);
+                    }
+                }
+
+                if let Some(idx) = session.val_set.participants.iter().position(|p| &p.operator == validator) {
+                    let signed = session.signatures.get(idx).map_or(false, |sig| {
+                        match sig {
+                            Some(s) if !s.is_empty() => true,
+                            _ => false,
+                        }
                     });
-                    // Only set missed=1 if at least one other validator signed and our validator missed
-                    let metric_value = if missed && any_signature_present {
-                        1
-                    } else {
-                        0
-                    };
-                    info!(
-                        "(Lombard Ledger Scrapper) Session {}: validator {} missed? {} (idx={})",
-                        session.id,
-                        validator,
-                        metric_value == 1,
-                        idx
-                    );
-                    LOMBARD_VALIDATOR_SIGNATURE_MISSED
+                    info!("(Lombard Ledger Scrapper) Latest session {}: validator {} signed? {} (idx={})", session.id, validator, signed, idx);
+                    LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION
                         .with_label_values(&[validator, &session.id, &self.network])
-                        .set(metric_value);
+                        .set(if signed { 1 } else { 0 });
                 } else {
-                    info!(
-                        "Session {}: validator {} not found in participants",
-                        session.id, validator
-                    );
+                    info!("Latest session {}: validator {} not found in participants", session.id, validator);
+                    LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION
+                        .with_label_values(&[validator, &session.id, &self.network])
+                        .set(0);
                 }
             }
+        } else {
+            info!("No notary sessions found");
         }
         Ok(())
     }
