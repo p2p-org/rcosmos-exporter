@@ -66,7 +66,7 @@ impl MezoBlockScrapper {
             let res = self
                 .client
                 .with_rpc()
-                .get(Path::from(format!("/validators?page={}", page).as_str()))
+                .get(Path::from(format!("/validators?page={}", page)))
                 .await
                 .context(format!("Could not fetch active validators page: {}", page))?;
 

@@ -67,7 +67,7 @@ impl TendermintBlockScrapper {
             let res = self
                 .client
                 .with_rpc()
-                .get(Path::from(format!("/validators?page={}", page).as_str()))
+                .get(Path::from(format!("/validators?page={}", page)))
                 .await
                 .context(format!("Could not fetch active validators page: {}", page))?;
 
@@ -110,7 +110,7 @@ impl TendermintBlockScrapper {
             .client
             .with_rpc()
             .get(Path::from(
-                format!("tx_search?query=\"tx.height={}\"", height).as_str(),
+                format!("tx_search?query=\"tx.height={}\"", height),
             ))
             .await
             .context(format!("Could not fetch txs for height {}", height))?;
