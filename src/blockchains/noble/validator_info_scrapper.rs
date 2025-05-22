@@ -1,10 +1,10 @@
-use std::sync::Arc;
-
+use crate::core::clients::path::Path;
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine};
 use serde_json::from_str;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use tracing::info;
 use urlencoding::encode;
 
@@ -61,7 +61,7 @@ impl NobleValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rpc()
-                .get(&format!("{}?page={}", path, page))
+                .get(Path::from(format!("{}?page={}", path, page)))
                 .await
                 .context(format!("Could not fetch active validators page: {}", page))?;
 
@@ -110,7 +110,7 @@ impl NobleValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(&url)
+                .get(Path::from(url))
                 .await
                 .context("Could not fetch validator delegation")?;
 
@@ -148,7 +148,7 @@ impl NobleValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(&url)
+                .get(Path::from(url))
                 .await
                 .context("Could not fetch validator delegation")?;
 
@@ -185,7 +185,7 @@ impl NobleValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(&url)
+                .get(Path::from(url))
                 .await
                 .context("Could not fetch rest validators")?;
 

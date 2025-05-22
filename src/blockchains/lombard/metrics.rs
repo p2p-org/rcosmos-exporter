@@ -1,6 +1,6 @@
+use crate::blockchains::tendermint::metrics::REGISTRY as TENDERMINT_REGISTRY;
 use lazy_static::lazy_static;
 use prometheus::{IntGaugeVec, Opts};
-use crate::blockchains::tendermint::metrics::REGISTRY as TENDERMINT_REGISTRY;
 
 lazy_static! {
     pub static ref LOMBARD_LATEST_SESSION_ID: IntGaugeVec = IntGaugeVec::new(
@@ -9,15 +9,16 @@ lazy_static! {
             "ID of the latest notary session"
         ),
         &["network"]
-    ).unwrap();
-
+    )
+    .unwrap();
     pub static ref LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION: IntGaugeVec = IntGaugeVec::new(
         Opts::new(
             "lombard_validator_signed_latest_session",
             "1 if validator signed in the latest notary session, 0 if not"
         ),
         &["validator", "session_id", "network"]
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 pub fn register_ledger_metrics() {

@@ -18,7 +18,10 @@ use crate::{
             types::{TendermintValidator, ValidatorsResponse},
         },
     },
-    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
+    core::{
+        chain_id::ChainId, clients::blockchain_client::BlockchainClient, clients::path::Path,
+        exporter::Task,
+    },
 };
 
 use super::types::MezoRESTValidator;
@@ -57,7 +60,7 @@ impl MezoValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rpc()
-                .get(&format!("{}?page={}", path, page))
+                .get(Path::from(format!("{}?page={}", path, page)))
                 .await
                 .context(format!("Could not fetch active validators page: {}", page))?;
 
@@ -91,7 +94,7 @@ impl MezoValidatorInfoScrapper {
         let res = self
             .client
             .with_rest()
-            .get(&path)
+            .get(Path::from(path))
             .await
             .context("Could not fetch REST validators")?;
         let rest_validator_response = from_str::<MezoRESTResponse>(&res)
