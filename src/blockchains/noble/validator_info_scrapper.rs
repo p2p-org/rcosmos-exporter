@@ -110,7 +110,7 @@ impl NobleValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(Path::from(url.as_str()))
+                .get(Path::from(url))
                 .await
                 .context("Could not fetch validator delegation")?;
 
@@ -148,7 +148,7 @@ impl NobleValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(Path::from(url.as_str()))
+                .get(Path::from(url))
                 .await
                 .context("Could not fetch validator delegation")?;
 
@@ -185,7 +185,7 @@ impl NobleValidatorInfoScrapper {
             let res = self
                 .client
                 .with_rest()
-                .get(Path::from(url.as_str()))
+                .get(Path::from(url))
                 .await
                 .context("Could not fetch rest validators")?;
 

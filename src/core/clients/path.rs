@@ -40,6 +40,11 @@ impl From<&str> for Path {
         Path(Path::ensure_leading_slash(path))
     }
 }
+impl From<String> for Path {
+    fn from(path: String) -> Self {
+        Path(Path::ensure_leading_slash(path))
+    }
+}
 
 impl AsRef<str> for Path {
     fn as_ref(&self) -> &str {

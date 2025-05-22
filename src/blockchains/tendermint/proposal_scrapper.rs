@@ -65,11 +65,7 @@ impl TendermintProposalScrapper {
                 url = format!("{}?pagination.key={}", path, encoded_key);
             }
 
-            let res = self
-                .client
-                .with_rest()
-                .get(Path::from(url.as_str()))
-                .await?;
+            let res = self.client.with_rest().get(Path::from(url)).await?;
 
             let proposal_response = from_str::<TendermintProposalsResponse>(&res)?;
 
