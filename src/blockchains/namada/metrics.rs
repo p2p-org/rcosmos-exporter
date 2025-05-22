@@ -19,25 +19,37 @@ lazy_static! {
     pub static ref NAMADA_BLOCK_GAS_USED: IntGaugeVec = IntGaugeVec::new(
         Opts::new("namada_block_gas_used", "Namada block gas used"),
         &["chain_id", "network", "height"]
-    ).unwrap();
+    )
+    .unwrap();
     pub static ref NAMADA_BLOCK_GAS_WANTED: IntGaugeVec = IntGaugeVec::new(
         Opts::new("namada_block_gas_wanted", "Namada block gas wanted"),
         &["chain_id", "network", "height"]
-    ).unwrap();
+    )
+    .unwrap();
     pub static ref NAMADA_CURRENT_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
         Opts::new("namada_current_block_height", "Namada current block height"),
         &["chain_id", "network"]
-    ).unwrap();
+    )
+    .unwrap();
     pub static ref NAMADA_CURRENT_BLOCK_TIME: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("namada_current_block_time", "Namada current block time (unix)"),
+        Opts::new(
+            "namada_current_block_time",
+            "Namada current block time (unix)"
+        ),
         &["chain_id", "network"]
-    ).unwrap();
+    )
+    .unwrap();
     pub static ref NAMADA_VALIDATOR_MISSED_BLOCKS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("namada_validator_missed_blocks", "Namada validator missed blocks"),
+        Opts::new(
+            "namada_validator_missed_blocks",
+            "Namada validator missed blocks"
+        ),
         &["address", "chain_id", "network"]
-    ).unwrap();
+    )
+    .unwrap();
     pub static ref NAMADA_VALIDATOR_UPTIME: IntGaugeVec = IntGaugeVec::new(
         Opts::new("namada_validator_uptime", "Namada validator uptime"),
         &["address", "chain_id", "network"]
-    ).unwrap();
-} 
+    )
+    .unwrap();
+}

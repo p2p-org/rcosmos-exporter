@@ -29,7 +29,11 @@ where
 {
     let opt = Option::<serde_json::Value>::deserialize(deserializer)?;
     match opt {
-        Some(serde_json::Value::Number(n)) => n.as_u64().map(|v| v as u32).ok_or_else(|| serde::de::Error::custom("Invalid number for rank")).map(Some),
+        Some(serde_json::Value::Number(n)) => n
+            .as_u64()
+            .map(|v| v as u32)
+            .ok_or_else(|| serde::de::Error::custom("Invalid number for rank"))
+            .map(Some),
         Some(serde_json::Value::String(s)) => {
             if s.is_empty() {
                 Ok(None)

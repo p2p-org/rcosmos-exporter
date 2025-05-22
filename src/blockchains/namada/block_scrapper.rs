@@ -1,16 +1,20 @@
-use anyhow::{Context};
+use anyhow::Context;
 use async_trait::async_trait;
 use std::sync::Arc;
-use tracing::info;  
+use tracing::info;
 
 use crate::{
-    blockchains::namada::types::{Validator},
-    core::{chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task},
+    blockchains::namada::types::Validator,
+    core::{
+        chain_id::ChainId, clients::blockchain_client::BlockchainClient, clients::path::Path,
+        exporter::Task,
+    },
 };
 
 use super::metrics::{
-    NAMADA_BLOCK_GAS_USED, NAMADA_BLOCK_GAS_WANTED, NAMADA_CURRENT_BLOCK_HEIGHT, NAMADA_CURRENT_BLOCK_TIME,
-    NAMADA_VALIDATOR_MISSED_BLOCKS, NAMADA_VALIDATOR_UPTIME, NAMADA_CURRENT_EPOCH
+    NAMADA_BLOCK_GAS_USED, NAMADA_BLOCK_GAS_WANTED, NAMADA_CURRENT_BLOCK_HEIGHT,
+    NAMADA_CURRENT_BLOCK_TIME, NAMADA_CURRENT_EPOCH, NAMADA_VALIDATOR_MISSED_BLOCKS,
+    NAMADA_VALIDATOR_UPTIME,
 };
 
 pub struct NamadaBlockScrapper {
@@ -42,7 +46,7 @@ impl NamadaBlockScrapper {
         let res = self
             .client
             .with_rest()
-            .get("/api/v1/chain/epoch/latest")
+            .get(Path::from(format!("/api/v1/chain/epoch/latest")))
             .await
             .context("Could not fetch current epoch")?;
         let value = serde_json::from_str::<serde_json::Value>(&res)?;
@@ -58,14 +62,20 @@ impl NamadaBlockScrapper {
         let res = self
             .client
             .with_rest()
-            .get("/api/v1/pos/validator/all")
+            .get(Path::from(format!("/api/v1/pos/validator/all")))
             .await
             .context("Could not fetch all validators")?;
         Ok(serde_json::from_str(&res)?)
     }
 
     #[allow(dead_code)]
-    async fn get_validators_paginated(&self, page: Option<u32>, state: Option<&[&str]>, sort_field: Option<&str>, sort_order: Option<&str>) -> anyhow::Result<Vec<Validator>> {
+    async fn get_validators_paginated(
+        &self,
+        page: Option<u32>,
+        state: Option<&[&str]>,
+        sort_field: Option<&str>,
+        sort_order: Option<&str>,
+    ) -> anyhow::Result<Vec<Validator>> {
         let mut url = String::from("/api/v1/pos/validator");
         let mut params = vec![];
         if let Some(page) = page {
@@ -89,11 +99,13 @@ impl NamadaBlockScrapper {
         let res = self
             .client
             .with_rest()
-            .get(&url)
+            .get(Path::from(url))
             .await
             .context("Could not fetch paginated validators")?;
         let value: serde_json::Value = serde_json::from_str(&res)?;
-        let results = value.get("results").ok_or_else(|| anyhow::anyhow!("Missing 'results' field in paginated validators response"))?;
+        let results = value.get("results").ok_or_else(|| {
+            anyhow::anyhow!("Missing 'results' field in paginated validators response")
+        })?;
         Ok(serde_json::from_value(results.clone())?)
     }
 
@@ -109,7 +121,11 @@ impl NamadaBlockScrapper {
             .set(current_epoch as i64);
 
         // Fetch latest block info
-        let block_res = self.client.with_rest().get("/api/v1/chain/block/latest").await?;
+        let block_res = self
+            .client
+            .with_rest()
+            .get(Path::from(format!("/api/v1/chain/block/latest")))
+            .await?;
         let block_json: serde_json::Value = serde_json::from_str(&block_res)?;
         let block = &block_json["block"];
         let height = block["height"].as_u64().unwrap_or(0);
@@ -118,10 +134,7 @@ impl NamadaBlockScrapper {
         let gas_wanted = block["gas_wanted"].as_u64().unwrap_or(0);
 
         NAMADA_CURRENT_BLOCK_HEIGHT
-            .with_label_values(&[
-                &self.chain_id.to_string(),
-                &self.network
-            ])
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(height as i64);
 
         // Convert time_str to unix timestamp if possible
@@ -130,17 +143,14 @@ impl NamadaBlockScrapper {
             .unwrap_or(0);
 
         NAMADA_CURRENT_BLOCK_TIME
-            .with_label_values(&[
-                &self.chain_id.to_string(),
-                &self.network
-            ])
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(block_time);
 
         NAMADA_BLOCK_GAS_USED
             .with_label_values(&[
                 &self.chain_id.to_string(),
                 &self.network,
-                &height.to_string()
+                &height.to_string(),
             ])
             .set(gas_used as i64);
 
@@ -148,7 +158,7 @@ impl NamadaBlockScrapper {
             .with_label_values(&[
                 &self.chain_id.to_string(),
                 &self.network,
-                &height.to_string()
+                &height.to_string(),
             ])
             .set(gas_wanted as i64);
 
@@ -159,7 +169,7 @@ impl NamadaBlockScrapper {
         }
         info!("(Namada Scrapper) Processing epoch: {}", epoch_to_process);
         let validators = self.get_validators().await?;
-        
+
         for validator in validators {
             let _fires_alerts = self
                 .validator_alert_addresses
@@ -173,7 +183,7 @@ impl NamadaBlockScrapper {
                 .with_label_values(&[
                     &validator.address,
                     &self.chain_id.to_string(),
-                    &self.network
+                    &self.network,
                 ])
                 .set(if is_jailed { 1 } else { 0 });
 
@@ -188,7 +198,7 @@ impl NamadaBlockScrapper {
                 .with_label_values(&[
                     &validator.address,
                     &self.chain_id.to_string(),
-                    &self.network
+                    &self.network,
                 ])
                 .set(uptime);
         }
