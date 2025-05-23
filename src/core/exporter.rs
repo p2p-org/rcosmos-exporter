@@ -124,7 +124,7 @@ impl BlockchainExporter {
         }
     }
 
-    pub async fn print_tasks(&self) -> () {
+    pub async fn print_tasks(&self) {
         info!("Tasks to run:");
         for scheduled_task in self.tasks.iter() {
             let task = scheduled_task.task.lock().await;

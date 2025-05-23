@@ -1,3 +1,4 @@
+use crate::core::clients::path::Path;
 use std::sync::Arc;
 
 use crate::{
@@ -20,7 +21,7 @@ impl TendermintChainIdFetcher {
 
 impl ChainIdFetcher for TendermintChainIdFetcher {
     async fn get_chain_id(&self) -> Result<ChainId, ChainIdFetcherErrors> {
-        let res = match self.client.with_rpc().get("/status").await {
+        let res = match self.client.with_rpc().get(Path::from("/status")).await {
             Ok(res) => res,
             Err(e) => return Err(ChainIdFetcherErrors::HttpClientError(e)),
         };
