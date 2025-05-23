@@ -50,6 +50,9 @@ pub fn register_exporter_metrics() {
         .register(Box::new(EXPORTER_TASK_RUNS.clone()))
         .unwrap();
     EXPORTER_REGISTRY
+        .register(Box::new(EXPORTER_TASK_ERRORS.clone()))
+        .unwrap();
+    EXPORTER_REGISTRY
         .register(Box::new(EXPORTER_HEARTBEAT.clone()))
         .unwrap();
     EXPORTER_REGISTRY
