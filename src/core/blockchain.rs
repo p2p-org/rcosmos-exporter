@@ -2,6 +2,7 @@ use std::fmt::Display;
 ///
 /// Different blockchains supported
 ///
+#[derive(PartialEq)]
 pub enum Blockchain {
     Tendermint,
     Mezo,
@@ -9,6 +10,7 @@ pub enum Blockchain {
     CoreDao,
     Lombard,
     Noble,
+    Astria,
 }
 
 impl Blockchain {
@@ -20,6 +22,7 @@ impl Blockchain {
             "coredao" => Some(Blockchain::CoreDao),
             "lombard" => Some(Blockchain::Lombard),
             "noble" => Some(Blockchain::Noble),
+            "astria" => Some(Blockchain::Astria),
             _ => None,
         }
     }
@@ -34,6 +37,7 @@ impl Display for Blockchain {
             Blockchain::Babylon => "Babylon",
             Blockchain::Lombard => "Lombard",
             Blockchain::Noble => "Noble",
+            Blockchain::Astria => "Astria",
         };
         write!(f, "{}", s)
     }

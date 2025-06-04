@@ -1,3 +1,4 @@
+pub mod astria;
 pub mod babylon;
 pub mod coredao;
 pub mod lombard;

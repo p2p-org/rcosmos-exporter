@@ -30,20 +30,15 @@ impl BlockchainClientBuilder {
     }
 
     pub fn with_rest(mut self, rest: Option<HttpClient>) -> Self {
-        match rest {
-            Some(rest) => {
-                rest.start_health_checks();
-                self.rest = Some(rest)
-            }
-            None => panic!("REST is not initialized"),
+        if let Some(rest) = rest {
+            rest.start_health_checks();
+            self.rest = Some(rest)
         }
         self
     }
 
     pub async fn build(self) -> BlockchainClient {
-        let client = BlockchainClient::new(self.rpc, self.rest);
-
-        client
+        BlockchainClient::new(self.rpc, self.rest)
     }
 }
 
