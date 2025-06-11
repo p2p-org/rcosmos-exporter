@@ -1,0 +1,58 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build the project
+        run: |
+          cargo build --release
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env_file: [test-envs/.env.0glabs.testnet, test-envs/.env.allora.testnet, test-envs/.env.babylon.testnet, test-envs/.env.coredao.testnet, test-envs/.env.haqq.testnet, test-envs/.env.lombard.testnet, test-envs/.env.namada.testnet, test-envs/.env.noble.testnet, test-envs/.env.pell]
+        port: [9100, 9101, 9102, 9103, 9104, 9105, 9106, 9107, 9108]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run the software
+        run: |
+          echo "Testing with ${{ matrix.env_file }} on port ${{ matrix.port }}"
+          PROMETHEUS_PORT=${{ matrix.port }} env $(cat ${{ matrix.env_file }} | xargs) ./target/release/rcosmos-exporter &
+          sleep 5
+
+      - name: Check metrics
+        run: |
+          curl -s http://localhost:${{ matrix.port }}/metrics || exit 1
+
+  post:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Report results
+        run: |
+          echo "All tests completed successfully!"
