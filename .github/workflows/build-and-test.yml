@@ -9,7 +9,7 @@ on:
       - main
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,33 +26,21 @@ jobs:
         run: |
           cargo build --release
 
-  test:
-    needs: build
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        env_file: [test-envs/.env.0glabs.testnet, test-envs/.env.allora.testnet, test-envs/.env.babylon.testnet, test-envs/.env.coredao.testnet, test-envs/.env.haqq.testnet, test-envs/.env.lombard.testnet, test-envs/.env.namada.testnet, test-envs/.env.noble.testnet, test-envs/.env.pell]
-        port: [9100, 9101, 9102, 9103, 9104, 9105, 9106, 9107, 9108]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Run the software
+      - name: Run tests sequentially
         run: |
-          echo "Testing with ${{ matrix.env_file }} on port ${{ matrix.port }}"
-          PROMETHEUS_PORT=${{ matrix.port }} env $(cat ${{ matrix.env_file }} | xargs) ./target/release/rcosmos-exporter &
-          sleep 5
+          ports=(9100 9101 9102 9103 9104 9105 9106 9107)
+          index=0
+          for env_file in test-envs/.env*.testnet; do
+            port=${ports[$index]}
+            echo "Testing with $env_file on port $port"
+            PROMETHEUS_PORT=$port env $(cat $env_file | xargs) ./target/release/rcosmos-exporter &
+            pid=$!  # Capture the process ID
+            sleep 5
+            curl -s http://localhost:$port/metrics || exit 1
+            kill $pid  # Stop the software
+            index=$((index + 1))
+          done
 
-      - name: Check metrics
-        run: |
-          curl -s http://localhost:${{ matrix.port }}/metrics || exit 1
-
-  post:
-    needs: test
-    runs-on: ubuntu-latest
-
-    steps:
       - name: Report results
         run: |
           echo "All tests completed successfully!"
