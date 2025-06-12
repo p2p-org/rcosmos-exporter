@@ -1,3 +1,4 @@
+pub mod address_scrapper;
 pub mod block_scrapper;
 pub mod chain_id;
 pub mod metrics;
