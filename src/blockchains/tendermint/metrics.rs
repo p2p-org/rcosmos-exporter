@@ -267,9 +267,12 @@ lazy_static! {
         &["name", "address", "chain_id", "network"]
     )
     .unwrap();
-    pub static ref ADDRESS_BALANCE: GaugeVec = GaugeVec::new(
-        Opts::new("address_balance", "Balance of monitored addresses"),
-        &["address"]
+    pub static ref TENDERMINT_ADDRESS_BALANCE: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_address_balance",
+            "Balance of monitored addresses"
+        ),
+        &["address", "denom", "chain_id", "network"]
     )
     .unwrap();
 }
@@ -392,6 +395,6 @@ pub fn register_custom_metrics() {
         ))
         .unwrap();
     REGISTRY
-        .register(Box::new(ADDRESS_BALANCE.clone()))
+        .register(Box::new(TENDERMINT_ADDRESS_BALANCE.clone()))
         .unwrap();
 }

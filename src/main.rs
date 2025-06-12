@@ -94,6 +94,10 @@ async fn main() {
             info!("BLOCKCHAIN: {}", blockchain);
             info!("NETWORK: {}", network);
             info!("VALIDATOR_ALERT_ADDRESES: {}", validator_alert_addresses);
+            info!(
+                "ADDRESS_MONITORS: {}",
+                env::var("ADDRESS_MONITORS").unwrap_or_default()
+            );
             info!("PROMETHEUS_IP: {}", prometheus_ip);
             info!("PROMETHEUS_PORT: {}", prometheus_port);
             info!("BLOCK_WINDOW: {}", block_window);
@@ -241,7 +245,11 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(Arc::clone(&client))),
+                Box::new(AddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
                 Duration::from_secs(30),
             );
 
@@ -299,7 +307,11 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(Arc::clone(&client))),
+                Box::new(AddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
                 Duration::from_secs(30),
             );
 
@@ -375,7 +387,11 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(Arc::clone(&client))),
+                Box::new(AddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
                 Duration::from_secs(30),
             );
 
@@ -492,7 +508,11 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(Arc::clone(&client))),
+                Box::new(AddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
                 Duration::from_secs(30),
             );
 
@@ -549,7 +569,11 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(Arc::clone(&client))),
+                Box::new(AddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
                 Duration::from_secs(30),
             );
 
