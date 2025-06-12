@@ -28,24 +28,20 @@ jobs:
 
       - name: Run tests sequentially
         run: |
-          ports=(9100 9101)
-          index=0
           for env_file in test-envs/.env.babylon.testnet test-envs/.env.coredao.testnet; do
-            port=${ports[$index]}
-            echo "Testing with $env_file on port $port"
-            PROMETHEUS_PORT=$port env $(cat $env_file | xargs) ./target/release/rcosmos-exporter &
+            echo "Testing with $env_file"
+            env $(cat $env_file | xargs) ./target/release/rcosmos-exporter &
             pid=$!
             sleep 5
-            response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/metrics)
+            response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9100/metrics)
             if [ "$response" -eq 200 ]; then
-              echo "Endpoint is available for $env_file on port $port"
+              echo "Endpoint is available for $env_file"
             else
-              echo "Endpoint is NOT available for $env_file on port $port"
+              echo "Endpoint is NOT available for $env_file"
               kill $pid
               exit 1
             fi
             kill $pid
-            index=$((index + 1))
           done
 
       - name: Report results
