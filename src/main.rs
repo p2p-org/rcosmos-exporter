@@ -9,8 +9,8 @@ use blockchains::{
     mezo::{block_scrapper::MezoBlockScrapper, validator_info_scrapper::MezoValidatorInfoScrapper},
     noble::validator_info_scrapper::NobleValidatorInfoScrapper,
     tendermint::{
-        block_scrapper::TendermintBlockScrapper, chain_id::TendermintChainIdFetcher,
-        node_status_scrapper::TendermintNodeStatusScrapper,
+        address_scrapper::TendermintAddressScrapper, block_scrapper::TendermintBlockScrapper,
+        chain_id::TendermintChainIdFetcher, node_status_scrapper::TendermintNodeStatusScrapper,
         proposal_scrapper::TendermintProposalScrapper,
         upgrade_plan_scrapper::TendermintUpgradePlanScrapper,
         validator_info_scrapper::TendermintValidatorInfoScrapper,
@@ -94,6 +94,10 @@ async fn main() {
             info!("BLOCKCHAIN: {}", blockchain);
             info!("NETWORK: {}", network);
             info!("VALIDATOR_ALERT_ADDRESES: {}", validator_alert_addresses);
+            info!(
+                "ADDRESS_MONITORS: {}",
+                env::var("ADDRESS_MONITORS").unwrap_or_default()
+            );
             info!("PROMETHEUS_IP: {}", prometheus_ip);
             info!("PROMETHEUS_PORT: {}", prometheus_port);
             info!("BLOCK_WINDOW: {}", block_window);
@@ -240,6 +244,15 @@ pub async fn network_exporter(
                 Duration::from_secs(300),
             );
 
+            let address_scrapper = ExporterTask::new(
+                Box::new(TendermintAddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(30),
+            );
+
             blockchains::tendermint::metrics::register_custom_metrics();
 
             BlockchainExporter::new()
@@ -247,6 +260,7 @@ pub async fn network_exporter(
                 .add_task(validator_info_scrapper)
                 .add_task(proposal_scrapper)
                 .add_task(upgrade_plan_scrapper)
+                .add_task(address_scrapper)
         }
         Blockchain::Mezo => {
             let client = BlockchainClientBuilder::new()
@@ -292,12 +306,22 @@ pub async fn network_exporter(
                 Duration::from_secs(300),
             );
 
+            let address_scrapper = ExporterTask::new(
+                Box::new(TendermintAddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(30),
+            );
+
             blockchains::tendermint::metrics::register_custom_metrics();
 
             BlockchainExporter::new()
                 .add_task(block_scrapper)
                 .add_task(validator_info_scrapper)
                 .add_task(upgrade_plan_scrapper)
+                .add_task(address_scrapper)
         }
         Blockchain::Babylon => {
             let client = BlockchainClientBuilder::new()
@@ -362,20 +386,14 @@ pub async fn network_exporter(
                 Duration::from_secs(300),
             );
 
-            // let secret_id = env::var("BABYLON_CUBIST_SESSION_SECRET_ID").expect("You must pass BABYLON_CUBIST_SESSION_SECRET_ID env var");
-
-            // let cubist_client = CubistClient::new(secret_id)
-            //     .await
-            //     .expect("Could not initialize Cubist client");
-
-            // let cubist_metrics_exporter = ExporterTask::graceful(
-            //     Box::new(BabylonCubistMetricScrapper::new(
-            //         cubist_client,
-            //         chain_id.clone(),
-            //     )),
-            //     Duration::from_secs(300),
-            //     sender.clone(),
-            // );
+            let address_scrapper = ExporterTask::new(
+                Box::new(TendermintAddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(30),
+            );
 
             blockchains::tendermint::metrics::register_custom_metrics();
             blockchains::babylon::metrics::register_custom_metrics();
@@ -386,7 +404,7 @@ pub async fn network_exporter(
                 .add_task(upgrade_plan_scrapper)
                 .add_task(bls_scrapper)
                 .add_task(proposal_scrapper)
-            // .add_task(cubist_metrics_exporter)
+                .add_task(address_scrapper)
         }
         Blockchain::CoreDao => {
             let client = BlockchainClientBuilder::new().with_rpc(rpc).build().await;
@@ -489,12 +507,22 @@ pub async fn network_exporter(
                 Duration::from_secs(1800),
             );
 
+            let address_scrapper = ExporterTask::new(
+                Box::new(TendermintAddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(30),
+            );
+
             BlockchainExporter::new()
                 .add_task(block_scrapper)
                 .add_task(validator_info_scrapper)
                 .add_task(proposal_scrapper)
                 .add_task(upgrade_plan_scrapper)
                 .add_task(ledger_scrapper)
+                .add_task(address_scrapper)
         }
         Blockchain::Noble => {
             let client = BlockchainClientBuilder::new()
@@ -540,12 +568,22 @@ pub async fn network_exporter(
                 Duration::from_secs(300),
             );
 
+            let address_scrapper = ExporterTask::new(
+                Box::new(TendermintAddressScrapper::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(30),
+            );
+
             blockchains::tendermint::metrics::register_custom_metrics();
 
             BlockchainExporter::new()
                 .add_task(block_scrapper)
                 .add_task(validator_info_scrapper)
                 .add_task(upgrade_plan_scrapper)
+                .add_task(address_scrapper)
         }
     }
 }
@@ -588,18 +626,18 @@ fn split_urls(urls: String) -> Vec<(String, String)> {
 fn ascii_art() -> &'static str {
     r#"
 
-██████╗  ██████╗ ██████╗ ███████╗███╗   ███╗ ██████╗ ███████╗    
-██╔══██╗██╔════╝██╔═══██╗██╔════╝████╗ ████║██╔═══██╗██╔════╝    
-██████╔╝██║     ██║   ██║███████╗██╔████╔██║██║   ██║███████╗    
-██╔══██╗██║     ██║   ██║╚════██║██║╚██╔╝██║██║   ██║╚════██║    
-██║  ██║╚██████╗╚██████╔╝███████║██║ ╚═╝ ██║╚██████╔╝███████║    
-╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝     ╚═╝ ╚═════╝ ╚══════╝    
+██████╗  ██████╗ ██████╗ ███████╗███╗   ███╗ ██████╗ ███████╗
+██╔══██╗██╔════╝██╔═══██╗██╔════╝████╗ ████║██╔═══██╗██╔════╝
+██████╔╝██║     ██║   ██║███████╗██╔████╔██║██║   ██║███████╗
+██╔══██╗██║     ██║   ██║╚════██║██║╚██╔╝██║██║   ██║╚════██║
+██║  ██║╚██████╗╚██████╔╝███████║██║ ╚═╝ ██║╚██████╔╝███████║
+╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝     ╚═╝ ╚═════╝ ╚══════╝
 
-███████╗██╗  ██╗██████╗  ██████╗ ██████╗ ████████╗███████╗██████╗ 
+███████╗██╗  ██╗██████╗  ██████╗ ██████╗ ████████╗███████╗██████╗
 ██╔════╝╚██╗██╔╝██╔══██╗██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝██╔══██╗
 █████╗   ╚███╔╝ ██████╔╝██║   ██║██████╔╝   ██║   █████╗  ██████╔╝
 ██╔══╝   ██╔██╗ ██╔═══╝ ██║   ██║██╔══██╗   ██║   ██╔══╝  ██╔══██╗
 ███████╗██╔╝ ██╗██║     ╚██████╔╝██║  ██║   ██║   ███████╗██║  ██║
-╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝                                                                                                                             
+╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
     "#
 }
