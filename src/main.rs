@@ -9,7 +9,7 @@ use blockchains::{
     mezo::{block_scrapper::MezoBlockScrapper, validator_info_scrapper::MezoValidatorInfoScrapper},
     noble::validator_info_scrapper::NobleValidatorInfoScrapper,
     tendermint::{
-        address_scrapper::AddressScrapper, block_scrapper::TendermintBlockScrapper,
+        address_scrapper::TendermintAddressScrapper, block_scrapper::TendermintBlockScrapper,
         chain_id::TendermintChainIdFetcher, node_status_scrapper::TendermintNodeStatusScrapper,
         proposal_scrapper::TendermintProposalScrapper,
         upgrade_plan_scrapper::TendermintUpgradePlanScrapper,
@@ -245,7 +245,7 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(
+                Box::new(TendermintAddressScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),
@@ -307,7 +307,7 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(
+                Box::new(TendermintAddressScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),
@@ -387,7 +387,7 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(
+                Box::new(TendermintAddressScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),
@@ -508,7 +508,7 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(
+                Box::new(TendermintAddressScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),
@@ -569,7 +569,7 @@ pub async fn network_exporter(
             );
 
             let address_scrapper = ExporterTask::new(
-                Box::new(AddressScrapper::new(
+                Box::new(TendermintAddressScrapper::new(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),

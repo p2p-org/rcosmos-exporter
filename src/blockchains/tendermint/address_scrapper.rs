@@ -10,14 +10,14 @@ use std::env;
 use std::sync::Arc;
 use tracing::{info, warn};
 
-pub struct AddressScrapper {
+pub struct TendermintAddressScrapper {
     client: Arc<BlockchainClient>,
     addresses: Vec<String>,
     chain_id: ChainId,
     network: String,
 }
 
-impl AddressScrapper {
+impl TendermintAddressScrapper {
     pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: String) -> Self {
         // Parse addresses during initialization
         let addresses = env::var("ADDRESS_MONITORS")
@@ -81,7 +81,7 @@ impl AddressScrapper {
 }
 
 #[async_trait]
-impl Task for AddressScrapper {
+impl Task for TendermintAddressScrapper {
     async fn run(&mut self) -> Result<()> {
         if self.addresses.is_empty() {
             warn!("No addresses configured for monitoring in ADDRESS_MONITORS environment variable, skipping");
