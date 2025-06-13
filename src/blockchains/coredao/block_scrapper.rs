@@ -9,8 +9,14 @@ use crate::{
     blockchains::coredao::metrics::{
         COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY,
         COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK, COREDAO_VALIDATOR_SIGNED_BLOCKS,
+        COREDAO_VALIDATOR_UPTIME,
     },
-    core::{clients::blockchain_client::BlockchainClient, clients::path::Path, exporter::Task},
+    core::{
+        block_window::BlockWindow,
+        clients::blockchain_client::BlockchainClient, 
+        clients::path::Path, 
+        exporter::Task
+    },
 };
 
 pub struct CoreDaoBlockScrapper {
@@ -18,8 +24,10 @@ pub struct CoreDaoBlockScrapper {
     last_processed_block: u64,
     // Store recent blocks and their signers
     recent_blocks: VecDeque<(u64, String)>,
-    // Maximum blocks to track
+    // Maximum blocks to track for participation calculation
     max_blocks: usize,
+    // Block window for historical uptime tracking
+    block_window: BlockWindow,
     // Validator addresses to monitor and alert on
     validator_alert_addresses: Vec<String>,
     network: String,
@@ -31,11 +39,13 @@ impl CoreDaoBlockScrapper {
         client: Arc<BlockchainClient>,
         validator_alert_addresses: Vec<String>,
         network: String,
+        block_window: usize,
     ) -> Self {
         CoreDaoBlockScrapper {
             client,
             recent_blocks: VecDeque::with_capacity(100),
             max_blocks: 100,
+            block_window: BlockWindow::new(block_window),
             // Normalize validator alert addresses to lowercase during initialization
             validator_alert_addresses: validator_alert_addresses
                 .into_iter()
@@ -132,6 +142,9 @@ impl CoreDaoBlockScrapper {
                 self.recent_blocks
                     .push_back((block_number, consensus_address.clone()));
 
+                // Add to block window for historical uptime tracking
+                self.block_window.add_block_signers(vec![consensus_address.clone()]);
+
                 // Increment the counter if this block was signed by one of our alert validators
                 for target in &self.validator_alert_addresses {
                     if &consensus_address == target {
@@ -155,6 +168,7 @@ impl CoreDaoBlockScrapper {
             }
 
             self.calculate_validator_participation();
+            self.calculate_historical_uptime();
 
             self.last_processed_block = latest_block;
         } else {
@@ -253,6 +267,112 @@ impl CoreDaoBlockScrapper {
                 .with_label_values(&[validator, &self.network.to_string(), &fires_alerts])
                 .set(block_number_value as f64);
             info!("(Core DAO Block Scrapper) Setting recent activity metric for {} to {} (signed in latest rotation: {}, block: {})", validator, activity_value, has_signed, block_number_value);
+        }
+    }
+
+    fn calculate_historical_uptime(&self) {
+        info!("(Core DAO Block Scrapper) Calculating historical uptime over block window");
+        
+        // For CoreDAO round-robin, we need to calculate uptime differently
+        // We need to determine the rotation order and count opportunities vs actual signs
+        
+        let window_size = self.block_window.window;
+        let blocks = self.block_window.blocks();
+        
+        if blocks.is_empty() {
+            info!("(Core DAO Block Scrapper) No blocks in window for uptime calculation");
+            return;
+        }
+
+        // Get the rotation order from recent blocks in the window
+        let mut rotation_validators = Vec::new();
+        let mut seen_validators = std::collections::HashSet::new();
+        
+        // Build rotation order by looking at the sequence of block signers
+        for block_signers in blocks {
+            for signer in block_signers {
+                if !seen_validators.contains(signer) {
+                    rotation_validators.push(signer.clone());
+                    seen_validators.insert(signer.clone());
+                }
+            }
+        }
+        
+        if rotation_validators.is_empty() {
+            info!("(Core DAO Block Scrapper) No validators found in block window");
+            return;
+        }
+        
+        let rotation_size = rotation_validators.len();
+        info!("(Core DAO Block Scrapper) Detected rotation with {} validators", rotation_size);
+        
+        // Calculate uptime for each validator in the rotation
+        let mut validator_uptimes = std::collections::HashMap::new();
+        
+        for (block_index, block_signers) in blocks.iter().enumerate() {
+            // Determine which validator should have signed this block based on round-robin
+            let expected_validator_index = block_index % rotation_size;
+            if expected_validator_index < rotation_validators.len() {
+                let expected_validator = &rotation_validators[expected_validator_index];
+                
+                // Check if the expected validator actually signed the block
+                let did_sign = block_signers.contains(expected_validator);
+                
+                let stats = validator_uptimes.entry(expected_validator.clone()).or_insert((0, 0));
+                stats.1 += 1; // total opportunities
+                if did_sign {
+                    stats.0 += 1; // successful signs
+                }
+            }
+        }
+        
+        // Calculate and set uptime percentages
+        for (validator_address, (signed_count, total_opportunities)) in &validator_uptimes {
+            let uptime_percentage = if *total_opportunities > 0 {
+                (*signed_count as f64 / *total_opportunities as f64) * 100.0
+            } else {
+                0.0
+            };
+            
+            let fires_alerts = self
+                .validator_alert_addresses
+                .contains(&validator_address)
+                .to_string();
+
+            COREDAO_VALIDATOR_UPTIME
+                .with_label_values(&[
+                    &validator_address,
+                    &window_size.to_string(),
+                    &self.network,
+                    &fires_alerts,
+                ])
+                .set(uptime_percentage);
+
+            if self.validator_alert_addresses.contains(&validator_address) {
+                info!(
+                    "(Core DAO Block Scrapper) Validator {} historical uptime: {:.2}% ({}/{} opportunities) over {} blocks",
+                    validator_address, uptime_percentage, signed_count, total_opportunities, window_size
+                );
+            }
+        }
+
+        // Set 0% uptime for alert validators that aren't in the current rotation
+        for validator_address in &self.validator_alert_addresses {
+            if !validator_uptimes.contains_key(validator_address) {
+                COREDAO_VALIDATOR_UPTIME
+                    .with_label_values(&[
+                        validator_address,
+                        &window_size.to_string(),
+                        &self.network,
+                        "true",
+                    ])
+                    .set(0.0);
+
+                info!(
+                    "(Core DAO Block Scrapper) Alert validator {} not in current rotation - 0% uptime over {} blocks",
+                    validator_address, window_size
+                );
+            }
         }
     }
 }

@@ -36,4 +36,9 @@ impl BlockWindow {
             .map(|(key, value)| (key.clone(), (value / (self.window as f64)) * 100.0))
             .collect()
     }
+
+    // Get access to the blocks for custom uptime calculations
+    pub fn blocks(&self) -> &VecDeque<Vec<String>> {
+        &self.blocks
+    }
 }

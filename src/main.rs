@@ -419,6 +419,7 @@ pub async fn network_exporter(
                     Arc::clone(&client),
                     validator_alert_addresses.clone(),
                     network.clone(),
+                    block_window,
                 )),
                 Duration::from_secs(15),
             );
