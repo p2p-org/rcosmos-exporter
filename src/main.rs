@@ -562,22 +562,11 @@ pub async fn network_exporter(
                 Duration::from_secs(300),
             );
 
-            // Namada does not have upgrade plan endpoint
-            // let upgrade_plan_scrapper = ExporterTask::new(
-            //     Box::new(TendermintUpgradePlanScrapper::new(
-            //         Arc::clone(&client),
-            //         chain_id.clone(),
-            //         network.clone(),
-            //     )),
-            //     Duration::from_secs(300),
-            // );
-
-            blockchains::tendermint::metrics::register_custom_metrics();
+            blockchains::namada::metrics::register_custom_metrics();
 
             BlockchainExporter::new()
                 .add_task(block_scrapper)
                 .add_task(validator_info_scrapper)
-            //.add_task(upgrade_plan_scrapper)
         }
         Blockchain::Noble => {
             let client = BlockchainClientBuilder::new()

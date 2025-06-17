@@ -53,3 +53,30 @@ lazy_static! {
     )
     .unwrap();
 }
+
+pub fn register_custom_metrics() {
+    REGISTRY
+        .register(Box::new(NAMADA_CURRENT_EPOCH.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(NAMADA_VALIDATOR_MISSING_VOTE.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(NAMADA_BLOCK_GAS_USED.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(NAMADA_BLOCK_GAS_WANTED.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(NAMADA_CURRENT_BLOCK_HEIGHT.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(NAMADA_CURRENT_BLOCK_TIME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(NAMADA_VALIDATOR_MISSED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(NAMADA_VALIDATOR_UPTIME.clone()))
+        .unwrap();
+}
