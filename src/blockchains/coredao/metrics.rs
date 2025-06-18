@@ -54,6 +54,12 @@ lazy_static! {
         &["validator_address", "network", "alerts"]
     )
     .unwrap();
+    pub static ref COREDAO_VALIDATOR_UPTIME: GaugeVec = register_gauge_vec!(
+        "coredao_validator_uptime",
+        "Historical uptime percentage over configurable block window",
+        &["validator_address", "window", "network", "alerts"]
+    )
+    .unwrap();
 }
 
 pub fn register_custom_metrics() {
@@ -88,4 +94,7 @@ pub fn register_custom_metrics() {
     REGISTRY
         .register(Box::new(COREDAO_VALIDATOR_SIGNED_BLOCKS.clone()))
         .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_SIGNED_BLOCKS: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_VALIDATOR_UPTIME.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_UPTIME: {}", e));
 }
