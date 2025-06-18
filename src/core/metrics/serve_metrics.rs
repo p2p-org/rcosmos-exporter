@@ -3,6 +3,7 @@ use std::{net::SocketAddr, sync::Arc};
 use crate::{
     blockchains::babylon::metrics::REGISTRY as babylon_registry,
     blockchains::coredao::metrics::REGISTRY as coredao_registry,
+    blockchains::namada::metrics::REGISTRY as namada_registry,
     blockchains::tendermint::metrics::REGISTRY as tendermint_registry,
     core::blockchain::Blockchain,
 };
@@ -41,6 +42,7 @@ pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, block
                         Blockchain::Tendermint => tendermint_registry.gather(),
                         Blockchain::Mezo => tendermint_registry.gather(),
                         Blockchain::CoreDao => coredao_registry.gather(),
+                        Blockchain::Namada => namada_registry.gather(),
                         Blockchain::Babylon => {
                             let mut families = Vec::new();
                             families.extend(babylon_registry.gather());

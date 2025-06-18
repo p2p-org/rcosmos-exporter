@@ -8,6 +8,7 @@ pub enum Blockchain {
     Babylon,
     CoreDao,
     Lombard,
+    Namada,
     Noble,
 }
 
@@ -19,6 +20,7 @@ impl Blockchain {
             "babylon" => Some(Blockchain::Babylon),
             "coredao" => Some(Blockchain::CoreDao),
             "lombard" => Some(Blockchain::Lombard),
+            "namada" => Some(Blockchain::Namada),
             "noble" => Some(Blockchain::Noble),
             _ => None,
         }
@@ -33,6 +35,7 @@ impl Display for Blockchain {
             Blockchain::CoreDao => "CoreDao",
             Blockchain::Babylon => "Babylon",
             Blockchain::Lombard => "Lombard",
+            Blockchain::Namada => "Namada",
             Blockchain::Noble => "Noble",
         };
         write!(f, "{}", s)
