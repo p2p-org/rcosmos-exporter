@@ -6,7 +6,10 @@ on:
       - opened
       - edited
       - reopened
-
+  pull_request:
+    branches:
+      - main
+      
 jobs:
   validate-pr-title:
     name: Validate PR title
