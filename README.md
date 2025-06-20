@@ -194,4 +194,4 @@ A public Helm chart is available for deploying `rcosmos-exporter` to Kubernetes,
 
 You can find it here: [p2p-org/cosmos-helm-charts: cosmos-exporter](https://github.com/p2p-org/cosmos-helm-charts/tree/main/charts/cosmos-exporter)
 
-This chart provides a production-ready, configurable deployment for Cosmos-based netowrk monitoring in Kubernetes environments.
+This chart provides a production-ready, configurable deployment for Cosmos-based network monitoring in Kubernetes environments.
