@@ -2,6 +2,7 @@ use std::fmt::Display;
 ///
 /// Different blockchains supported
 ///
+#[derive(PartialEq)]
 pub enum Blockchain {
     Tendermint,
     Mezo,
