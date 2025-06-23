@@ -32,6 +32,7 @@ pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, block
     let make_svc = make_service_fn(|_| {
         let blockchain_type = blockchain_arc.clone();
         async move {
+            let blockchain_type = blockchain_type.clone();
             Ok::<_, hyper::Error>(service_fn(move |_| {
                 let blockchain_type = blockchain_type.clone();
                 async move {

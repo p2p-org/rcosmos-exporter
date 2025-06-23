@@ -36,6 +36,7 @@ use tokio::{signal, sync::mpsc::unbounded_channel};
 use tracing::{error, info};
 mod blockchains;
 mod core;
+use crate::blockchains::cometbft::validator_info_scrapper::CometBftValidatorInfoScrapper;
 
 #[tokio::main]
 async fn main() {
@@ -90,7 +91,7 @@ async fn main() {
     let exporter: BlockchainExporter = match mode {
         Mode::Network => {
             let rpc_endpoints = env::var("RPC_ENDPOINTS").expect("You must pass RPC_ENDPOINTS");
-            let rest_endpoints = env::var("REST_ENDPOINTS").expect("You must pass REST_ENDPOINTS");
+            let rest_endpoints = env::var("REST_ENDPOINTS").unwrap_or_default();
 
             info!("--------------------------------------------------------------------");
             info!("MODE: {}", mode);
@@ -105,7 +106,9 @@ async fn main() {
             info!("PROMETHEUS_PORT: {}", prometheus_port);
             info!("BLOCK_WINDOW: {}", block_window);
             info!("RPC_ENDPOINTS: {}", rpc_endpoints);
-            info!("REST_ENDPOINTS: {}", rest_endpoints);
+            if !rest_endpoints.is_empty() {
+                info!("REST_ENDPOINTS: {}", rest_endpoints);
+            }
             info!("--------------------------------------------------------------------");
 
             network_exporter(
@@ -190,7 +193,12 @@ pub async fn network_exporter(
     validator_alert_addresses: String,
 ) -> BlockchainExporter {
     let rpc = HttpClient::new(split_urls(rpc_endpoints), None, network.clone());
-    let rest = HttpClient::new(split_urls(rest_endpoints), None, network.clone());
+    let has_rest = !rest_endpoints.is_empty();
+    let rest = if has_rest {
+        HttpClient::new(split_urls(rest_endpoints), None, network.clone())
+    } else {
+        None
+    };
     let validator_alert_addresses = split_validator_addresses(validator_alert_addresses);
 
     match blockchain {
@@ -219,51 +227,69 @@ pub async fn network_exporter(
                 Duration::from_secs(30),
             );
 
-            let validator_info_scrapper = ExporterTask::new(
-                Box::new(TendermintValidatorInfoScrapper::new(
-                    Arc::clone(&client),
-                    chain_id.clone(),
-                    network.clone(),
-                    validator_alert_addresses.clone(),
-                )),
-                Duration::from_secs(300),
-            );
-
-            let proposal_scrapper = ExporterTask::new(
-                Box::new(TendermintProposalScrapper::new(
-                    Arc::clone(&client),
-                    chain_id.clone(),
-                    network.clone(),
-                )),
-                Duration::from_secs(300),
-            );
-
-            let upgrade_plan_scrapper = ExporterTask::new(
-                Box::new(TendermintUpgradePlanScrapper::new(
-                    Arc::clone(&client),
-                    chain_id.clone(),
-                    network.clone(),
-                )),
-                Duration::from_secs(300),
-            );
-
-            let address_scrapper = ExporterTask::new(
-                Box::new(TendermintAddressScrapper::new(
-                    Arc::clone(&client),
-                    chain_id.clone(),
-                    network.clone(),
-                )),
-                Duration::from_secs(30),
-            );
+            let validator_info_scrapper = if !has_rest {
+                ExporterTask::new(
+                    Box::new(CometBftValidatorInfoScrapper::new(
+                        Arc::clone(&client),
+                        chain_id.clone(),
+                        network.clone(),
+                        validator_alert_addresses.clone(),
+                    )),
+                    Duration::from_secs(300),
+                )
+            } else {
+                ExporterTask::new(
+                    Box::new(TendermintValidatorInfoScrapper::new(
+                        Arc::clone(&client),
+                        chain_id.clone(),
+                        network.clone(),
+                        validator_alert_addresses.clone(),
+                    )),
+                    Duration::from_secs(300),
+                )
+            };
 
             blockchains::tendermint::metrics::register_custom_metrics();
 
-            BlockchainExporter::new()
+            let mut exporter = BlockchainExporter::new()
                 .add_task(block_scrapper)
-                .add_task(validator_info_scrapper)
-                .add_task(proposal_scrapper)
-                .add_task(upgrade_plan_scrapper)
-                .add_task(address_scrapper)
+                .add_task(validator_info_scrapper);
+
+            if has_rest {
+                let proposal_scrapper = ExporterTask::new(
+                    Box::new(TendermintProposalScrapper::new(
+                        Arc::clone(&client),
+                        chain_id.clone(),
+                        network.clone(),
+                    )),
+                    Duration::from_secs(300),
+                );
+
+                let upgrade_plan_scrapper = ExporterTask::new(
+                    Box::new(TendermintUpgradePlanScrapper::new(
+                        Arc::clone(&client),
+                        chain_id.clone(),
+                        network.clone(),
+                    )),
+                    Duration::from_secs(300),
+                );
+
+                let address_scrapper = ExporterTask::new(
+                    Box::new(TendermintAddressScrapper::new(
+                        Arc::clone(&client),
+                        chain_id.clone(),
+                        network.clone(),
+                    )),
+                    Duration::from_secs(30),
+                );
+
+                exporter = exporter
+                    .add_task(proposal_scrapper)
+                    .add_task(upgrade_plan_scrapper)
+                    .add_task(address_scrapper);
+            }
+
+            exporter
         }
         Blockchain::Mezo => {
             let client = BlockchainClientBuilder::new()

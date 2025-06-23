@@ -1,4 +1,5 @@
 use super::http_client::HttpClient;
+use tracing::warn;
 
 ///
 /// Ensures that BlockchainClients start with health checks
@@ -35,7 +36,11 @@ impl BlockchainClientBuilder {
                 rest.start_health_checks();
                 self.rest = Some(rest)
             }
-            None => panic!("REST is not initialized"),
+            None => {
+                // REST is optional, so we don't panic when it's None
+                warn!("REST endpoints not provided: REST API functionality will be disabled");
+                self.rest = None
+            }
         }
         self
     }
