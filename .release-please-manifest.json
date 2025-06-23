@@ -2,5 +2,6 @@
     "rcosmos-exporter": {
         "release-type": "rust",
         "component": "rcosmos-exporter"
-    }
+    },
+    ".": "1.2.0"
 }
