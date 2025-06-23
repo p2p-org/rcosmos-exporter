@@ -1,14 +1,16 @@
 name: "Lint PR"
 
 on:
+  pull_request:
+    branches:
+      - main
   pull_request_target:
+    branches:
+      - main
     types:
       - opened
       - edited
       - reopened
-  pull_request:
-    branches:
-      - main
       
 jobs:
   validate-pr-title:
