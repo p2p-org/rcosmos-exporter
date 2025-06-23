@@ -1,6 +1,0 @@
-{
-    "rcosmos-exporter": {
-        "release-type": "rust",
-        "component": "rcosmos-exporter"
-    }
-}
