@@ -79,13 +79,11 @@ impl TendermintNodeStatusScrapper {
         Ok(node_info)
     }
 
-    async fn process_status(&self) -> anyhow::Result<()> {
-        info!("(Tendermint Node Status) Obtaining node status");
-
-        let status = self
-            .get_status()
-            .await
-            .context("Could not obtain node status")?;
+    async fn process_status_metrics(
+        &self,
+        status: &TendermintStatusResponse,
+    ) -> anyhow::Result<()> {
+        info!("(Tendermint Node Status) Processing status metrics");
 
         let chain_id = &status.result.node_info.network;
 
@@ -148,15 +146,10 @@ impl TendermintNodeStatusScrapper {
         Ok(())
     }
 
-    async fn process_node_info(&mut self) -> anyhow::Result<()> {
-        info!("(Tendermint Node Status) Obtaining node info");
+    async fn process_node_info(&mut self, status: &TendermintStatusResponse) -> anyhow::Result<()> {
+        info!("(Tendermint Node Status) Processing node info from status");
 
-        let node_info = self
-            .get_node_info()
-            .await
-            .context("Could not obtain node info")?;
-
-        let chain_id = &node_info.default_node_info.network;
+        let chain_id = &status.result.node_info.network;
 
         // Helper macro to DRY the code
         macro_rules! update_metric {
@@ -184,32 +177,45 @@ impl TendermintNodeStatusScrapper {
             }};
         }
 
-        // Now apply it to each metric
-        update_metric!(
-            app_name,
-            node_info.application_version.app_name,
-            TENDERMINT_NODE_APP_NAME
-        );
-        update_metric!(
-            app_version,
-            node_info.application_version.version,
-            TENDERMINT_NODE_APP_VERSION
-        );
-        update_metric!(
-            app_commit,
-            node_info.application_version.git_commit,
-            TENDERMINT_NODE_APP_COMMIT
-        );
-        update_metric!(
-            cosmos_sdk_version,
-            node_info.application_version.cosmos_sdk_version,
-            TENDERMINT_NODE_COSMOS_SDK_VERSION
-        );
-        update_metric!(
-            node_moniker,
-            node_info.default_node_info.moniker,
-            TENDERMINT_NODE_MONIKER
-        );
+        // For chains that don't support the REST node_info endpoint
+        match self.get_node_info().await {
+            Ok(node_info) => {
+                update_metric!(
+                    app_name,
+                    node_info.application_version.app_name,
+                    TENDERMINT_NODE_APP_NAME
+                );
+                update_metric!(
+                    app_version,
+                    node_info.application_version.version,
+                    TENDERMINT_NODE_APP_VERSION
+                );
+                update_metric!(
+                    app_commit,
+                    node_info.application_version.git_commit,
+                    TENDERMINT_NODE_APP_COMMIT
+                );
+                update_metric!(
+                    cosmos_sdk_version,
+                    node_info.application_version.cosmos_sdk_version,
+                    TENDERMINT_NODE_COSMOS_SDK_VERSION
+                );
+                update_metric!(
+                    node_moniker,
+                    node_info.default_node_info.moniker,
+                    TENDERMINT_NODE_MONIKER
+                );
+            }
+            Err(_) => {
+                info!("(Tendermint Node Status) REST node_info not available, using RPC status");
+
+                let version = &status.result.node_info.version;
+                update_metric!(app_version, version.clone(), TENDERMINT_NODE_APP_VERSION);
+
+                let app_name = format!("{}-chain", chain_id);
+                update_metric!(app_name, app_name, TENDERMINT_NODE_APP_NAME);
+            }
+        }
 
         Ok(())
     }
@@ -218,10 +224,15 @@ impl TendermintNodeStatusScrapper {
 #[async_trait]
 impl Task for TendermintNodeStatusScrapper {
     async fn run(&mut self) -> anyhow::Result<()> {
-        self.process_status()
+        let status = self
+            .get_status()
+            .await
+            .context("Could not obtain node status")?;
+
+        self.process_status_metrics(&status)
             .await
             .context("Failed to process node status")?;
-        self.process_node_info()
+        self.process_node_info(&status)
             .await
             .context("Failed to process node info")
     }

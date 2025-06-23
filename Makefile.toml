@@ -17,6 +17,10 @@ command = "cargo"
 args = ["test"]
 dependencies = ["clean"]
 
+[tasks.run-node]
+command = "cargo"
+args = ["run", "--", "--env", "test-envs/.env.${@}.node"]
+
 [tasks.run-mainnet]
 command = "cargo"
 args = ["run", "--", "--env", "test-envs/.env.${@}.mainnet"]
