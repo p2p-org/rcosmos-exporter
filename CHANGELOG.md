@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/p2p-org/rcosmos-exporter/compare/v1.2.2...v1.3.0) (2025-06-23)
+
+
+### Features
+
+* **namada:** update makefile configurations and refactor scrappers code ([#60](https://github.com/p2p-org/rcosmos-exporter/issues/60)) ([d77b8ad](https://github.com/p2p-org/rcosmos-exporter/commit/d77b8add14fb938ef8e37addf6f1dc3a0717aaaa))
+
 ## [1.2.2](https://github.com/p2p-org/rcosmos-exporter/compare/v1.2.1...v1.2.2) (2025-06-23)
 
 
