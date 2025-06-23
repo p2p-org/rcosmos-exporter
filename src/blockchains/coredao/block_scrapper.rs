@@ -12,10 +12,8 @@ use crate::{
         COREDAO_VALIDATOR_UPTIME,
     },
     core::{
-        block_window::BlockWindow,
-        clients::blockchain_client::BlockchainClient, 
-        clients::path::Path, 
-        exporter::Task
+        block_window::BlockWindow, clients::blockchain_client::BlockchainClient,
+        clients::path::Path, exporter::Task,
     },
 };
 
@@ -143,7 +141,8 @@ impl CoreDaoBlockScrapper {
                     .push_back((block_number, consensus_address.clone()));
 
                 // Add to block window for historical uptime tracking
-                self.block_window.add_block_signers(vec![consensus_address.clone()]);
+                self.block_window
+                    .add_block_signers(vec![consensus_address.clone()]);
 
                 // Increment the counter if this block was signed by one of our alert validators
                 for target in &self.validator_alert_addresses {
@@ -272,13 +271,13 @@ impl CoreDaoBlockScrapper {
 
     fn calculate_historical_uptime(&self) {
         info!("(Core DAO Block Scrapper) Calculating historical uptime over block window");
-        
+
         // For CoreDAO round-robin, we need to calculate uptime differently
         // We need to determine the rotation order and count opportunities vs actual signs
-        
+
         let window_size = self.block_window.window;
         let blocks = self.block_window.blocks();
-        
+
         if blocks.is_empty() {
             info!("(Core DAO Block Scrapper) No blocks in window for uptime calculation");
             return;
@@ -287,7 +286,7 @@ impl CoreDaoBlockScrapper {
         // Get the rotation order from recent blocks in the window
         let mut rotation_validators = Vec::new();
         let mut seen_validators = std::collections::HashSet::new();
-        
+
         // Build rotation order by looking at the sequence of block signers
         for block_signers in blocks {
             for signer in block_signers {
@@ -297,35 +296,40 @@ impl CoreDaoBlockScrapper {
                 }
             }
         }
-        
+
         if rotation_validators.is_empty() {
             info!("(Core DAO Block Scrapper) No validators found in block window");
             return;
         }
-        
+
         let rotation_size = rotation_validators.len();
-        info!("(Core DAO Block Scrapper) Detected rotation with {} validators", rotation_size);
-        
+        info!(
+            "(Core DAO Block Scrapper) Detected rotation with {} validators",
+            rotation_size
+        );
+
         // Calculate uptime for each validator in the rotation
         let mut validator_uptimes = std::collections::HashMap::new();
-        
+
         for (block_index, block_signers) in blocks.iter().enumerate() {
             // Determine which validator should have signed this block based on round-robin
             let expected_validator_index = block_index % rotation_size;
             if expected_validator_index < rotation_validators.len() {
                 let expected_validator = &rotation_validators[expected_validator_index];
-                
+
                 // Check if the expected validator actually signed the block
                 let did_sign = block_signers.contains(expected_validator);
-                
-                let stats = validator_uptimes.entry(expected_validator.clone()).or_insert((0, 0));
+
+                let stats = validator_uptimes
+                    .entry(expected_validator.clone())
+                    .or_insert((0, 0));
                 stats.1 += 1; // total opportunities
                 if did_sign {
                     stats.0 += 1; // successful signs
                 }
             }
         }
-        
+
         // Calculate and set uptime percentages
         for (validator_address, (signed_count, total_opportunities)) in &validator_uptimes {
             let uptime_percentage = if *total_opportunities > 0 {
@@ -333,7 +337,7 @@ impl CoreDaoBlockScrapper {
             } else {
                 0.0
             };
-            
+
             let fires_alerts = self
                 .validator_alert_addresses
                 .contains(&validator_address)
