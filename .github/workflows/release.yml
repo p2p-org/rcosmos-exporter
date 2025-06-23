@@ -65,13 +65,8 @@ jobs:
         prerelease: false
 
     - name: Upload Release Asset
-      id: upload-release-asset
-      uses: actions/upload-release-asset@v1
+      run: |
+        gh release upload "${GITHUB_REF#refs/tags/}" ${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz --clobber
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz
-        asset_name: ${{ env.BINARY_NAME }}-${{ env.VERSION }}.tar.gz
-        asset_content_type: application/gzip
   
