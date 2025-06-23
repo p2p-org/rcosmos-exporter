@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/p2p-org/rcosmos-exporter/compare/v1.2.0...v1.2.1) (2025-06-23)
+
+
+### Bug Fixes
+
+* release pipeline not the create the release ([#55](https://github.com/p2p-org/rcosmos-exporter/issues/55)) ([d531f62](https://github.com/p2p-org/rcosmos-exporter/commit/d531f6238d40bbc30b919956460973886c37cadb))
+
 ## [1.2.0](https://github.com/p2p-org/rcosmos-exporter/compare/v1.1.9...v1.2.0) (2025-06-23)
 
 
