@@ -36,7 +36,7 @@ use tokio::{signal, sync::mpsc::unbounded_channel};
 use tracing::{error, info};
 mod blockchains;
 mod core;
-use crate::blockchains::non_api::validator_info_scrapper::NonApiValidatorInfoScrapper;
+use crate::blockchains::cometbft::validator_info_scrapper::CometBftValidatorInfoScrapper;
 
 #[tokio::main]
 async fn main() {
@@ -229,7 +229,7 @@ pub async fn network_exporter(
 
             let validator_info_scrapper = if !has_rest {
                 ExporterTask::new(
-                    Box::new(NonApiValidatorInfoScrapper::new(
+                    Box::new(CometBftValidatorInfoScrapper::new(
                         Arc::clone(&client),
                         chain_id.clone(),
                         network.clone(),

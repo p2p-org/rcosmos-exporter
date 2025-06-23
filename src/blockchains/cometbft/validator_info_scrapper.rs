@@ -20,14 +20,14 @@ use crate::{
     },
 };
 
-pub struct NonApiValidatorInfoScrapper {
+pub struct CometBftValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
     chain_id: ChainId,
     network: String,
     validator_alert_addresses: Vec<String>,
 }
 
-impl NonApiValidatorInfoScrapper {
+impl CometBftValidatorInfoScrapper {
     pub fn new(
         client: Arc<BlockchainClient>,
         chain_id: ChainId,
@@ -43,7 +43,7 @@ impl NonApiValidatorInfoScrapper {
     }
 
     async fn get_rpc_validators(&self, path: &str) -> anyhow::Result<Vec<TendermintValidator>> {
-        info!("(NonApi Validator Info) Fetching RPC validators");
+        info!("(CometBFT Validator Info) Fetching RPC validators");
         let mut validators: Vec<TendermintValidator> = Vec::new();
 
         let mut all_fetched = false;
@@ -119,7 +119,7 @@ impl NonApiValidatorInfoScrapper {
         let latest_block = self.get_latest_block().await?;
         let signed_validators: Vec<String> = latest_block.1;
 
-        info!("(NonApi Validator Info) Processing RPC validators");
+        info!("(CometBFT Validator Info) Processing RPC validators");
         for validator in rpc_validators {
             let address = validator.address;
             let fires_alerts = self
@@ -130,7 +130,7 @@ impl NonApiValidatorInfoScrapper {
             // Check if validator missed the block
             if !signed_validators.contains(&address) {
                 info!(
-                    "(NonApi Validator Info) Validator {} missed block {}",
+                    "(CometBFT Validator Info) Validator {} missed block {}",
                     address, latest_block.0
                 );
                 TENDERMINT_VALIDATOR_MISSED_BLOCKS
@@ -143,7 +143,7 @@ impl NonApiValidatorInfoScrapper {
                     .inc();
             }
 
-            // For NonApi, we'll use the address as both name and address since we don't have moniker
+            // For CometBFT, we'll use the address as both name and address since we don't have moniker
             TENDERMINT_VALIDATORS
                 .with_label_values(&[
                     &address, // name
@@ -168,12 +168,12 @@ impl NonApiValidatorInfoScrapper {
 }
 
 #[async_trait]
-impl Task for NonApiValidatorInfoScrapper {
+impl Task for CometBftValidatorInfoScrapper {
     async fn run(&mut self) -> anyhow::Result<()> {
         self.process_validators().await
     }
 
     fn name(&self) -> &'static str {
-        "NonApi Validator Info Scrapper"
+        "CometBFT Validator Info Scrapper"
     }
 }
