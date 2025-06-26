@@ -1,4 +1,7 @@
-use crate::core::chain_id::ChainIdFetcher;
+use crate::{
+    blockchains::tendermint::uptime_scrapper::TendermintUptimeTracker,
+    core::chain_id::ChainIdFetcher,
+};
 
 use blockchains::{
     babylon::bls_scrapper::BabylonBlsScrapper,
@@ -249,6 +252,15 @@ pub async fn network_exporter(
                 )
             };
 
+            let uptime_scrapper = ExporterTask::new(
+                Box::new(TendermintUptimeTracker::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(5),
+            );
+
             blockchains::tendermint::metrics::register_custom_metrics();
 
             let mut exporter = BlockchainExporter::new()
@@ -286,7 +298,8 @@ pub async fn network_exporter(
                 exporter = exporter
                     .add_task(proposal_scrapper)
                     .add_task(upgrade_plan_scrapper)
-                    .add_task(address_scrapper);
+                    .add_task(address_scrapper)
+                    .add_task(uptime_scrapper);
             }
 
             exporter
@@ -344,6 +357,15 @@ pub async fn network_exporter(
                 Duration::from_secs(30),
             );
 
+            let uptime_scrapper = ExporterTask::new(
+                Box::new(TendermintUptimeTracker::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(5),
+            );
+
             blockchains::tendermint::metrics::register_custom_metrics();
 
             BlockchainExporter::new()
@@ -351,6 +373,7 @@ pub async fn network_exporter(
                 .add_task(validator_info_scrapper)
                 .add_task(upgrade_plan_scrapper)
                 .add_task(address_scrapper)
+                .add_task(uptime_scrapper)
         }
         Blockchain::Babylon => {
             let client = BlockchainClientBuilder::new()
@@ -424,6 +447,15 @@ pub async fn network_exporter(
                 Duration::from_secs(30),
             );
 
+            let uptime_scrapper = ExporterTask::new(
+                Box::new(TendermintUptimeTracker::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(5),
+            );
+
             blockchains::tendermint::metrics::register_custom_metrics();
             blockchains::babylon::metrics::register_custom_metrics();
 
@@ -434,6 +466,7 @@ pub async fn network_exporter(
                 .add_task(bls_scrapper)
                 .add_task(proposal_scrapper)
                 .add_task(address_scrapper)
+                .add_task(uptime_scrapper)
         }
         Blockchain::CoreDao => {
             let client = BlockchainClientBuilder::new().with_rpc(rpc).build().await;
@@ -546,6 +579,15 @@ pub async fn network_exporter(
                 Duration::from_secs(30),
             );
 
+            let uptime_scrapper = ExporterTask::new(
+                Box::new(TendermintUptimeTracker::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(5),
+            );
+
             BlockchainExporter::new()
                 .add_task(block_scrapper)
                 .add_task(validator_info_scrapper)
@@ -553,6 +595,7 @@ pub async fn network_exporter(
                 .add_task(upgrade_plan_scrapper)
                 .add_task(ledger_scrapper)
                 .add_task(address_scrapper)
+                .add_task(uptime_scrapper)
         }
         Blockchain::Namada => {
             let client = BlockchainClientBuilder::new()
@@ -589,11 +632,21 @@ pub async fn network_exporter(
                 Duration::from_secs(300),
             );
 
+            let uptime_scrapper = ExporterTask::new(
+                Box::new(TendermintUptimeTracker::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(5),
+            );
+
             blockchains::namada::metrics::register_custom_metrics();
 
             BlockchainExporter::new()
                 .add_task(block_scrapper)
                 .add_task(validator_info_scrapper)
+                .add_task(uptime_scrapper)
         }
         Blockchain::Noble => {
             let client = BlockchainClientBuilder::new()
@@ -648,6 +701,15 @@ pub async fn network_exporter(
                 Duration::from_secs(30),
             );
 
+            let uptime_scrapper = ExporterTask::new(
+                Box::new(TendermintUptimeTracker::new(
+                    Arc::clone(&client),
+                    chain_id.clone(),
+                    network.clone(),
+                )),
+                Duration::from_secs(5),
+            );
+
             blockchains::tendermint::metrics::register_custom_metrics();
 
             BlockchainExporter::new()
@@ -655,6 +717,7 @@ pub async fn network_exporter(
                 .add_task(validator_info_scrapper)
                 .add_task(upgrade_plan_scrapper)
                 .add_task(address_scrapper)
+                .add_task(uptime_scrapper)
         }
     }
 }
