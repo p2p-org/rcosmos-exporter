@@ -64,6 +64,10 @@ jobs:
           
           env_files_found=0
           for env_file in test-envs/.env*; do
+            export CLICKHOUSE_URL=http://localhost:8123
+            export CLICKHOUSE_DATABASE=default
+            export CLICKHOUSE_USER=default
+            export CLICKHOUSE_PASSWORD=mysecurepassword123
             if [ -f "$env_file" ]; then
               env_files_found=$((env_files_found + 1))
               echo "🧪 Testing with $env_file on port $port"

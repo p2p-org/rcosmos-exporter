@@ -6,4 +6,5 @@ pub mod node_status_scrapper;
 pub mod proposal_scrapper;
 pub mod types;
 pub mod upgrade_plan_scrapper;
+pub mod uptime_scrapper;
 pub mod validator_info_scrapper;

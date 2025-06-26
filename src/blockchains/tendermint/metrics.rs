@@ -275,6 +275,110 @@ lazy_static! {
         &["address", "denom", "chain_id", "network"]
     )
     .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_FIRST_TIME_SEEN: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_first_time_seen",
+            "Validator commission max change rate"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_30DAYS_UPTIME: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_30days_uptime",
+            "Validator uptime for 30 days"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_15DAYS_UPTIME: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_15days_uptime",
+            "Validator uptime for 15 days"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_7DAYS_UPTIME: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_7days_uptime",
+            "Validator uptime for 7 days"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_1DAY_UPTIME: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_1day_uptime",
+            "Validator uptime for 1 days"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_30DAYS_SIGNED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_30days_signed_blocks",
+            "Validator 30 days signed blocks"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_15DAYS_SIGNED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_15days_signed_blocks",
+            "Validator 15 days signed blocks"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_7DAYS_SIGNED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_7days_signed_blocks",
+            "Validator 7 days signed blocks"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_1DAY_SIGNED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_1day_signed_blocks",
+            "Validator 1 days signed blocks"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_30DAYS_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_30days_missed_blocks",
+            "Validator 30 days missed blocks"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_15DAYS_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_15days_missed_blocks",
+            "Validator 15 days missed blocks"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_7DAYS_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_7days_missed_blocks",
+            "Validator 7 days missed blocks"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref TENDERMINT_VALIDATOR_1DAY_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "tendermint_validator_1day_missed_blocks",
+            "Validator 1 days missed blocks"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
 }
 
 pub fn register_custom_metrics() {
@@ -396,5 +500,44 @@ pub fn register_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(TENDERMINT_ADDRESS_BALANCE.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_FIRST_TIME_SEEN.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_30DAYS_UPTIME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_15DAYS_UPTIME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_7DAYS_UPTIME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_1DAY_UPTIME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_30DAYS_SIGNED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_15DAYS_SIGNED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_7DAYS_SIGNED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_1DAY_SIGNED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_30DAYS_MISSED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_15DAYS_MISSED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_7DAYS_MISSED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(TENDERMINT_VALIDATOR_1DAY_MISSED_BLOCKS.clone()))
         .unwrap();
 }

@@ -1,0 +1,29 @@
+services:
+  clickhouse-server:
+    restart: always
+    image: altinity/clickhouse-server:24.3.18.10426.altinitystable
+    platform: linux/arm64
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native TCP interface
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse  # persistent storage
+      - clickhouse_configs:/etc/clickhouse-server  # optional for custom configs
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: mysecurepassword123
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  clickhouse-ui:
+    image: ghcr.io/caioricciuti/ch-ui:latest
+    restart: always
+    ports:
+      - "5521:5521"
+volumes:
+  db_data:
+  clickhouse_data:
+  clickhouse_configs:
