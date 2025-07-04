@@ -4,17 +4,19 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::{
-    blockchains::namada::types::Validator,
+    blockchains::namada::{
+        metrics::{
+            TENDERMINT_BLOCK_GAS_USED, TENDERMINT_BLOCK_GAS_WANTED, TENDERMINT_BLOCK_TXS,
+            TENDERMINT_BLOCK_TX_SIZE, TENDERMINT_CURRENT_BLOCK_HEIGHT,
+            TENDERMINT_CURRENT_BLOCK_TIME, TENDERMINT_CURRENT_EPOCH,
+            TENDERMINT_VALIDATOR_MISSED_BLOCKS, TENDERMINT_VALIDATOR_UPTIME,
+        },
+        types::RestValidator,
+    },
     core::{
         chain_id::ChainId, clients::blockchain_client::BlockchainClient, clients::path::Path,
         exporter::Task,
     },
-};
-
-use super::metrics::{
-    NAMADA_BLOCK_GAS_USED, NAMADA_BLOCK_GAS_WANTED, NAMADA_CURRENT_BLOCK_HEIGHT,
-    NAMADA_CURRENT_BLOCK_TIME, NAMADA_CURRENT_EPOCH, NAMADA_VALIDATOR_MISSED_BLOCKS,
-    NAMADA_VALIDATOR_UPTIME,
 };
 
 pub struct NamadaBlockScrapper {
@@ -58,7 +60,7 @@ impl NamadaBlockScrapper {
     }
 
     // For non-paginated endpoint
-    async fn get_validators_all(&self) -> anyhow::Result<Vec<Validator>> {
+    async fn get_validators_all(&self) -> anyhow::Result<Vec<RestValidator>> {
         let res = self
             .client
             .with_rest()
@@ -75,7 +77,7 @@ impl NamadaBlockScrapper {
         state: Option<&[&str]>,
         sort_field: Option<&str>,
         sort_order: Option<&str>,
-    ) -> anyhow::Result<Vec<Validator>> {
+    ) -> anyhow::Result<Vec<RestValidator>> {
         let mut url = String::from("/api/v1/pos/validator");
         let mut params = vec![];
         if let Some(page) = page {
@@ -110,13 +112,13 @@ impl NamadaBlockScrapper {
     }
 
     // Use the non-paginated version by default
-    async fn get_validators(&self) -> anyhow::Result<Vec<Validator>> {
+    async fn get_validators(&self) -> anyhow::Result<Vec<RestValidator>> {
         self.get_validators_all().await
     }
 
     async fn process_block_window(&mut self) -> anyhow::Result<()> {
         let current_epoch = self.get_current_epoch().await?;
-        NAMADA_CURRENT_EPOCH
+        TENDERMINT_CURRENT_EPOCH
             .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(current_epoch as i64);
 
@@ -133,7 +135,7 @@ impl NamadaBlockScrapper {
         let gas_used = block["gas_used"].as_u64().unwrap_or(0);
         let gas_wanted = block["gas_wanted"].as_u64().unwrap_or(0);
 
-        NAMADA_CURRENT_BLOCK_HEIGHT
+        TENDERMINT_CURRENT_BLOCK_HEIGHT
             .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(height as i64);
 
@@ -142,11 +144,11 @@ impl NamadaBlockScrapper {
             .map(|dt| dt.timestamp())
             .unwrap_or(0);
 
-        NAMADA_CURRENT_BLOCK_TIME
+        TENDERMINT_CURRENT_BLOCK_TIME
             .with_label_values(&[&self.chain_id.to_string(), &self.network])
             .set(block_time);
 
-        NAMADA_BLOCK_GAS_USED
+        TENDERMINT_BLOCK_GAS_USED
             .with_label_values(&[
                 &self.chain_id.to_string(),
                 &self.network,
@@ -154,13 +156,29 @@ impl NamadaBlockScrapper {
             ])
             .set(gas_used as i64);
 
-        NAMADA_BLOCK_GAS_WANTED
+        TENDERMINT_BLOCK_GAS_WANTED
             .with_label_values(&[
                 &self.chain_id.to_string(),
                 &self.network,
                 &height.to_string(),
             ])
             .set(gas_wanted as i64);
+
+        let empty_txs = Vec::new();
+        let txs = block["transactions"].as_array().unwrap_or(&empty_txs);
+        TENDERMINT_BLOCK_TXS
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
+            .set(txs.len() as f64);
+
+        let avg_tx_size = if !txs.is_empty() {
+            let total_size: usize = txs.iter().filter_map(|t| t.as_str().map(|s| s.len())).sum();
+            total_size as f64 / txs.len() as f64
+        } else {
+            0.0
+        };
+        TENDERMINT_BLOCK_TX_SIZE
+            .with_label_values(&[&self.chain_id.to_string(), &self.network])
+            .set(avg_tx_size);
 
         let epoch_to_process = current_epoch - 1;
         if epoch_to_process == self.processed_epoch {
@@ -179,7 +197,7 @@ impl NamadaBlockScrapper {
             // Set metrics based on validator state from the all validators response
             let state = validator.state.as_deref().unwrap_or("unknown");
             let is_jailed = state == "jailed";
-            NAMADA_VALIDATOR_MISSED_BLOCKS
+            TENDERMINT_VALIDATOR_MISSED_BLOCKS
                 .with_label_values(&[
                     &validator.address,
                     &self.chain_id.to_string(),
@@ -194,7 +212,7 @@ impl NamadaBlockScrapper {
                 "inactive" | "jailed" | "unknown" => 0,
                 _ => 0,
             };
-            NAMADA_VALIDATOR_UPTIME
+            TENDERMINT_VALIDATOR_UPTIME
                 .with_label_values(&[
                     &validator.address,
                     &self.chain_id.to_string(),

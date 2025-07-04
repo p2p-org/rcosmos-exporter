@@ -11,7 +11,9 @@ use blockchains::{
     lombard::ledger_scrapper::LombardLedgerScrapper,
     mezo::{block_scrapper::MezoBlockScrapper, validator_info_scrapper::MezoValidatorInfoScrapper},
     namada::{
-        block_scrapper::NamadaBlockScrapper, validator_info_scrapper::NamadaValidatorInfoScrapper,
+        address_scrapper::NamadaAddressScrapper, block_scrapper::NamadaBlockScrapper,
+        node_status_scrapper::NamadaNodeStatusScrapper, uptime_scrapper::NamadaUptimeTracker,
+        validator_info_scrapper::NamadaValidatorInfoScrapper,
     },
     noble::validator_info_scrapper::NobleValidatorInfoScrapper,
     tendermint::{
@@ -133,25 +135,48 @@ async fn main() {
 
             info!("--------------------------------------------------------------------");
             info!("MODE: {}", mode);
+            info!("BLOCKCHAIN: {}", blockchain);
             info!("NODE_NAME: {}", name);
             info!("NETWORK: {}", network);
             info!("NODE_RPC_ENDPOINT: {}", rpc_endpoint);
             info!("NODE_REST_ENDPOINT: {}", rest_endpoint);
             info!("--------------------------------------------------------------------");
 
-            blockchains::tendermint::metrics::register_custom_metrics();
+            match blockchain {
+                Blockchain::Tendermint => {
+                    blockchains::tendermint::metrics::register_custom_metrics();
 
-            let node_status_scrapper = ExporterTask::new(
-                Box::new(TendermintNodeStatusScrapper::new(
-                    name,
-                    rpc_endpoint,
-                    rest_endpoint,
-                    network.clone(),
-                )),
-                Duration::from_secs(5),
-            );
+                    let node_status_scrapper = ExporterTask::new(
+                        Box::new(TendermintNodeStatusScrapper::new(
+                            name,
+                            rpc_endpoint,
+                            rest_endpoint,
+                            network.clone(),
+                        )),
+                        Duration::from_secs(5),
+                    );
 
-            BlockchainExporter::new().add_task(node_status_scrapper)
+                    BlockchainExporter::new().add_task(node_status_scrapper)
+                }
+                Blockchain::Namada => {
+                    blockchains::namada::metrics::register_custom_metrics();
+
+                    let node_status_scrapper = ExporterTask::new(
+                        Box::new(NamadaNodeStatusScrapper::new(
+                            name,
+                            rpc_endpoint,
+                            rest_endpoint,
+                            network.clone(),
+                        )),
+                        Duration::from_secs(5),
+                    );
+
+                    BlockchainExporter::new().add_task(node_status_scrapper)
+                }
+                _ => {
+                    panic!("NODE mode is not supported for blockchain: {}", blockchain);
+                }
+            }
         }
     };
 
@@ -633,7 +658,7 @@ pub async fn network_exporter(
             );
 
             let uptime_scrapper = ExporterTask::new(
-                Box::new(TendermintUptimeTracker::new(
+                Box::new(NamadaUptimeTracker::new(
                     Arc::clone(&client),
                     chain_id.clone(),
                     network.clone(),
@@ -641,12 +666,36 @@ pub async fn network_exporter(
                 Duration::from_secs(5),
             );
 
+            // Add NamadaAddressScrapper if ADDRESS_MONITORS is set
+            let address_monitors = std::env::var("ADDRESS_MONITORS").unwrap_or_default();
+            let addresses: Vec<String> = address_monitors
+                .split(';')
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect();
+            let address_scrapper = if !addresses.is_empty() {
+                Some(ExporterTask::new(
+                    Box::new(NamadaAddressScrapper::new(
+                        Arc::clone(&client),
+                        chain_id.clone(),
+                        network.clone(),
+                    )),
+                    Duration::from_secs(30),
+                ))
+            } else {
+                None
+            };
+
             blockchains::namada::metrics::register_custom_metrics();
 
-            BlockchainExporter::new()
+            let mut exporter = BlockchainExporter::new()
                 .add_task(block_scrapper)
                 .add_task(validator_info_scrapper)
-                .add_task(uptime_scrapper)
+                .add_task(uptime_scrapper);
+            if let Some(scrapper) = address_scrapper {
+                exporter = exporter.add_task(scrapper);
+            }
+            exporter
         }
         Blockchain::Noble => {
             let client = BlockchainClientBuilder::new()

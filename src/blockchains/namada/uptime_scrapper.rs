@@ -1,7 +1,7 @@
-use std::{env, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
-    blockchains::tendermint::{
+    blockchains::namada::{
         metrics::{
             TENDERMINT_VALIDATOR_15DAYS_MISSED_BLOCKS, TENDERMINT_VALIDATOR_15DAYS_SIGNED_BLOCKS,
             TENDERMINT_VALIDATOR_15DAYS_UPTIME, TENDERMINT_VALIDATOR_1DAY_MISSED_BLOCKS,
@@ -11,61 +11,30 @@ use crate::{
             TENDERMINT_VALIDATOR_7DAYS_SIGNED_BLOCKS, TENDERMINT_VALIDATOR_7DAYS_UPTIME,
             TENDERMINT_VALIDATOR_FIRST_TIME_SEEN,
         },
-        types::{TendermintBlock, TendermintBlockResponse},
+        types::{
+            Block, BlockResponse, NamadaFirstSeen, NamadaUptime, NamadaValidator,
+            NamadaValidatorSignature, ValidatorsResponse, NAMADA_VALIDATORS_SIGNATURES_TABLE,
+            NAMADA_VALIDATORS_TABLE,
+        },
     },
-    core::{block_height::BlockHeight, clients::path::Path},
+    core::{
+        block_height::BlockHeight, chain_id::ChainId, clients::blockchain_client::BlockchainClient,
+        clients::path::Path, exporter::Task,
+    },
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use clickhouse::{sql::Identifier, Client, Row};
-use serde::{Deserialize, Serialize};
+use clickhouse::{sql::Identifier, Client};
 use serde_json::from_str;
 use tracing::info;
 
-use crate::core::{
-    chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task,
-};
 use anyhow::Context;
 
-#[derive(Debug, Row, Deserialize, Serialize)]
-struct ValidatorSignature<'a> {
-    chain_id: &'a str,
-    height: u64,
-    #[serde(with = "clickhouse::serde::chrono::datetime")]
-    timestamp: DateTime<Utc>,
-    address: &'a str,
-    signed: u8,
-}
-
-#[derive(Row, Deserialize, Serialize)]
-struct Validator<'a> {
-    chain_id: &'a str,
-    address: &'a str,
-}
-
-#[derive(Row, Deserialize, Debug, Clone)]
-struct Uptime<'a> {
-    address: &'a str,
-    missed: u64,
-    signed_blocks: u64,
-    uptime: f64,
-}
-
-#[derive(Row, Deserialize, Debug, Clone)]
-struct FirstSeen<'a> {
-    address: &'a str,
-    #[serde(with = "clickhouse::serde::chrono::datetime")]
-    first_seen: DateTime<Utc>,
-}
-
 fn read_env_var(key: &str) -> String {
-    env::var(key).unwrap_or_else(|_| panic!("{key} env variable should be set"))
+    std::env::var(key).unwrap_or_else(|_| panic!("{key} env variable should be set"))
 }
 
-const VALIDATORS_TABLE: &'static str = "validators";
-const VALIDATORS_SIGNATURES_TABLE: &'static str = "validators_signatures";
-
-pub struct TendermintUptimeTracker {
+pub struct NamadaUptimeTracker {
     client: Arc<BlockchainClient>,
     clickhouse_client: Client,
     chain_id: ChainId,
@@ -73,7 +42,7 @@ pub struct TendermintUptimeTracker {
     validators: Vec<String>,
 }
 
-impl TendermintUptimeTracker {
+impl NamadaUptimeTracker {
     pub fn new(client: Arc<BlockchainClient>, chain_id: ChainId, network: String) -> Self {
         Self {
             client,
@@ -88,14 +57,14 @@ impl TendermintUptimeTracker {
         }
     }
 
-    async fn get_validators(&self) -> anyhow::Result<Vec<Validator>> {
+    async fn get_validators(&self) -> anyhow::Result<Vec<NamadaValidator<'static>>> {
         let mut validators = vec![];
         let mut cursor = self
             .clickhouse_client
             .query("SELECT ?fields FROM ? WHERE chain_id = ?")
-            .bind(Identifier(VALIDATORS_TABLE))
+            .bind(Identifier(NAMADA_VALIDATORS_TABLE))
             .bind(self.chain_id.as_str())
-            .fetch::<Validator<'_>>()?;
+            .fetch::<NamadaValidator<'static>>()?;
 
         while let Some(row) = cursor.next().await? {
             validators.push(row)
@@ -104,10 +73,10 @@ impl TendermintUptimeTracker {
     }
 
     async fn save_validators(&self, addresses: Vec<String>) -> anyhow::Result<()> {
-        let mut insert = self.clickhouse_client.insert(VALIDATORS_TABLE)?;
+        let mut insert = self.clickhouse_client.insert(NAMADA_VALIDATORS_TABLE)?;
         for address in &addresses {
             insert
-                .write(&Validator {
+                .write(&NamadaValidator {
                     chain_id: self.chain_id.as_str(),
                     address,
                 })
@@ -123,17 +92,19 @@ impl TendermintUptimeTracker {
         height: u64,
         timestamp: NaiveDateTime,
     ) -> anyhow::Result<()> {
-        let mut insert = self.clickhouse_client.insert(VALIDATORS_SIGNATURES_TABLE)?;
+        let mut insert = self
+            .clickhouse_client
+            .insert(NAMADA_VALIDATORS_SIGNATURES_TABLE)?;
 
         let timestamp = DateTime::<Utc>::from_naive_utc_and_offset(timestamp, Utc);
 
         for validator_signature in &validator_signatures {
-            let signature = &ValidatorSignature {
+            let signature = &NamadaValidatorSignature {
                 height,
                 chain_id: self.chain_id.as_str(),
                 address: &validator_signature.0,
                 timestamp,
-                signed: if validator_signature.1 { 1 } else { 0 },
+                signed: if validator_signature.1 { 1u8 } else { 0u8 },
             };
 
             insert.write(signature).await?;
@@ -143,17 +114,14 @@ impl TendermintUptimeTracker {
         Ok(())
     }
 
-    async fn get_block(&mut self, height: BlockHeight) -> anyhow::Result<TendermintBlock> {
+    async fn get_block(&mut self, height: BlockHeight) -> anyhow::Result<Block> {
         let path = match height {
             BlockHeight::Height(h) => {
-                info!(
-                    "(Tendermint Uptime Tracker) Obtaining block with height: {}",
-                    h
-                );
+                info!("(Namada Uptime Tracker) Obtaining block with height: {}", h);
                 format!("/block?height={}", h)
             }
             BlockHeight::Latest => {
-                info!("(Tendermint Uptime Tracker) Obtaining latest block");
+                info!("(Namada Uptime Tracker) Obtaining latest block");
                 "/block".to_string()
             }
         };
@@ -165,10 +133,27 @@ impl TendermintUptimeTracker {
             .await
             .context(format!("Could not fetch block {}", path))?;
 
-        Ok(from_str::<TendermintBlockResponse>(&res)
+        Ok(from_str::<BlockResponse>(&res)
             .context("Could not deserialize block response")?
             .result
             .block)
+    }
+
+    async fn get_validators_at_height(&self, height: u64) -> anyhow::Result<Vec<String>> {
+        let res = self
+            .client
+            .with_rpc()
+            .get(Path::from(format!("/validators?height={}", height)))
+            .await
+            .context(format!("Could not fetch validators at height {}", height))?;
+
+        let validators_response: ValidatorsResponse = from_str(&res)?;
+        Ok(validators_response
+            .result
+            .validators
+            .into_iter()
+            .map(|v| v.address)
+            .collect())
     }
 
     async fn get_last_processed_block_height(&self) -> anyhow::Result<Option<u64>> {
@@ -183,9 +168,9 @@ impl TendermintUptimeTracker {
         let mut cursor = self
             .clickhouse_client
             .query(query)
-            .bind(Identifier(VALIDATORS_SIGNATURES_TABLE))
+            .bind(Identifier(NAMADA_VALIDATORS_SIGNATURES_TABLE))
             .bind(self.chain_id.as_str())
-            .fetch::<ValidatorSignature<'_>>()?;
+            .fetch::<NamadaValidatorSignature<'_>>()?;
 
         let row = cursor.next().await?;
 
@@ -198,16 +183,14 @@ impl TendermintUptimeTracker {
 
     async fn process_block(&mut self, height: BlockHeight) -> anyhow::Result<()> {
         let block = self.get_block(height).await?;
+        let block_height = block
+            .header
+            .height
+            .parse::<u64>()
+            .context("Could not parse block height")?;
 
-        let height = block.header.height.parse::<u64>()?;
-
-        let addresses: Vec<String> = block
-            .last_commit
-            .signatures
-            .iter()
-            .filter(|sig| sig.signature.is_some())
-            .map(|sig| sig.validator_address.clone())
-            .collect();
+        // Get validators at this block height
+        let addresses = self.get_validators_at_height(block_height).await?;
 
         let new_addresses: Vec<String> = addresses
             .iter()
@@ -219,21 +202,35 @@ impl TendermintUptimeTracker {
 
         self.save_validators(new_addresses).await?;
 
+        // Extract validator signatures from the block's last_commit
+        let signed_validators: Vec<String> = block
+            .last_commit
+            .signatures
+            .iter()
+            .map(|sig| sig.validator_address.clone())
+            .collect();
+
+        // For Namada, we consider a validator "signed" if they are present in the signatures
         let signatures: Vec<(String, bool)> = self
             .validators
             .clone()
             .into_iter()
-            .map(|val| (val.clone(), addresses.contains(&val)))
+            .map(|val| (val.clone(), signed_validators.contains(&val)))
             .collect();
 
-        self.save_validators_signatures(signatures, height, block.header.time)
+        // Parse the block time string to NaiveDateTime
+        let timestamp = NaiveDateTime::parse_from_str(&block.header.time, "%Y-%m-%dT%H:%M:%S")
+            .or_else(|_| NaiveDateTime::parse_from_str(&block.header.time, "%Y-%m-%dT%H:%M:%S.%fZ"))
+            .context("Could not parse block time")?;
+
+        self.save_validators_signatures(signatures, block_height, timestamp)
             .await?;
         Ok(())
     }
 
     async fn track_uptimes(&mut self) -> anyhow::Result<()> {
         if self.validators.len() == 0 {
-            info!("Obtaining validators");
+            info!("(Namada Uptime Tracker) Obtaining validators");
             self.validators = self
                 .get_validators()
                 .await?
@@ -247,7 +244,8 @@ impl TendermintUptimeTracker {
             .await?
             .header
             .height
-            .parse::<u64>()?;
+            .parse::<u64>()
+            .context("Could not parse block height")?;
 
         let mut last_processed = self
             .get_last_processed_block_height()
@@ -260,6 +258,7 @@ impl TendermintUptimeTracker {
                 .await?;
         }
 
+        // Process first seen metrics
         let mut cursor = self
             .clickhouse_client
             .query(
@@ -271,26 +270,28 @@ impl TendermintUptimeTracker {
                 GROUP BY chain_id, address",
             )
             .bind(self.chain_id.to_string())
-            .fetch::<FirstSeen<'_>>()?;
+            .fetch::<NamadaFirstSeen<'_>>()?;
 
         while let Some(row) = cursor.next().await? {
             TENDERMINT_VALIDATOR_FIRST_TIME_SEEN
                 .with_label_values(&[row.address, &self.chain_id.to_string(), &self.network])
-                .set(row.first_seen.timestamp() as f64);
+                .set(row.first_seen.timestamp() as i64);
         }
 
+        // Process uptime metrics for different intervals
         let uptime_intervals = vec![30, 15, 7, 1];
 
         for interval in uptime_intervals {
             let query = format!(
-                "
-            SELECT
-                address,
-                missed,
-                total_blocks - missed AS signed_blocks,
-                100.0 * (total_blocks - missed) / total_blocks AS uptime
-            FROM validator_uptime_{}d
-            WHERE chain_id = ?",
+                r#"
+                SELECT
+                    address,
+                    missed,
+                    total_blocks - missed AS signed_blocks,
+                    100.0 * (total_blocks - missed) / total_blocks AS uptime
+                FROM validator_uptime_{}d
+                WHERE chain_id = ?
+                "#,
                 interval
             );
 
@@ -298,7 +299,7 @@ impl TendermintUptimeTracker {
                 .clickhouse_client
                 .query(&query)
                 .bind(self.chain_id.to_string())
-                .fetch::<Uptime<'_>>()?;
+                .fetch::<NamadaUptime<'_>>()?;
 
             while let Some(row) = cursor.next().await? {
                 let filtered_address = row.address.trim_end_matches('\0');
@@ -315,21 +316,21 @@ impl TendermintUptimeTracker {
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.uptime);
+                            .set(row.uptime as i64);
                         TENDERMINT_VALIDATOR_30DAYS_SIGNED_BLOCKS
                             .with_label_values(&[
                                 &filtered_address,
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.signed_blocks as f64);
+                            .set(row.signed_blocks as i64);
                         TENDERMINT_VALIDATOR_30DAYS_MISSED_BLOCKS
                             .with_label_values(&[
                                 &filtered_address,
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.missed as f64)
+                            .set(row.missed as i64)
                     }
                     15 => {
                         TENDERMINT_VALIDATOR_15DAYS_UPTIME
@@ -338,21 +339,21 @@ impl TendermintUptimeTracker {
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.uptime);
+                            .set(row.uptime as i64);
                         TENDERMINT_VALIDATOR_15DAYS_SIGNED_BLOCKS
                             .with_label_values(&[
                                 &filtered_address,
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.signed_blocks as f64);
+                            .set(row.signed_blocks as i64);
                         TENDERMINT_VALIDATOR_15DAYS_MISSED_BLOCKS
                             .with_label_values(&[
                                 &filtered_address,
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.missed as f64)
+                            .set(row.missed as i64)
                     }
                     7 => {
                         TENDERMINT_VALIDATOR_7DAYS_UPTIME
@@ -361,21 +362,21 @@ impl TendermintUptimeTracker {
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.uptime);
+                            .set(row.uptime as i64);
                         TENDERMINT_VALIDATOR_7DAYS_SIGNED_BLOCKS
                             .with_label_values(&[
                                 &filtered_address,
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.signed_blocks as f64);
+                            .set(row.signed_blocks as i64);
                         TENDERMINT_VALIDATOR_7DAYS_MISSED_BLOCKS
                             .with_label_values(&[
                                 &filtered_address,
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.missed as f64)
+                            .set(row.missed as i64)
                     }
                     1 => {
                         TENDERMINT_VALIDATOR_1DAY_UPTIME
@@ -384,21 +385,21 @@ impl TendermintUptimeTracker {
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.uptime);
+                            .set(row.uptime as i64);
                         TENDERMINT_VALIDATOR_1DAY_SIGNED_BLOCKS
                             .with_label_values(&[
                                 &filtered_address,
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.signed_blocks as f64);
+                            .set(row.signed_blocks as i64);
                         TENDERMINT_VALIDATOR_1DAY_MISSED_BLOCKS
                             .with_label_values(&[
                                 &filtered_address,
                                 &self.chain_id.to_string(),
                                 &self.network,
                             ])
-                            .set(row.missed as f64)
+                            .set(row.missed as i64)
                     }
                     _ => (),
                 }
@@ -409,12 +410,12 @@ impl TendermintUptimeTracker {
 }
 
 #[async_trait]
-impl Task for TendermintUptimeTracker {
+impl Task for NamadaUptimeTracker {
     async fn run(&mut self) -> anyhow::Result<()> {
         self.track_uptimes().await
     }
 
     fn name(&self) -> &'static str {
-        "Tendermint Uptime Tracker"
+        "Namada Uptime Tracker"
     }
 }
