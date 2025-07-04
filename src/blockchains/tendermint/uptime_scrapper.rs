@@ -16,11 +16,11 @@ use crate::{
     core::{block_height::BlockHeight, clients::path::Path},
 };
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDateTime, Timelike, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use clickhouse::{sql::Identifier, Client, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::from_str;
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::core::{
     chain_id::ChainId, clients::blockchain_client::BlockchainClient, exporter::Task,
@@ -46,7 +46,6 @@ struct Validator<'a> {
 #[derive(Row, Deserialize, Debug, Clone)]
 struct Uptime<'a> {
     address: &'a str,
-    total_blocks: u64,
     missed: u64,
     signed_blocks: u64,
     uptime: f64,
@@ -126,7 +125,7 @@ impl TendermintUptimeTracker {
     ) -> anyhow::Result<()> {
         let mut insert = self.clickhouse_client.insert(VALIDATORS_SIGNATURES_TABLE)?;
 
-        let timestamp = DateTime::<Utc>::from_utc(timestamp, Utc);
+        let timestamp = DateTime::<Utc>::from_naive_utc_and_offset(timestamp, Utc);
 
         for validator_signature in &validator_signatures {
             let signature = &ValidatorSignature {
@@ -287,7 +286,6 @@ impl TendermintUptimeTracker {
                 "
             SELECT
                 address,
-                total_blocks,
                 missed,
                 total_blocks - missed AS signed_blocks,
                 100.0 * (total_blocks - missed) / total_blocks AS uptime
