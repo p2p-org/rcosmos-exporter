@@ -11,29 +11,33 @@ use crate::{
         TENDERMINT_VALIDATOR_REWARDS, TENDERMINT_VALIDATOR_TOKENS,
         TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS, TENDERMINT_VALIDATOR_VOTING_POWER,
     },
-    blockchains::namada::types::Validator,
+    blockchains::namada::types::RestValidator,
     core::{clients::blockchain_client::BlockchainClient, clients::path::Path, exporter::Task},
 };
 
 pub struct NamadaValidatorInfoScrapper {
     client: Arc<BlockchainClient>,
+    chain_id: crate::core::chain_id::ChainId,
+    network: String,
     validator_alert_addresses: Vec<String>,
 }
 
 impl NamadaValidatorInfoScrapper {
     pub fn new(
         client: Arc<BlockchainClient>,
-        _chain_id: crate::core::chain_id::ChainId,
-        _network: String,
+        chain_id: crate::core::chain_id::ChainId,
+        network: String,
         validator_alert_addresses: Vec<String>,
     ) -> Self {
         Self {
             client,
+            chain_id,
+            network,
             validator_alert_addresses,
         }
     }
 
-    async fn get_validators(&self) -> anyhow::Result<Vec<Validator>> {
+    async fn get_validators(&self) -> anyhow::Result<Vec<RestValidator>> {
         let res = self
             .client
             .with_rest()
@@ -57,26 +61,43 @@ impl NamadaValidatorInfoScrapper {
 
             // Set TENDERMINT_VALIDATORS per-validator
             TENDERMINT_VALIDATORS
-                .with_label_values(&[name, address, "namada", "mainnet", &fires_alerts])
+                .with_label_values(&[
+                    name,
+                    address,
+                    &self.chain_id.to_string(),
+                    &self.network,
+                    &fires_alerts,
+                ])
                 .set(0);
             // Voting power
             if let Some(voting_power_str) = validator.voting_power.as_ref() {
                 if let Ok(voting_power) = voting_power_str.parse::<f64>() {
                     TENDERMINT_VALIDATOR_VOTING_POWER
-                        .with_label_values(&[address, "namada", "mainnet"])
+                        .with_label_values(&[address, &self.chain_id.to_string(), &self.network])
                         .set(voting_power as i64);
                 }
             }
             // Jailed status
             let is_jailed = validator.state.as_deref() == Some("jailed");
             TENDERMINT_VALIDATOR_JAILED
-                .with_label_values(&[name, address, "namada", "mainnet", &fires_alerts])
+                .with_label_values(&[
+                    name,
+                    address,
+                    &self.chain_id.to_string(),
+                    &self.network,
+                    &fires_alerts,
+                ])
                 .set(if is_jailed { 1 } else { 0 });
             // Tokens (if available)
             if let Some(tokens) = validator.voting_power.as_ref() {
                 if let Ok(tokens_val) = tokens.parse::<f64>() {
                     TENDERMINT_VALIDATOR_TOKENS
-                        .with_label_values(&[name, address, "namada", "mainnet"])
+                        .with_label_values(&[
+                            name,
+                            address,
+                            &self.chain_id.to_string(),
+                            &self.network,
+                        ])
                         .set(tokens_val);
                 }
             }
@@ -84,7 +105,12 @@ impl NamadaValidatorInfoScrapper {
             if let Some(commission) = validator.commission.as_ref() {
                 if let Ok(commission_val) = commission.parse::<f64>() {
                     TENDERMINT_VALIDATOR_COMMISSION_RATE
-                        .with_label_values(&[name, address, "namada", "mainnet"])
+                        .with_label_values(&[
+                            name,
+                            address,
+                            &self.chain_id.to_string(),
+                            &self.network,
+                        ])
                         .set(commission_val);
                 }
             }
@@ -92,7 +118,12 @@ impl NamadaValidatorInfoScrapper {
             if let Some(max_commission) = validator.max_commission.as_ref() {
                 if let Ok(max_commission_val) = max_commission.parse::<f64>() {
                     TENDERMINT_VALIDATOR_COMMISSION_MAX_RATE
-                        .with_label_values(&[name, address, "namada", "mainnet"])
+                        .with_label_values(&[
+                            name,
+                            address,
+                            &self.chain_id.to_string(),
+                            &self.network,
+                        ])
                         .set(max_commission_val);
                 }
             }
@@ -100,7 +131,12 @@ impl NamadaValidatorInfoScrapper {
             if let Some(voting_power_str) = validator.voting_power.as_ref() {
                 if let Ok(shares) = voting_power_str.parse::<f64>() {
                     TENDERMINT_VALIDATOR_DELEGATOR_SHARES
-                        .with_label_values(&[name, address, "namada", "mainnet"])
+                        .with_label_values(&[
+                            name,
+                            address,
+                            &self.chain_id.to_string(),
+                            &self.network,
+                        ])
                         .set(shares);
                 }
             }
@@ -113,7 +149,12 @@ impl NamadaValidatorInfoScrapper {
                         .map(|a| a.len())
                         .unwrap_or(0);
                     TENDERMINT_VALIDATOR_DELEGATIONS
-                        .with_label_values(&[name, address, "namada", "mainnet"])
+                        .with_label_values(&[
+                            name,
+                            address,
+                            &self.chain_id.to_string(),
+                            &self.network,
+                        ])
                         .set(delegations as f64);
                 }
             }
@@ -126,7 +167,12 @@ impl NamadaValidatorInfoScrapper {
                         .map(|a| a.len())
                         .unwrap_or(0);
                     TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS
-                        .with_label_values(&[name, address, "namada", "mainnet"])
+                        .with_label_values(&[
+                            name,
+                            address,
+                            &self.chain_id.to_string(),
+                            &self.network,
+                        ])
                         .set(unbondings as f64);
                 }
             }
@@ -142,8 +188,11 @@ impl NamadaValidatorInfoScrapper {
                                 if let Ok(amount) = min_denom_amount.parse::<f64>() {
                                     TENDERMINT_VALIDATOR_REWARDS
                                         .with_label_values(&[
-                                            name, address, "NAM", // denom, adjust as needed
-                                            "namada", "mainnet",
+                                            name,
+                                            address,
+                                            "NAM", // denom, adjust as needed
+                                            &self.chain_id.to_string(),
+                                            &self.network,
                                         ])
                                         .set(amount);
                                 }

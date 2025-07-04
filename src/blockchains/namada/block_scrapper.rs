@@ -4,17 +4,19 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::{
-    blockchains::namada::types::Validator,
+    blockchains::namada::{
+        metrics::{
+            TENDERMINT_BLOCK_GAS_USED, TENDERMINT_BLOCK_GAS_WANTED, TENDERMINT_BLOCK_TXS,
+            TENDERMINT_BLOCK_TX_SIZE, TENDERMINT_CURRENT_BLOCK_HEIGHT,
+            TENDERMINT_CURRENT_BLOCK_TIME, TENDERMINT_CURRENT_EPOCH,
+            TENDERMINT_VALIDATOR_MISSED_BLOCKS, TENDERMINT_VALIDATOR_UPTIME,
+        },
+        types::RestValidator,
+    },
     core::{
         chain_id::ChainId, clients::blockchain_client::BlockchainClient, clients::path::Path,
         exporter::Task,
     },
-};
-
-use super::metrics::{
-    TENDERMINT_BLOCK_GAS_USED, TENDERMINT_BLOCK_GAS_WANTED, TENDERMINT_BLOCK_TXS,
-    TENDERMINT_BLOCK_TX_SIZE, TENDERMINT_CURRENT_BLOCK_HEIGHT, TENDERMINT_CURRENT_BLOCK_TIME,
-    TENDERMINT_CURRENT_EPOCH, TENDERMINT_VALIDATOR_MISSED_BLOCKS, TENDERMINT_VALIDATOR_UPTIME,
 };
 
 pub struct NamadaBlockScrapper {
@@ -58,7 +60,7 @@ impl NamadaBlockScrapper {
     }
 
     // For non-paginated endpoint
-    async fn get_validators_all(&self) -> anyhow::Result<Vec<Validator>> {
+    async fn get_validators_all(&self) -> anyhow::Result<Vec<RestValidator>> {
         let res = self
             .client
             .with_rest()
@@ -75,7 +77,7 @@ impl NamadaBlockScrapper {
         state: Option<&[&str]>,
         sort_field: Option<&str>,
         sort_order: Option<&str>,
-    ) -> anyhow::Result<Vec<Validator>> {
+    ) -> anyhow::Result<Vec<RestValidator>> {
         let mut url = String::from("/api/v1/pos/validator");
         let mut params = vec![];
         if let Some(page) = page {
@@ -110,7 +112,7 @@ impl NamadaBlockScrapper {
     }
 
     // Use the non-paginated version by default
-    async fn get_validators(&self) -> anyhow::Result<Vec<Validator>> {
+    async fn get_validators(&self) -> anyhow::Result<Vec<RestValidator>> {
         self.get_validators_all().await
     }
 
