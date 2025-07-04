@@ -12,7 +12,8 @@ use blockchains::{
     mezo::{block_scrapper::MezoBlockScrapper, validator_info_scrapper::MezoValidatorInfoScrapper},
     namada::{
         address_scrapper::NamadaAddressScrapper, block_scrapper::NamadaBlockScrapper,
-        uptime_scrapper::NamadaUptimeTracker, validator_info_scrapper::NamadaValidatorInfoScrapper,
+        node_status_scrapper::NamadaNodeStatusScrapper, uptime_scrapper::NamadaUptimeTracker,
+        validator_info_scrapper::NamadaValidatorInfoScrapper,
     },
     noble::validator_info_scrapper::NobleValidatorInfoScrapper,
     tendermint::{
@@ -134,25 +135,48 @@ async fn main() {
 
             info!("--------------------------------------------------------------------");
             info!("MODE: {}", mode);
+            info!("BLOCKCHAIN: {}", blockchain);
             info!("NODE_NAME: {}", name);
             info!("NETWORK: {}", network);
             info!("NODE_RPC_ENDPOINT: {}", rpc_endpoint);
             info!("NODE_REST_ENDPOINT: {}", rest_endpoint);
             info!("--------------------------------------------------------------------");
 
-            blockchains::tendermint::metrics::register_custom_metrics();
+            match blockchain {
+                Blockchain::Tendermint => {
+                    blockchains::tendermint::metrics::register_custom_metrics();
 
-            let node_status_scrapper = ExporterTask::new(
-                Box::new(TendermintNodeStatusScrapper::new(
-                    name,
-                    rpc_endpoint,
-                    rest_endpoint,
-                    network.clone(),
-                )),
-                Duration::from_secs(5),
-            );
+                    let node_status_scrapper = ExporterTask::new(
+                        Box::new(TendermintNodeStatusScrapper::new(
+                            name,
+                            rpc_endpoint,
+                            rest_endpoint,
+                            network.clone(),
+                        )),
+                        Duration::from_secs(5),
+                    );
 
-            BlockchainExporter::new().add_task(node_status_scrapper)
+                    BlockchainExporter::new().add_task(node_status_scrapper)
+                }
+                Blockchain::Namada => {
+                    blockchains::namada::metrics::register_custom_metrics();
+
+                    let node_status_scrapper = ExporterTask::new(
+                        Box::new(NamadaNodeStatusScrapper::new(
+                            name,
+                            rpc_endpoint,
+                            rest_endpoint,
+                            network.clone(),
+                        )),
+                        Duration::from_secs(5),
+                    );
+
+                    BlockchainExporter::new().add_task(node_status_scrapper)
+                }
+                _ => {
+                    panic!("NODE mode is not supported for blockchain: {}", blockchain);
+                }
+            }
         }
     };
 
