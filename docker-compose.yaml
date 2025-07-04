@@ -2,7 +2,6 @@ services:
   clickhouse-server:
     restart: always
     image: altinity/clickhouse-server:24.3.18.10426.altinitystable
-    platform: linux/arm64
     ports:
       - "8123:8123"   # HTTP interface
       - "9000:9000"   # Native TCP interface
