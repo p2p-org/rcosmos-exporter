@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/p2p-org/rcosmos-exporter/compare/v1.3.0...v1.4.0) (2025-06-26)
+
+
+### Features
+
+* add uptime tracking with db ([#63](https://github.com/p2p-org/rcosmos-exporter/issues/63)) ([59ed2e6](https://github.com/p2p-org/rcosmos-exporter/commit/59ed2e6b97bca419c7d1e4dd2e6187d2fb14c4b8))
+
 ## [1.3.0](https://github.com/p2p-org/rcosmos-exporter/compare/v1.2.2...v1.3.0) (2025-06-23)
 
 
