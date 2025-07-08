@@ -1,0 +1,100 @@
+general:
+  network: namada-mainnet
+  mode: network
+  chain_id: cometbft
+  metrics:
+    address: 0.0.0.0
+    port: 9102
+    path: /metrics
+  alerting:
+    validators:
+      - 987158183DBF316FC7B84398F86BAADEAD96BE00
+
+node:
+  cometbft:
+    status:
+      enabled: true
+      interval: 30
+  tendermint:
+    nodeInfo:
+      enabled: false
+      interval: 30
+
+network:
+  nodes:
+    rpc:
+      - name: p2p
+        url: https://namada-archive.tm.p2p.org/
+        healthEndpoint: /health
+    lcd:
+      - name: p2p
+        url: https://api-namada-mainnet-indexer.tm.p2p.org/
+        healthEndpoint: /health
+
+  cometbft:
+    validators:
+      enabled: true
+      interval: 10
+    block:
+      enabled: true
+      interval: 10
+      window: 500
+      tx:
+        enabled: true
+      uptime:
+        persistence: true
+      
+  tendermint:
+    bank:
+      addresses: []
+      enabled: false
+      interval: 30
+    distribution:
+      enabled: false
+      interval: 30
+    gov:
+      enabled: false
+      interval: 30
+    staking:
+      enabled: false
+      interval: 30
+    slashing:
+      enabled: false
+      interval: 30
+    upgrade:
+      enabled: false
+      interval: 60
+  
+  mezo:
+    poa:
+      enabled: false
+      interval: 30
+  
+  babylon:
+    bls:
+      enabled: false
+      interval: 30
+  
+  lombard:
+    ledger:
+      addresses: []
+      enabled: false
+      interval: 30
+  
+  namada:
+    account:
+      addresses: []
+      enabled: false
+      interval: 30
+    pos:
+      enabled: true
+      interval: 30
+  
+  coredao:
+    block:
+      enabled: false
+      interval: 30
+      window: 500
+    validator:
+      enabled: false
+      interval: 30

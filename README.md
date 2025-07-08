@@ -1,197 +1,290 @@
 # rcosmos-exporter
 
-`rcosmos-exporter` is a Rust-based exporter for collecting and exposing metrics from various Cosmos SDK-based blockchains and related networks. It is designed to scrape blockchain data, process it, and serve it in a format compatible with Prometheus for monitoring and alerting.
+![rcosmos-exporter](docs/rcosmos-exporter.jpg)
 
-## Quick Start
+**rcosmos-exporter** is a high-performance Rust exporter for Cosmos SDK-based blockchains and related networks. It collects, processes, and exposes rich metrics for Prometheus, with out-of-the-box support for ClickHouse storage, Grafana dashboards, and flexible deployment via Docker Compose.
 
-### Prerequisites
+---
 
-- Rust toolchain (`cargo`, `rustc`)
-- Prometheus (for scraping metrics)
-- Docker (optional, for containerized deployment)
+## Table of Contents
 
-### Development
+- [Features](#features)
+- [Quick Start (Docker Compose)](#quick-start-docker-compose)
+- [Configuration](#configuration)
+- [Modes: Node vs Network](#modes-node-vs-network)
+- [Chain ID Handling](#chain-id-handling)
+- [Available Modules](#available-modules)
+- [Metrics](#metrics)
+- [Grafana Dashboards](#grafana-dashboards)
+- [Contributing](#contributing)
+- [License](#license)
 
-- Format: `cargo fmt`
-- Test: `cargo test`
-- Build: `cargo build`
-- Run: `cargo run -- --env test-envs/.env.<network>.<mainnet|testnet>`
-
-See `Makefile.toml` for more tasks.
-
-### Environment Variables
-
-- `BLOCKCHAIN` – Name of the blockchain (e.g., `Babylon`, `CoreDao`, `Lombard`, `Mezo`, `Namada`, `Noble`, `Tendermint`)
-- `MODE` – `network` or `node`
-- `NETWORK` – Network name (e.g., `mainnet`, `testnet`)
-- `PROMETHEUS_IP` – IP to bind the metrics server (default: `0.0.0.0`)
-- `PROMETHEUS_PORT` – Port for metrics (default: `9100`)
-- `BLOCK_WINDOW` – Number of blocks to track (default: `500`)
-- `NODE_NAME`, `NODE_RPC_ENDPOINT`, `NODE_REST_ENDPOINT` – Required in `node` mode
-- `VALIDATOR_ALERT_ADDRESSES` – (Optional) Comma-separated validator addresses for alerting
-
-You can also use a `.env` file or specify one with `--env <path>`.
-
-### Metrics Endpoint
-
-Metrics are exposed at `http://<PROMETHEUS_IP>:<PROMETHEUS_PORT>` in Prometheus format.
-
-
-## Contributing
-
-Contributions are welcome! Please open issues or pull requests.
+---
 
 ## Features
 
-- **Multi-Blockchain Support:**  
-  Supports Babylon, CoreDAO, Lombard, Mezo, Namada, Noble, and generic Tendermint-based chains.
-- **Prometheus Metrics:**  
-  Exposes a wide range of metrics about blocks, validators, proposals, upgrades, and more.
-- **Flexible Modes:**  
-  Can run in `network` or `node` mode, adapting to different monitoring needs.
-- **Customizable via Environment:**  
-  Configure blockchain, network, endpoints, and more using environment variables or `.env` files.
-- **Docker & CI Ready:**  
-  Includes a Dockerfile and GitHub Actions workflows for building, testing, and releasing.
+- **Multi-Blockchain Support:** Babylon, CoreDAO, Lombard, Mezo, Namada, Noble, and generic Tendermint-based chains.
+- **Prometheus Metrics:** Exposes detailed metrics for blocks, validators, proposals, upgrades, and more.
+- **ClickHouse Integration:** Stores historical validator and block data for advanced analytics.
+- **Grafana Dashboards:** Prebuilt dashboards for instant observability.
+- **Flexible Modes:** Run in `node` or `network` mode for granular or holistic monitoring.
+- **Automatic Chain ID Discovery:** Seamless chain_id fetching for CometBFT-based chains.
+- **Modern Config:** All configuration via YAML files—no more legacy env var sprawl.
+- **Production Ready:** Docker Compose stack with Prometheus, Grafana, and ClickHouse.
+
+---
+
+## Quick Start (Docker Compose)
+
+1. **Clone the repository:**
+   ```sh
+   git clone https://github.com/your-org/rcosmos-exporter.git
+   cd rcosmos-exporter
+   ```
+
+2. **Edit your configuration:**
+   - Use the provided `config.yaml` in the root as a template, or see additional working examples in the `test-envs/` directory for various networks and scenarios.
+
+3. **Start stack and run ClickHouse migrations:**
+   - Use the Docker Compose `migrate` profile to run all database migrations before starting the stack:
+   ```sh
+   docker-compose --profile migrate up --build
+   ```
+   - This will set up all required tables and views in ClickHouse.
+   This launches:
+   - `rcosmos-exporter`
+   - `prometheus`
+   - `grafana`
+   - `clickhouse`
+
+4. **Access services:**
+   - **Grafana:** [http://localhost:3000](http://localhost:3000) (default: admin/admin)
+   - **Prometheus:** [http://localhost:9090](http://localhost:9090)
+   - **ClickHouse:** [http://localhost:8123](http://localhost:8123)
+   - **Exporter metrics:** [http://localhost:9100/metrics](http://localhost:9100/metrics)
+
+---
+
+## Configuration
+
+All configuration is now handled via a YAML file. No environment variables are required for normal operation **unless you are using persistence with ClickHouse or running in node mode**.
+
+### Environment Variables
+
+- **For ClickHouse persistence**, you must set the following environment variables (see `docker-compose.yaml` for examples):
+  - `CLICKHOUSE_URL` (e.g. `http://clickhouse-server:8123`)
+  - `CLICKHOUSE_DATABASE` (e.g. `default`)
+  - `CLICKHOUSE_USER` (e.g. `default`)
+  - `CLICKHOUSE_PASSWORD` (e.g. `mysecurepassword123`)
+
+  Working example:
+  ```sh
+  export CLICKHOUSE_URL=http://localhost:8123
+  export CLICKHOUSE_DATABASE=default
+  export CLICKHOUSE_USER=default
+  export CLICKHOUSE_PASSWORD=mysecurepassword123
+  ```
+
+- **For node mode**, you must set:
+  - `NODE_NAME` (a unique name for the node being monitored)
+
+These are required for the exporter to connect to ClickHouse and to identify the node in node mode.
+
+### Example: `config.yaml`
+
+```yaml
+general:
+  network: babylon-mainnet
+  chain_id: cometbft
+  mode: network
+  metrics:
+    address: 0.0.0.0
+    port: 9100
+    path: /metrics
+  alerting:
+    validators:
+      - 44C395A4A96C6D1A450ED33B5A8DDB359CEFED36
+
+node:
+  tendermint:
+    nodeInfo:
+      enabled: true
+      interval: 30
+  cometbft:
+    status:
+      enabled: true
+      interval: 30
+
+network:
+  nodes:
+    rpc:
+      - name: p2p
+        url: https://rpc.bbn-1.babylon.tm.p2p.org
+        healthEndpoint: /health
+    lcd:
+      - name: p2p
+        url: https://api.bbn-1.babylon.tm.p2p.org
+        healthEndpoint: /cosmos/base/node/v1beta1/status
+
+  cometbft:
+    validators:
+      enabled: true
+      interval: 10
+    block:
+      enabled: true
+      interval: 10
+      window: 500
+      tx:
+        enabled: true
+      uptime:
+        persistence: true
+      
+  tendermint:
+    bank:
+      addresses:
+        - bbn1x3w0zqxn7tyfpawnylulhpyr9ds4v8rzdefjga
+        - bbn1hz8qfjz2fduf9d437ev9w97plzdy8as0rc6lsr
+        - bbn13ewj3k8g7kuvc7k0wk9v3nzzse5tvhe3lngp5q
+        - bbn1wy0tyl8djfccnmaw67sxzr3kgnnnpal62lzxpx
+      enabled: true
+      interval: 30
+    distribution:
+      enabled: true
+      interval: 30
+    gov:
+      enabled: true
+      interval: 30
+    staking:
+      enabled: true
+      interval: 30
+    slashing:
+      enabled: true
+      interval: 30
+    upgrade:
+      enabled: true
+      interval: 60
+  
+  mezo:
+    poa:
+      enabled: false
+      interval: 30
+  
+  babylon:
+    bls:
+      enabled: true
+      interval: 30
+  
+  lombard:
+    ledger:
+      addresses: []
+      enabled: false
+      interval: 30
+  
+  namada:
+    account:
+      addresses: []
+      enabled: false
+      interval: 30
+    pos:
+      enabled: false
+      interval: 30
+  
+  coredao:
+    block:
+      enabled: false
+      interval: 30
+      window: 500
+    validator:
+      enabled: false
+      interval: 30
+```
+
+
+**To use another config:**  
+```sh
+cargo run -- --config path/to/your-config.yaml
+```
+or in Docker Compose, mount your config and set the command accordingly.
+
+---
+
+## Modes: Node vs Network
+
+- **Node Mode:**  
+  Monitors a single node, exposes node-specific metrics (e.g., block production, validator status for that node).
+- **Network Mode:**  
+  Monitors the entire network, aggregates metrics across all nodes, tracks global validator set, proposals, upgrades, etc.
+
+Choose the mode in your YAML config under `general.mode`.
+
+---
+
+## Chain ID Handling
+
+- **Automatic:**  
+  If `chain_id` is set to `"cometbft"` in your config, the exporter will fetch the chain ID from the first available RPC node at startup.
+- **Manual:**  
+  Set `chain_id` to the desired value in your config to override auto-discovery.
+
+---
+
+## Available Modules
+
+The exporter supports multiple blockchain modules, each with its own metrics:
+
+- **Babylon**
+- **CoreDAO**
+- **Lombard**
+- **Mezo**
+- **Namada**
+- **Tendermint** (generic)
+- **CometBFT** (for chain_id auto-discovery and block/validator metrics)
+
+Modules are loaded automatically based on your config.
+
+---
 
 ## Metrics
 
-The exporter exposes the following Prometheus metrics (labels omitted for brevity):
+Metrics are exposed at `/metrics` in Prometheus format.  
+**Categories include:**
 
-### Exporter Metrics
+- **Exporter:** Uptime, version, task status, HTTP requests
+- **Blocks:** Height, time, transaction stats
+- **Validators:** Uptime, missed blocks, voting power, slashing, rewards, commissions, first-seen, etc.
+- **Proposals & Upgrades:** Governance and upgrade status
+- **Chain-specific:** Babylon, CoreDAO, Namada, Lombard, etc.
 
-- `rcosmos_exporter_http_request` – HTTP requests handled by the exporter
-- `rcosmos_exporter_task_run` – Task runs
-- `rcosmos_exporter_task_error` – Task errors
-- `rcosmos_exporter_heartbeat` – Heartbeat timestamp
-- `rcosmos_exporter_version_info` – Exporter version/build info
+**Historical metrics** are stored in ClickHouse for long-term analysis.
 
-### Tendermint Metrics
+---
 
-- `tendermint_current_block_height` – Current block height
-- `tendermint_current_block_time` – Current block time
-- `tendermint_validator_missed_blocks` – Blocks missed by validator
-- `tendermint_validators` – Validators on the network
-- `tendermint_validator_uptime` – Validator uptime over block window
-- `tendermint_validator_proposed_blocks` – Blocks proposed by validator
-- `tendermint_validator_voting_power` – Validator voting power
-- `tendermint_validator_proposer_priority` – Validator proposer priority
-- `tendermint_validator_tokens` – Number of tokens by validator
-- `tendermint_validator_jailed` – Jailed status by validator
-- `tendermint_upgrade_status` – Upgrade status (1 if upgrade in progress)
-- `tendermint_proposals` – Proposals in voting period
-- `tendermint_upgrade_plan` – Upgrade plan info
-- `tendermint_node_id` – Node ID
-- `tendermint_node_catching_up` – Node catching up status
-- `tendermint_node_latest_block_height` – Node latest block height
-- `tendermint_node_latest_block_time` – Node latest block time
-- `tendermint_node_earliest_block_height` – Node earliest block height
-- `tendermint_node_earliest_block_time` – Node earliest block time
-- `tendermint_block_txs` – Number of transactions in block
-- `tendermint_block_tx_size` – Average transaction size in block
-- `tendermint_block_gas_wanted` – Block gas wanted
-- `tendermint_block_gas_used` – Block gas used
-- `tendermint_block_tx_gas_wanted` – Average gas wanted per tx
-- `tendermint_block_tx_gas_used` – Average gas used per tx
-- `tendermint_node_app_name` – Node app name
-- `tendermint_node_app_version` – Node app version
-- `tendermint_node_app_commit` – Node app commit
-- `tendermint_node_cosmos_sdk_version` – Node Cosmos SDK version
-- `tendermint_node_moniker` – Node moniker
-- `tendermint_validator_slashes` – Number of validator slashes
-- `tendermint_validator_delegator_share` – Delegator share on validator
-- `tendermint_validator_delegations` – Number of delegations on validator
-- `tendermint_validator_unbonding_delegations` – Number of unbonding delegations
-- `tendermint_validator_rewards` – Validator rewards
-- `tendermint_validator_commissions` – Validator commissions
-- `tendermint_validator_commission_rate` – Validator commission rate
-- `tendermint_validator_commission_max_rate` – Validator commission max rate
-- `tendermint_validator_commission_max_rate_change` – Validator commission max change rate
-- `tendermint_address_balance` – Balance of monitored addresses
+## Grafana Dashboards
 
-### Babylon Metrics
+- Prebuilt dashboards are included for quick visualization.
+- Connect Grafana to Prometheus and ClickHouse (see `docker-compose.yaml` for provisioning).
+- Dashboards auto-import on first launch.
 
-- `babylon_current_epoch` – Current epoch
-- `babylon_validator_missing_bls_vote` – Validators missing BLS vote
+---
 
-### CoreDAO Metrics
+## Advanced: ClickHouse
 
-- `coredao_validators` – Validator status (1=active, 0=inactive)
-- `coredao_validator_jailed` – Validator jailed status
-- `coredao_validator_slash_count` – Number of times validator slashed
-- `coredao_validator_slash_block` – Block height of last slash
-- `coredao_validator_participation` – Percentage of expected blocks signed
-- `coredao_validator_recent_activity` – Signed at least one block in last rotation
-- `coredao_validator_recent_activity_block` – Most recent block checked for activity
-- `coredao_validator_signed_blocks_total` – Total blocks signed
-- `coredao_validator_uptime` – Historical uptime percentage
+- All validator signatures, uptimes, and first-seen data are stored in ClickHouse.
+- You can run custom analytics and long-term queries directly in ClickHouse or via Grafana.
 
-### Namada Metrics
+---
 
-- `namada_current_epoch` – Current epoch
-- `namada_validator_missing_vote` – Validators missing vote
-- `namada_block_gas_used` – Block gas used
-- `namada_block_gas_wanted` – Block gas wanted
-- `namada_current_block_height` – Current block height
-- `namada_current_block_time` – Current block time (unix)
-- `namada_validator_missed_blocks` – Validator missed blocks
-- `namada_validator_uptime` – Validator uptime
+## Contributing
 
-### Lombard Metrics
+Contributions are welcome!  
+Please open issues or pull requests for bug fixes, features, or documentation.
 
-- `lombard_latest_session_id` – Latest notary session ID
-- `lombard_validator_signed_latest_session` – Validator signed in latest session
+---
 
-## Showcase: Node Mode as a Kubernetes Sidecar
+## License
 
-You can run `rcosmos-exporter` in `node` mode as a sidecar container alongside your Cosmos node in Kubernetes. This setup allows the exporter to scrape node-specific metrics and expose them for Prometheus scraping.
+MIT or Apache-2.0 (choose your license and update here).
 
-Below is an example Kubernetes Pod spec snippet:
+---
 
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: cosmos-node-with-exporter
-spec:
-  containers:
-    - name: cosmos-node
-      image: <your-cosmos-node-image>
-        # ... other node envs ...
-      ports:
-        - containerPort: 26657
-        - containerPort: 1317
-    - name: rcosmos-exporter
-      image: <your-rcosmos-exporter-image>
-      env:
-        - name: BLOCKCHAIN
-          value: "Tendermint"
-        - name: MODE
-          value: "node"
-        - name: NETWORK
-          value: "mainnet"
-        - name: NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: NODE_RPC_ENDPOINT
-          value: "http://localhost:26657"
-        - name: NODE_REST_ENDPOINT
-          value: "http://localhost:1317"
-        - name: PROMETHEUS_IP
-          value: "0.0.0.0"
-        - name: PROMETHEUS_PORT
-          value: "9100"
-      ports:
-        - containerPort: 9100
-```
-
-This will expose the metrics endpoint at `http://<pod-ip>:9100` for Prometheus to scrape.
-
-## Public Helm Chart
-
-A public Helm chart is available for deploying `rcosmos-exporter` to Kubernetes, making installation and management easy.
-
-You can find it here: [p2p-org/cosmos-helm-charts: cosmos-exporter](https://github.com/p2p-org/cosmos-helm-charts/tree/main/charts/cosmos-exporter)
-
-This chart provides a production-ready, configurable deployment for Cosmos-based network monitoring in Kubernetes environments.
+**For more details, see the code and configuration examples in this repository.**

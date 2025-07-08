@@ -1,0 +1,104 @@
+general:
+  network: babylon-mainnet
+  chain_id: cometbft
+  mode: network
+  metrics:
+    address: 0.0.0.0
+    port: 9101
+    path: /metrics
+  alerting:
+    validators:
+      - 44C395A4A96C6D1A450ED33B5A8DDB359CEFED36
+
+node:
+  tendermint:
+    nodeInfo:
+      enabled: true
+      interval: 30
+  cometbft:
+    status:
+      enabled: true
+      interval: 30
+
+network:
+  nodes:
+    rpc:
+      - name: p2p
+        url: https://rpc.bbn-1.babylon.tm.p2p.org
+        healthEndpoint: /health
+    lcd:
+      - name: p2p
+        url: https://api.bbn-1.babylon.tm.p2p.org
+        healthEndpoint: /cosmos/base/node/v1beta1/status
+
+  cometbft:
+    validators:
+      enabled: true
+      interval: 10
+    block:
+      enabled: true
+      interval: 10
+      window: 500
+      tx:
+        enabled: true
+      uptime:
+        persistence: true
+      
+  tendermint:
+    bank:
+      addresses:
+        - bbn1x3w0zqxn7tyfpawnylulhpyr9ds4v8rzdefjga
+        - bbn1hz8qfjz2fduf9d437ev9w97plzdy8as0rc6lsr
+        - bbn13ewj3k8g7kuvc7k0wk9v3nzzse5tvhe3lngp5q
+        - bbn1wy0tyl8djfccnmaw67sxzr3kgnnnpal62lzxpx
+      enabled: true
+      interval: 30
+    distribution:
+      enabled: true
+      interval: 30
+    gov:
+      enabled: false
+      interval: 30
+    staking:
+      enabled: true
+      interval: 30
+    slashing:
+      enabled: true
+      interval: 30
+    upgrade:
+      enabled: true
+      interval: 60
+  
+  mezo:
+    poa:
+      enabled: false
+      interval: 30
+  
+  babylon:
+    bls:
+      enabled: true
+      interval: 30
+  
+  lombard:
+    ledger:
+      addresses: []
+      enabled: false
+      interval: 30
+  
+  namada:
+    account:
+      addresses: []
+      enabled: false
+      interval: 30
+    pos:
+      enabled: false
+      interval: 30
+  
+  coredao:
+    block:
+      enabled: false
+      interval: 30
+      window: 500
+    validator:
+      enabled: false
+      interval: 30

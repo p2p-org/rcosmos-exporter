@@ -1,0 +1,1807 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": 1,
+    "links": [],
+    "panels": [
+        {
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            },
+            "id": 23,
+            "panels": [],
+            "title": "Uptimes",
+            "type": "row"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            },
+                            {
+                                "color": "red",
+                                "value": 95
+                            },
+                            {
+                                "color": "#EAB839",
+                                "value": 98
+                            },
+                            {
+                                "color": "green",
+                                "value": 99
+                            }
+                        ]
+                    },
+                    "unit": "percent"
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 158
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 7,
+                "x": 0,
+                "y": 1
+            },
+            "id": 10,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true,
+                "sortBy": []
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_1d_uptime{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "1 Day uptime",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "text"
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 115
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 7,
+                "y": 1
+            },
+            "id": 13,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true,
+                "sortBy": []
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_1d_signed_blocks{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "1 Day Signed Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 13,
+                "y": 1
+            },
+            "id": 25,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_1d_missed_blocks{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "1 Day Missed Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            },
+                            {
+                                "color": "red",
+                                "value": 95
+                            },
+                            {
+                                "color": "#EAB839",
+                                "value": 98
+                            },
+                            {
+                                "color": "green",
+                                "value": 99
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 5,
+                "x": 19,
+                "y": 1
+            },
+            "id": 12,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_1d_total_blocks{chain_id=\"$chain_id\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "1 Day Total Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            },
+                            {
+                                "color": "red",
+                                "value": 95
+                            },
+                            {
+                                "color": "#EAB839",
+                                "value": 98
+                            },
+                            {
+                                "color": "green",
+                                "value": 99
+                            }
+                        ]
+                    },
+                    "unit": "percent"
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 7,
+                "x": 0,
+                "y": 9
+            },
+            "id": 14,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true,
+                "sortBy": [
+                    {
+                        "desc": false,
+                        "displayName": "Last *"
+                    }
+                ]
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_7d_uptime{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "7 Day uptime",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "text"
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 7,
+                "y": 9
+            },
+            "id": 15,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_7d_signed_blocks{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "7 Day Signed Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 13,
+                "y": 9
+            },
+            "id": 26,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true,
+                "sortBy": [
+                    {
+                        "desc": true,
+                        "displayName": "Last *"
+                    }
+                ]
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_7d_missed_blocks{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "7 Day Missed Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            },
+                            {
+                                "color": "red",
+                                "value": 95
+                            },
+                            {
+                                "color": "#EAB839",
+                                "value": 98
+                            },
+                            {
+                                "color": "green",
+                                "value": 99
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 5,
+                "x": 19,
+                "y": 9
+            },
+            "id": 16,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_7d_total_blocks{chain_id=\"$chain_id\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "7 Day Total Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            },
+                            {
+                                "color": "red",
+                                "value": 95
+                            },
+                            {
+                                "color": "#EAB839",
+                                "value": 98
+                            },
+                            {
+                                "color": "green",
+                                "value": 99
+                            }
+                        ]
+                    },
+                    "unit": "percent"
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 7,
+                "x": 0,
+                "y": 17
+            },
+            "id": 17,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_15d_uptime{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "15 Day uptime",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "text"
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 7,
+                "y": 17
+            },
+            "id": 18,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_15d_signed_blocks{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "15 Day Signed Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 13,
+                "y": 17
+            },
+            "id": 27,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_15d_missed_blocks{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "15 Day Missed Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            },
+                            {
+                                "color": "red",
+                                "value": 95
+                            },
+                            {
+                                "color": "#EAB839",
+                                "value": 98
+                            },
+                            {
+                                "color": "green",
+                                "value": 99
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 5,
+                "x": 19,
+                "y": 17
+            },
+            "id": 19,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_15d_total_blocks{chain_id=\"$chain_id\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "15 Day Total Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            },
+                            {
+                                "color": "red",
+                                "value": 95
+                            },
+                            {
+                                "color": "#EAB839",
+                                "value": 98
+                            },
+                            {
+                                "color": "green",
+                                "value": 99
+                            }
+                        ]
+                    },
+                    "unit": "percent"
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 7,
+                "x": 0,
+                "y": 25
+            },
+            "id": 20,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_30d_uptime{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "30 Day uptime",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "text"
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 7,
+                "y": 25
+            },
+            "id": 21,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_30d_signed_blocks{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "30 Day Signed Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "color-text",
+                            "wrapText": false
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 13,
+                "y": 25
+            },
+            "id": 28,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "enablePagination": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "frameIndex": 3,
+                "showHeader": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_30d_missed_blocks{chain_id=\"$chain_id\", address!=\"\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "30 Day Missed Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "dark-red"
+                            },
+                            {
+                                "color": "red",
+                                "value": 95
+                            },
+                            {
+                                "color": "#EAB839",
+                                "value": 98
+                            },
+                            {
+                                "color": "green",
+                                "value": 99
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Field"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "text",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 5,
+                "x": 19,
+                "y": 25
+            },
+            "id": 22,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "rcosmos_cometbft_validator_30d_total_blocks{chain_id=\"$chain_id\"}",
+                    "instant": false,
+                    "legendFormat": "{{address}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "30 Day Total Blocks",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "labelsToFields": false,
+                        "reducers": [
+                            "lastNotNull"
+                        ]
+                    }
+                }
+            ],
+            "type": "stat"
+        },
+        {
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 33
+            },
+            "id": 24,
+            "panels": [],
+            "title": "Signatures over time",
+            "type": "row"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "PDEE91DDB90597936"
+            },
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 32,
+                "w": 24,
+                "x": 0,
+                "y": 34
+            },
+            "id": 9,
+            "options": {
+                "allData": {},
+                "config": {},
+                "data": [],
+                "imgFormat": "png",
+                "layout": {
+                    "font": {
+                        "family": "Inter, Helvetica, Arial, sans-serif"
+                    },
+                    "margin": {
+                        "b": 0,
+                        "l": 0,
+                        "r": 0,
+                        "t": 0
+                    },
+                    "title": {
+                        "automargin": true
+                    },
+                    "xaxis": {
+                        "automargin": true,
+                        "autorange": true,
+                        "type": "string"
+                    },
+                    "yaxis": {
+                        "automargin": true,
+                        "autorange": true
+                    }
+                },
+                "onclick": "// Event handling\n/*\n// 'data', 'variables', 'options', 'utils', and 'event' are passed as arguments\n\ntry {\n  const { type: eventType, data: eventData } = event;\n  const { timeZone, dayjs, locationService, getTemplateSrv } = utils;\n\n  switch (eventType) {\n    case 'click':\n      console.log('Click event:', eventData.points);\n      break;\n    case 'select':\n      console.log('Selection event:', eventData.range);\n      break;\n    case 'zoom':\n      console.log('Zoom event:', eventData);\n      break;\n    default:\n      console.log('Unhandled event type:', eventType, eventData);\n  }\n\n  console.log('Current time zone:', timeZone);\n  console.log('From time:', dayjs(variables.__from).format());\n  console.log('To time:', dayjs(variables.__to).format());\n\n  // Example of using locationService\n  // locationService.partial({ 'var-example': 'test' }, true);\n\n} catch (error) {\n  console.error('Error in onclick handler:', error);\n}\n*/\n  ",
+                "resScale": 2,
+                "script": "let traces = [];\nconst colors = {\n  1: 'green',\n  0: 'red'\n};\n\n// 1. Get unique validator addresses\nconst addresses = [...new Set(data.series.flatMap(series =>\n  series.fields.find(f => f.name === 'address').values.toArray()\n))];\n\n// 2. Map validator address to numeric position\nconst addressIndex = {};\naddresses.forEach((addr, idx) => { addressIndex[addr] = idx; });\n\n// 3. Control vertical spacing and jitter\nconst verticalSpacing = 20;  // Controls space between validators\nconst jitterAmount = 0.3;   // Minor random jitter to avoid perfect overlap\n\n// 4. Prepare points & traces\ndata.series.forEach((series) => {\n  let heightField = series.fields.find(f => f.name === 'height');\n  let addressField = series.fields.find(f => f.name === 'address');\n  let signedField = series.fields.find(f => f.name === 'signed');\n  \n  for (let i = 0; i < series.length; i++) {\n    const xValue = heightField.values.get(i);\n    const address = addressField.values.get(i);\n    const yValue = addressIndex[address] * verticalSpacing + (Math.random() - 0.5) * jitterAmount;\n    const signed = signedField.values.get(i);\n\n    traces.push({\n      x: [xValue],\n      y: [yValue],\n      mode: 'markers',\n      type: 'scatter',\n      marker: {\n        color: colors[signed],\n        size: 20,\n        symbol: 'square',\n        line: { width: 2, color: 'black' }  // Optional visual separation\n      },\n      showlegend: false\n    });\n  }\n});\n\n// 5. Return plot config\nreturn {\n  data: traces,\n  layout: {\n    font: {\n      family: 'Inter, Helvetica, Arial, sans-serif'\n    },\n    margin: { l: 0, r: 0, b: 0, t: 30 },\n    xaxis: {\n      title: 'Block Height',\n      type: 'linear',\n      autorange: true,\n      automargin: true,\n      tickformat: ',d'\n    },\n    yaxis: {\n      title: 'Validator',\n      type: 'linear',\n      automargin: true,\n      tickvals: addresses.map((_, idx) => idx * verticalSpacing),\n      ticktext: addresses\n    },\n    showlegend: false\n  }\n};\n",
+                "syncTimeRange": false,
+                "timeCol": ""
+            },
+            "pluginVersion": "1.8.1",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "PDEE91DDB90597936"
+                    },
+                    "editorType": "sql",
+                    "format": 1,
+                    "meta": {
+                        "builderOptions": {
+                            "columns": [],
+                            "database": "",
+                            "limit": 1000,
+                            "mode": "list",
+                            "queryType": "table",
+                            "table": ""
+                        }
+                    },
+                    "pluginVersion": "4.10.1",
+                    "queryType": "table",
+                    "rawSql": "WITH (\n  SELECT max(height) FROM validators_signatures WHERE chain_id = '${chain_id}'\n) AS max_height\nSELECT\n  height,\n  address,\n  signed\nFROM validators_signatures\nWHERE height >= max_height - 80 AND chain_id = '${chain_id}' AND address != ''\nORDER BY height ASC\n",
+                    "refId": "A"
+                }
+            ],
+            "title": "Validator Signatures",
+            "type": "nline-plotlyjs-panel"
+        }
+    ],
+    "preload": false,
+    "refresh": "5s",
+    "schemaVersion": 41,
+    "tags": [
+        "cometbft",
+        "blockchain",
+        "monitoring"
+    ],
+    "templating": {
+        "list": [
+            {
+                "current": {
+                    "text": "All",
+                    "value": "$__all"
+                },
+                "datasource": {
+                    "type": "grafana-clickhouse-datasource",
+                    "uid": "PDEE91DDB90597936"
+                },
+                "definition": "SELECT chain_id FROM validators",
+                "includeAll": false,
+                "label": "Chain ID",
+                "name": "chain_id",
+                "options": [],
+                "query": "SELECT chain_id FROM validators",
+                "refresh": 1,
+                "regex": "",
+                "type": "query"
+            }
+        ]
+    },
+    "time": {
+        "from": "now-1h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "",
+    "title": "CometBFT Network",
+    "uid": "cometbft-network",
+    "version": 3
+}

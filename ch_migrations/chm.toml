@@ -1,4 +1,4 @@
-url = "https://localhost:8123"
+url = "http://localhost:8123"
 user = "default"
 password = "mysecurepassword123"
 database = "default"
