@@ -43,7 +43,7 @@ network:
         enabled: true
       uptime:
         persistence: true
-      
+
   tendermint:
     bank:
       addresses:
@@ -68,23 +68,23 @@ network:
     upgrade:
       enabled: true
       interval: 60
-  
+
   mezo:
     poa:
       enabled: false
       interval: 30
-  
+
   babylon:
     bls:
       enabled: true
       interval: 30
-  
+
   lombard:
     ledger:
       addresses: []
       enabled: false
       interval: 30
-  
+
   namada:
     account:
       addresses: []
@@ -93,7 +93,7 @@ network:
     pos:
       enabled: false
       interval: 30
-  
+
   coredao:
     block:
       enabled: false

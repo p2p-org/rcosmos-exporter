@@ -21,6 +21,11 @@ services:
   clickhouse-ui:
     image: ghcr.io/caioricciuti/ch-ui:latest
     restart: always
+    environment:
+      VITE_CLICKHOUSE_URL: http://localhost:8123
+      VITE_CLICKHOUSE_USER: default
+      VITE_CLICKHOUSE_PASS: mysecurepassword123
+      VITE_CLICKHOUSE_USE_ADVANCED: true
     ports:
       - "5521:5521"
 
@@ -32,18 +37,13 @@ services:
     volumes:
       - ./ch_migrations:/chm/ch_migrations
     working_dir: /chm/
-    environment:
-      - CLICKHOUSE_URL=http://clickhouse-server:8123
-      - CLICKHOUSE_DATABASE=default
-      - CLICKHOUSE_USER=default
-      - CLICKHOUSE_PASSWORD=mysecurepassword123
     entrypoint: ["/bin/bash", "-c"]
     command: |
-      'echo "CLICKHOUSE_URL=$CLICKHOUSE_URL" > .env && \
-      echo "CLICKHOUSE_DATABASE=$CLICKHOUSE_DATABASE" >> .env && \
-      echo "CLICKHOUSE_USER=$CLICKHOUSE_USER" >> .env && \
-      echo "CLICKHOUSE_PASSWORD=$CLICKHOUSE_PASSWORD" >> .env && \
-      cargo install chm && chm migration run'
+      'echo "CLICKHOUSE_URL=http://localhost:8123" > .env && \
+      echo "CLICKHOUSE_DATABASE=default" >> .env && \
+      echo "CLICKHOUSE_USER=default" >> .env && \
+      echo "CLICKHOUSE_PASSWORD=mysecurepassword123" >> .env && \
+      cargo install chm && sleep infinity && chm migration run'
 
   exporter:
     restart: always
@@ -59,7 +59,7 @@ services:
       - CLICKHOUSE_DATABASE=default
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=mysecurepassword123
-        
+
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -86,7 +86,7 @@ services:
       - prometheus
     volumes:
       - ./.docker/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
-      - ./.docker/grafana/dashboards:/var/lib/grafana/dashboards  
+      - ./.docker/grafana/dashboards:/var/lib/grafana/dashboards
       - ./.docker/grafana/dashboard-provisioning.yaml:/etc/grafana/provisioning/dashboards/dashboard.yaml:ro
       - ./.docker/grafana/plugins:/var/lib/grafana/plugins
 
