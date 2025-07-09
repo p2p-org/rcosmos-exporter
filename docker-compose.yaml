@@ -39,11 +39,12 @@ services:
     working_dir: /chm/
     entrypoint: ["/bin/bash", "-c"]
     command: |
-      'echo "CLICKHOUSE_URL=http://localhost:8123" > .env && \
-      echo "CLICKHOUSE_DATABASE=default" >> .env && \
-      echo "CLICKHOUSE_USER=default" >> .env && \
-      echo "CLICKHOUSE_PASSWORD=mysecurepassword123" >> .env && \
-      cargo install chm && sleep infinity && chm migration run'
+      "
+      sed -i 's|^url = .*|url = \"http://clickhouse-server:8123\"|' ch_migrations/chm.toml && \
+      touch .env && \
+      cargo install chm && chm migration run && \
+      sed -i 's|^url = .*|url = \"http://localhost:8123\"|' ch_migrations/chm.toml
+      "
 
   exporter:
     restart: always
@@ -59,7 +60,7 @@ services:
       - CLICKHOUSE_DATABASE=default
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=mysecurepassword123
-
+        
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -86,7 +87,7 @@ services:
       - prometheus
     volumes:
       - ./.docker/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
-      - ./.docker/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./.docker/grafana/dashboards:/var/lib/grafana/dashboards  
       - ./.docker/grafana/dashboard-provisioning.yaml:/etc/grafana/provisioning/dashboards/dashboard.yaml:ro
       - ./.docker/grafana/plugins:/var/lib/grafana/plugins
 

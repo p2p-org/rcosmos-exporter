@@ -39,7 +39,7 @@ impl Pos {
         let client = self.app_context.lcd.as_ref().unwrap();
         info!("(Namada Pos) Processing validators");
         for validator in validators {
-            let name = validator.name.as_deref().unwrap_or("");
+            let name = &validator.address;
             let address = &validator.address;
             info!("(Namada Pos) Validator: {}", address);
 
