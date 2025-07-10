@@ -4,7 +4,7 @@ general:
   chain_id: cometbft
   metrics:
     address: 0.0.0.0
-    port: 9103
+    port: 9100
     path: /metrics
   alerting:
     validators:
