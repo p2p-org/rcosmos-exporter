@@ -384,6 +384,7 @@ impl Block {
                         validator_address,
                         &window_size.to_string(),
                         &self.app_context.config.general.network,
+                        &self.app_context.chain_id,
                         "true",
                     ])
                     .set(0.0);
