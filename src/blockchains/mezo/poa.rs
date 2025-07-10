@@ -68,6 +68,14 @@ impl Poa {
                     &address,
                     &self.app_context.config.general.chain_id,
                     &self.app_context.config.general.network,
+                    &self
+                        .app_context
+                        .config
+                        .general
+                        .alerting
+                        .validators
+                        .contains(&address)
+                        .to_string(),
                 ])
                 .set(0);
         }
