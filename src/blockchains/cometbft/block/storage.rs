@@ -5,7 +5,6 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use clickhouse::{sql::Identifier, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::info;
 
 #[derive(Debug, Clone, Copy)]
 pub enum UptimeWindow {
