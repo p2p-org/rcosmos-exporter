@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -30,11 +31,15 @@ use crate::core::exporter::RunnableModule;
 
 pub struct Staking {
     app_context: Arc<AppContext>,
+    monikers: HashMap<String, String>,
 }
 
 impl Staking {
     pub fn new(app_context: Arc<AppContext>) -> Self {
-        Self { app_context }
+        Self {
+            app_context,
+            monikers: HashMap::new(),
+        }
     }
 
     async fn fetch_validators(&self, path: &str) -> anyhow::Result<Vec<Validator>> {
@@ -199,6 +204,74 @@ impl Staking {
 
             let address: String = hash.iter().map(|byte| format!("{:02x}", byte)).collect();
             let address = address.to_uppercase();
+            let moniker = &validator.description.moniker;
+            let chain_id = &self.app_context.chain_id;
+            let network = &self.app_context.config.general.network;
+
+            // Moniker tracking and cleanup
+            if let Some(old_moniker) = self.monikers.get(&address) {
+                if old_moniker != moniker {
+                    // Remove all metrics for the old moniker/address/chain_id/network
+                    let _ = TENDERMINT_VALIDATOR.remove_label_values(&[
+                        old_moniker,
+                        &address,
+                        chain_id,
+                        network,
+                        &alerts.contains(&address).to_string(),
+                    ]);
+                    let _ = TENDERMINT_VALIDATOR_DELEGATOR_SHARES.remove_label_values(&[
+                        old_moniker,
+                        &address,
+                        chain_id,
+                        network,
+                    ]);
+                    let _ = TENDERMINT_VALIDATOR_TOKENS.remove_label_values(&[
+                        old_moniker,
+                        &address,
+                        chain_id,
+                        network,
+                    ]);
+                    let _ = TENDERMINT_VALIDATOR_JAILED.remove_label_values(&[
+                        old_moniker,
+                        &address,
+                        chain_id,
+                        network,
+                        &alerts.contains(&address).to_string(),
+                    ]);
+                    let _ = TENDERMINT_VALIDATOR_DELEGATIONS.remove_label_values(&[
+                        old_moniker,
+                        &address,
+                        chain_id,
+                        network,
+                    ]);
+                    let _ = TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS.remove_label_values(&[
+                        old_moniker,
+                        &address,
+                        chain_id,
+                        network,
+                    ]);
+                    let _ = TENDERMINT_VALIDATOR_COMMISSION_RATE.remove_label_values(&[
+                        old_moniker,
+                        &address,
+                        chain_id,
+                        network,
+                    ]);
+                    let _ = TENDERMINT_VALIDATOR_COMMISSION_MAX_RATE.remove_label_values(&[
+                        old_moniker,
+                        &address,
+                        chain_id,
+                        network,
+                    ]);
+                    let _ = TENDERMINT_VALIDATOR_COMMISSION_MAX_CHANGE_RATE.remove_label_values(&[
+                        old_moniker,
+                        &address,
+                        chain_id,
+                        network,
+                    ]);
+                }
+            }
+            // Update the moniker map
+            self.monikers.insert(address.clone(), moniker.clone());
 
             info!(
                 "(Tendermint Staking) Getting {} delegations",
@@ -216,7 +289,6 @@ impl Staking {
                 .get_validator_unbonding_delegations_count(&validator.operator_address)
                 .await
                 .context("Could not get validator unbonding delegations count")?;
-            let moniker = &validator.description.moniker;
             let tokens: f64 = validator
                 .tokens
                 .parse()
