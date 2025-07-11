@@ -36,6 +36,9 @@ for i in {1..30}; do
   sleep 2
 done
 
+docker stop rcosmos-exporter
+
+sleep 3
 
 for env_file in test/env/*.yaml; do
   export CLICKHOUSE_URL=http://localhost:8123
