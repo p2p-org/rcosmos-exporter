@@ -66,14 +66,14 @@ async fn main() {
 
     // Build node pools from config
     let rpc_nodes: Vec<(String, String, String)> = config
-        .network
+        .general
         .nodes
         .rpc
         .iter()
         .map(|n| (n.name.clone(), n.url.clone(), n.health_endpoint.clone()))
         .collect();
     let lcd_nodes: Vec<(String, String, String)> = config
-        .network
+        .general
         .nodes
         .lcd
         .iter()

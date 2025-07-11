@@ -9,6 +9,15 @@ general:
   alerting:
     validators:
       - 987158183DBF316FC7B84398F86BAADEAD96BE00
+  nodes:
+    rpc:
+      - name: p2p
+        url: https://namada-archive.tm.p2p.org/
+        healthEndpoint: /health
+    lcd:
+      - name: p2p
+        url: https://api-namada-mainnet-indexer.tm.p2p.org/
+        healthEndpoint: /health
 
 node:
   cometbft:
@@ -21,16 +30,6 @@ node:
       interval: 30
 
 network:
-  nodes:
-    rpc:
-      - name: p2p
-        url: https://namada-archive.tm.p2p.org/
-        healthEndpoint: /health
-    lcd:
-      - name: p2p
-        url: https://api-namada-mainnet-indexer.tm.p2p.org/
-        healthEndpoint: /health
-
   cometbft:
     validators:
       enabled: true

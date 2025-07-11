@@ -15,6 +15,7 @@ pub struct GeneralConfig {
     pub chain_id: String,
     pub metrics: MetricsConfig,
     pub alerting: AlertingConfig,
+    pub nodes: NodesConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -36,7 +37,6 @@ pub struct NodeConfig {
 /// Network configuration, including node lists and module configs
 #[derive(Debug, Deserialize, Clone)]
 pub struct NetworkConfig {
-    pub nodes: NodesConfig,
     pub cometbft: CometBFTConfig,
     pub tendermint: TendermintConfig,
     pub mezo: MezoConfig,
