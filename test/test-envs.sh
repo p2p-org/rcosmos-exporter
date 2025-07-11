@@ -27,6 +27,18 @@ fi
 
 sleep 3
 
+for i in {1..30}; do
+  if curl -s http://localhost:8123/ping > /dev/null; then
+    echo "ClickHouse is up!"
+    break
+  fi
+  echo "Waiting for ClickHouse..."
+  sleep 2
+done
+
+
+docker compose ps
+
 docker stop rcosmos-exporter
 
 sleep 3
