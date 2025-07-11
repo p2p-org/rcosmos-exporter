@@ -19,7 +19,7 @@ fi
 # Run migrations before tests
 if docker compose ls &>/dev/null; then
   echo "🚀 Running migrations with docker compose..."
-  docker compose --profile migrate up -d
+  docker compose --profile ci up -d
 else
   echo "❌ docker compose not found! Please install Docker Compose."
   exit 1
@@ -36,12 +36,6 @@ for i in {1..30}; do
   sleep 2
 done
 
-
-docker compose ps
-
-docker stop rcosmos-exporter
-
-sleep 3
 
 for env_file in test/env/*.yaml; do
   export CLICKHOUSE_URL=http://localhost:8123

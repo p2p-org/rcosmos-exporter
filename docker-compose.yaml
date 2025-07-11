@@ -3,6 +3,7 @@ services:
     restart: always
     image: altinity/clickhouse-server:24.3.18.10426.altinitystable
     platform: linux/arm64
+    profiles: ["ci"]
     ports:
       - "8123:8123"   # HTTP interface
       - "9000:9000"   # Native TCP interface
@@ -17,10 +18,11 @@ services:
       nofile:
         soft: 262144
         hard: 262144
-
+    
   clickhouse-ui:
     image: ghcr.io/caioricciuti/ch-ui:latest
     restart: always
+    profiles: ["ci"]
     environment:
       VITE_CLICKHOUSE_URL: http://localhost:8123
       VITE_CLICKHOUSE_USER: default
@@ -28,10 +30,11 @@ services:
       VITE_CLICKHOUSE_USE_ADVANCED: true
     ports:
       - "5521:5521"
+    
 
   clickhouse-migrate:
     image: rust:latest
-    profiles: ["migrate"]
+    profiles: ["ci", "migrate"]
     depends_on:
       - clickhouse-server
     volumes:
@@ -64,6 +67,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
+    profiles: ["ci"]
     volumes:
       - ./.docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -73,10 +77,11 @@ services:
       - "9090:9090"
     depends_on:
       - exporter
-
+    
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
+    profiles: ["ci"]
     ports:
       - "3000:3000"
     environment:
@@ -90,6 +95,7 @@ services:
       - ./.docker/grafana/dashboards:/var/lib/grafana/dashboards  
       - ./.docker/grafana/dashboard-provisioning.yaml:/etc/grafana/provisioning/dashboards/dashboard.yaml:ro
       - ./.docker/grafana/plugins:/var/lib/grafana/plugins
+    
 
 volumes:
   clickhouse_data:
