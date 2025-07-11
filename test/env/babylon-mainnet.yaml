@@ -14,9 +14,15 @@ general:
       - name: p2p
         url: https://rpc.bbn-1.babylon.tm.p2p.org
         healthEndpoint: /health
+      - name: polkachu
+        url: https://babylon-rpc.polkachu.com
+        healthEndpoint: /health
     lcd:
       - name: p2p
         url: https://api.bbn-1.babylon.tm.p2p.org
+        healthEndpoint: /cosmos/base/node/v1beta1/status
+      - name: polkachu
+        url: https://babylon-api.polkachu.com
         healthEndpoint: /cosmos/base/node/v1beta1/status
 
 node:
