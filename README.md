@@ -104,6 +104,15 @@ general:
   alerting:
     validators:
       - 44C395A4A96C6D1A450ED33B5A8DDB359CEFED36
+  nodes:
+    rpc:
+      - name: p2p
+        url: https://rpc.bbn-1.babylon.tm.p2p.org
+        healthEndpoint: /health
+    lcd:
+      - name: p2p
+        url: https://api.bbn-1.babylon.tm.p2p.org
+        healthEndpoint: /cosmos/base/node/v1beta1/status
 
 node:
   tendermint:
@@ -116,16 +125,6 @@ node:
       interval: 30
 
 network:
-  nodes:
-    rpc:
-      - name: p2p
-        url: https://rpc.bbn-1.babylon.tm.p2p.org
-        healthEndpoint: /health
-    lcd:
-      - name: p2p
-        url: https://api.bbn-1.babylon.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
-
   cometbft:
     validators:
       enabled: true
