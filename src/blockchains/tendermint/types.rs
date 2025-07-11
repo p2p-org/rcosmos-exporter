@@ -6,14 +6,15 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct ValidatorsResponse {
-    pub result: Option<ValidatorsResult>,
+    pub validators: Vec<Validator>,
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ValidatorsResult {
     pub count: String,
     pub total: String,
-    pub validators: Vec<TendermintValidator>,
+    pub validators: Vec<ValidatorSimple>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,7 +25,7 @@ pub struct PubKey {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintValidator {
+pub struct ValidatorSimple {
     pub address: String,
     pub pub_key: PubKey,
     pub voting_power: String,
@@ -32,25 +33,25 @@ pub struct TendermintValidator {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintStatusResponse {
-    pub result: TendermintStatusResult,
+pub struct StatusResponse {
+    pub result: StatusResult,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintStatusResult {
-    pub node_info: TendermintNodeInfo,
-    pub sync_info: TendermintSyncInfo,
+pub struct StatusResult {
+    pub node_info: NodeInfo,
+    pub sync_info: SyncInfo,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintNodeInfo {
+pub struct NodeInfo {
     pub id: String,
     pub version: String,
     pub network: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintSyncInfo {
+pub struct SyncInfo {
     pub catching_up: bool,
     pub latest_block_height: String,
     #[serde(with = "serde_naive_datetime")]
@@ -72,35 +73,35 @@ impl BlockTime {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintBlockResponse {
-    pub result: TendermintBlockResult,
+pub struct BlockResponse {
+    pub result: BlockResult,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintBlockResult {
-    pub block: TendermintBlock,
+pub struct BlockResult {
+    pub block: Block,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintBlock {
-    pub header: TendermintBlockHeader,
-    pub data: TendermintBlockData,
-    pub last_commit: TendermintBlockLastCommit,
+pub struct Block {
+    pub header: BlockHeader,
+    pub data: BlockData,
+    pub last_commit: BlockLastCommit,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintBlockData {
+pub struct BlockData {
     pub txs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct TendermintBlockLastCommit {
+pub struct BlockLastCommit {
     pub height: String,
-    pub signatures: Vec<TendermintBlockSignature>,
+    pub signatures: Vec<BlockSignature>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct TendermintBlockSignature {
+pub struct BlockSignature {
     pub validator_address: String,
     pub signature: Option<String>,
     #[serde(with = "serde_naive_datetime")]
@@ -108,7 +109,7 @@ pub struct TendermintBlockSignature {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintBlockHeader {
+pub struct BlockHeader {
     pub height: String,
     #[serde(with = "serde_naive_datetime")]
     pub time: NaiveDateTime,
@@ -117,37 +118,31 @@ pub struct TendermintBlockHeader {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintRESTResponse {
-    pub validators: Vec<TendermintRESTValidator>,
-    pub pagination: TendermintRESTPagination,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TendermintRESTValidator {
+pub struct Validator {
     pub operator_address: String,
-    pub consensus_pubkey: TendermintRESTConsensusPubKey,
+    pub consensus_pubkey: ValidatorConsensusPubKey,
     pub jailed: bool,
     pub status: String,
     pub tokens: String,
     pub delegator_shares: String,
-    pub description: TendermintRESTDescription,
+    pub description: ValidatorDescription,
     pub unbonding_height: String,
     pub unbonding_time: String,
-    pub commission: TendermintRESTCommission,
+    pub commission: ValidatorCommission,
     pub min_self_delegation: String,
     pub unbonding_on_hold_ref_count: Option<String>,
     pub unbonding_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintRESTConsensusPubKey {
+pub struct ValidatorConsensusPubKey {
     #[serde(rename = "@type")]
     pub key_type: String,
     pub key: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintRESTDescription {
+pub struct ValidatorDescription {
     pub moniker: String,
     pub identity: String,
     pub website: String,
@@ -156,28 +151,43 @@ pub struct TendermintRESTDescription {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintRESTCommission {
-    pub commission_rates: TendermintRESTCommissionRates,
+pub struct ValidatorCommission {
+    pub commission_rates: ValidatorCommissionRates,
     pub update_time: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintRESTCommissionRates {
+pub struct ValidatorCommissionRates {
     pub rate: String,
     pub max_rate: String,
     pub max_change_rate: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintRESTPagination {
+pub struct Pagination {
     pub next_key: Option<String>,
     pub total: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintProposalsResponse {
+pub struct StakingParamsResponse {
+    pub params: StakingParams,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StakingParams {
+    pub unbonding_time: String,
+    pub max_validators: u64,
+    pub max_entries: u64,
+    pub historical_entries: u64,
+    pub bond_denom: String,
+    pub min_commission_rate: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProposalsResponse {
     pub proposals: Vec<Proposal>,
-    pub pagination: TendermintRESTPagination,
+    pub pagination: Pagination,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -255,36 +265,49 @@ mod serde_naive_datetime {
         let s = String::deserialize(deserializer)?;
         NaiveDateTime::parse_from_str(&s, DATE_FORMAT).map_err(serde::de::Error::custom)
     }
+
+    pub fn option<'de, D>(deserializer: D) -> Result<Option<NaiveDateTime>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt = Option::<String>::deserialize(deserializer)?;
+        match opt {
+            Some(s) => NaiveDateTime::parse_from_str(&s, DATE_FORMAT)
+                .map(Some)
+                .map_err(serde::de::Error::custom),
+            None => Ok(None),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintUpgradePlanResponse {
-    pub plan: Option<TendermintUpgradePlan>,
+pub struct UpgradePlanResponse {
+    pub plan: Option<UpgradePlan>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintUpgradePlan {
+pub struct UpgradePlan {
     pub name: String,
     pub height: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintTxResponse {
-    pub result: TendermintTxResponseResult,
+pub struct TxResponse {
+    pub result: TxResponseResult,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintTxResponseResult {
-    pub txs: Vec<TendermintTx>,
+pub struct TxResponseResult {
+    pub txs: Vec<Tx>,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct TendermintTx {
-    pub tx_result: TendermintTxResult,
+pub struct Tx {
+    pub tx_result: TxResult,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintTxResult {
+pub struct TxResult {
     pub gas_wanted: String,
     pub gas_used: String,
 }
@@ -295,8 +318,8 @@ pub struct DefaultNodeInfo {
     pub network: String,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct TendermintApplicationVersion {
+#[derive(Debug, Deserialize)]
+pub struct ApplicationVersion {
     pub name: String,
     pub app_name: String,
     pub version: String,
@@ -304,76 +327,89 @@ pub struct TendermintApplicationVersion {
     pub git_commit: String,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct TendermintNodeInfoResponse {
+#[derive(Debug, Deserialize)]
+pub struct NodeInfoResponse {
     pub default_node_info: DefaultNodeInfo,
-    pub application_version: TendermintApplicationVersion,
+    pub application_version: ApplicationVersion,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintDelegationRESTResponse {
-    pub delegation_responses: Vec<TendermintDelegationResponse>,
-    pub pagination: TendermintRESTPagination,
+pub struct DelegationResponse {
+    pub delegation_responses: Vec<Delegation>,
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintDelegationResponse {
-    pub delegation: TendermintDelegation,
-    pub balance: TendermintBalance,
+pub struct Delegation {
+    pub delegation: DelegationInfo,
+    pub balance: Balance,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintDelegation {
+pub struct DelegationInfo {
     pub delegator_address: String,
     pub validator_address: String,
     pub shares: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintBalance {
+pub struct Balance {
     pub denom: String,
     pub amount: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintCommissionRESTResponse {
-    pub commission: TendermintCommisionResponse,
+pub struct UnbondingDelegationResponse {
+    pub unbonding_responses: Vec<UnbondingDelegation>,
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintCommisionResponse {
-    pub commission: Vec<TendermintCommision>,
+pub struct UnbondingDelegation {
+    pub delegator_address: String,
+    pub validator_address: String,
+    pub entries: Vec<UnbondingDelegationEntry>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintCommision {
+pub struct CommissionResponse {
+    pub commission: CommissionList,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommissionList {
+    pub commission: Vec<Commission>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Commission {
     pub denom: String,
     pub amount: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintRewardsRESTResponse {
-    pub rewards: TendermintRewardsResponse,
+pub struct RewardsResponse {
+    pub rewards: RewardsList,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintRewardsResponse {
-    pub rewards: Vec<TendermintReward>,
+pub struct RewardsList {
+    pub rewards: Vec<Reward>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintReward {
+pub struct Reward {
     pub denom: String,
     pub amount: String,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct TendermintSelfBondRewardResponse {
-    pub self_bond_rewards: Vec<TendermintReward>,
+pub struct SelfBondRewardResponse {
+    pub self_bond_rewards: Vec<Reward>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintUnbondingDelegationEntry {
+pub struct UnbondingDelegationEntry {
     pub creation_height: String,
     pub completion_time: String,
     pub initial_balance: String,
@@ -381,26 +417,111 @@ pub struct TendermintUnbondingDelegationEntry {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintUnbondingDelegation {
-    pub delegator_address: String,
-    pub validator_address: String,
-    pub entries: Vec<TendermintUnbondingDelegationEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TendermintValidatorUnbondingDelegationsResponse {
-    pub unbonding_responses: Vec<TendermintUnbondingDelegation>,
-    pub pagination: TendermintRESTPagination,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TendermintSlash {
+pub struct Slash {
     pub validator_period: String,
     pub fraction: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TendermintValidatorSlashesResponse {
-    pub slashes: Vec<TendermintSlash>,
-    pub pagination: TendermintRESTPagination,
+pub struct ValidatorSlashesResponse {
+    pub slashes: Vec<Slash>,
+    pub pagination: Pagination,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PoolResponse {
+    pub pool: Pool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Pool {
+    pub not_bonded_tokens: String,
+    pub bonded_tokens: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SigningInfosResponse {
+    pub info: Vec<SigningInfo>,
+    pub pagination: Pagination,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SigningInfo {
+    pub address: String,
+    pub start_height: String,
+    pub index_offset: String,
+    #[serde(with = "serde_naive_datetime")]
+    pub jailed_until: NaiveDateTime,
+    pub tombstoned: bool,
+    pub missed_blocks_counter: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SlashingParamsResponse {
+    pub params: SlashingParams,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SlashingParams {
+    pub signed_blocks_window: String,
+    pub min_signed_per_window: String,
+    pub downtime_jail_duration: String,
+    pub slash_fraction_double_sign: String,
+    pub slash_fraction_downtime: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BankBalance {
+    pub denom: String,
+    pub amount: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BankBalancesResponse {
+    pub balances: Vec<BankBalance>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GovProposalsResponse {
+    pub proposals: Vec<GovProposal>,
+    pub pagination: Pagination,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GovProposal {
+    pub id: String,
+    pub messages: Vec<GovMessage>,
+    pub status: String,
+    pub final_tally_result: GovTallyResult,
+    pub submit_time: String,
+    pub deposit_end_time: String,
+    pub total_deposit: Vec<GovCoin>,
+    #[serde(default, deserialize_with = "serde_naive_datetime::option")]
+    pub voting_start_time: Option<NaiveDateTime>,
+    #[serde(default, deserialize_with = "serde_naive_datetime::option")]
+    pub voting_end_time: Option<NaiveDateTime>,
+    pub metadata: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GovMessage {
+    #[serde(rename = "@type")]
+    pub msg_type: String,
+    pub from_address: Option<String>,
+    pub to_address: Option<String>,
+    pub amount: Option<Vec<GovCoin>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GovTallyResult {
+    pub yes_count: String,
+    pub abstain_count: String,
+    pub no_count: String,
+    pub no_with_veto_count: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GovCoin {
+    pub denom: String,
+    pub amount: String,
 }

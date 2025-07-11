@@ -6,3 +6,11 @@ target/
 
 .DS_Store
 .vscode
+
+
+!.docker/grafana/plugins/
+.docker/grafana/plugins/*
+!.docker/grafana/plugins/nline-plotlyjs-panel/
+!.docker/grafana/plugins/nline-plotlyjs-panel/**
+!.docker/grafana/plugins/grafana-clickhouse-datasource/
+!.docker/grafana/plugins/grafana-clickhouse-datasource/**

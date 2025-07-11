@@ -14,17 +14,14 @@ lazy_static! {
         &["endpoint", "status_code", "network"]
     )
     .unwrap();
-    pub static ref EXPORTER_TASK_RUNS: GaugeVec = GaugeVec::new(
-        Opts::new("rcosmos_exporter_task_run", "RCosmos Exporter task runs"),
-        &["task", "network"]
+    pub static ref EXPORTER_RUN: GaugeVec = GaugeVec::new(
+        Opts::new("rcosmos_exporter_run", "RCosmos Exporter run"),
+        &["module", "network"]
     )
     .unwrap();
-    pub static ref EXPORTER_TASK_ERRORS: GaugeVec = GaugeVec::new(
-        Opts::new(
-            "rcosmos_exporter_task_error",
-            "RCosmos Exporter task errors"
-        ),
-        &["task", "network"]
+    pub static ref EXPORTER_ERROR: GaugeVec = GaugeVec::new(
+        Opts::new("rcosmos_exporter_error", "RCosmos Exporter error"),
+        &["module", "network"]
     )
     .unwrap();
     pub static ref EXPORTER_HEARTBEAT: IntGaugeVec = IntGaugeVec::new(
@@ -47,10 +44,10 @@ pub fn register_exporter_metrics() {
         .register(Box::new(EXPORTER_HTTP_REQUESTS.clone()))
         .unwrap();
     EXPORTER_REGISTRY
-        .register(Box::new(EXPORTER_TASK_RUNS.clone()))
+        .register(Box::new(EXPORTER_RUN.clone()))
         .unwrap();
     EXPORTER_REGISTRY
-        .register(Box::new(EXPORTER_TASK_ERRORS.clone()))
+        .register(Box::new(EXPORTER_ERROR.clone()))
         .unwrap();
     EXPORTER_REGISTRY
         .register(Box::new(EXPORTER_HEARTBEAT.clone()))

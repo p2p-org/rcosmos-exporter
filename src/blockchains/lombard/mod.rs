@@ -1,3 +1,3 @@
-pub mod ledger_scrapper;
+pub mod ledger;
 pub mod metrics;
 pub mod types;

@@ -1,73 +1,66 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
-use crate::{
-    blockchains::babylon::metrics::REGISTRY as babylon_registry,
-    blockchains::coredao::metrics::REGISTRY as coredao_registry,
-    blockchains::namada::metrics::REGISTRY as namada_registry,
-    blockchains::tendermint::metrics::REGISTRY as tendermint_registry,
-    core::blockchain::Blockchain,
-};
+use crate::blockchains::cometbft::metrics::REGISTRY as cometbft_registry;
+use crate::blockchains::tendermint::metrics::REGISTRY as tendermint_registry;
 use hyper::{
     service::{make_service_fn, service_fn},
     Body, Response, Server,
 };
 
 use prometheus::{Encoder, TextEncoder};
-use tracing::error;
+use tracing::{debug, error, info};
 
 use super::exporter_metrics::{register_exporter_metrics, EXPORTER_REGISTRY};
 
 ///
 /// Serves blockchain and exporter metrics with Prometheus format.
 ///
-pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, blockchain: Blockchain) {
+pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, path: String) {
     let addr: SocketAddr = format!("{}:{}", prometheus_ip, prometheus_port)
         .parse()
         .expect("Unable to parse IP and port");
 
-    let blockchain_arc = Arc::new(blockchain);
-
+    info!(
+        "Starting Prometheus metrics server on http://{}{}",
+        addr, path
+    );
     register_exporter_metrics();
 
-    let make_svc = make_service_fn(|_| {
-        let blockchain_type = blockchain_arc.clone();
+    let make_svc = make_service_fn(move |_| {
+        let path = path.clone();
         async move {
-            let blockchain_type = blockchain_type.clone();
-            Ok::<_, hyper::Error>(service_fn(move |_| {
-                let blockchain_type = blockchain_type.clone();
+            let path = path.clone();
+            Ok::<_, hyper::Error>(service_fn(move |req| {
+                let path = path.clone();
+                let req_path = req.uri().path().to_string();
+                debug!("Metrics server received request: {}", req_path);
                 async move {
-                    let encoder = TextEncoder::new();
-                    let mut buffer = Vec::new();
+                    if req_path == path {
+                        let encoder = TextEncoder::new();
+                        let mut buffer = Vec::new();
 
-                    let mut metric_families = match *blockchain_type {
-                        Blockchain::Tendermint => tendermint_registry.gather(),
-                        Blockchain::Mezo => tendermint_registry.gather(),
-                        Blockchain::CoreDao => coredao_registry.gather(),
-                        Blockchain::Namada => namada_registry.gather(),
-                        Blockchain::Babylon => {
-                            let mut families = Vec::new();
-                            families.extend(babylon_registry.gather());
-                            families.extend(tendermint_registry.gather());
-                            families
-                        }
-                        Blockchain::Lombard => {
-                            let mut families = Vec::new();
-                            families.extend(tendermint_registry.gather());
-                            families
-                        }
-                        Blockchain::Noble => tendermint_registry.gather(),
-                    };
+                        let mut metric_families = Vec::new();
+                        metric_families.extend(cometbft_registry.gather());
+                        metric_families.extend(tendermint_registry.gather());
+                        metric_families.extend(EXPORTER_REGISTRY.gather());
 
-                    metric_families.extend(EXPORTER_REGISTRY.gather());
-
-                    encoder.encode(&metric_families, &mut buffer).unwrap();
-                    Ok::<_, hyper::Error>(
-                        Response::builder()
-                            .status(200)
-                            .header("Content-Type", encoder.format_type())
-                            .body(Body::from(buffer))
-                            .unwrap(),
-                    )
+                        encoder.encode(&metric_families, &mut buffer).unwrap();
+                        Ok::<_, hyper::Error>(
+                            Response::builder()
+                                .status(200)
+                                .header("Content-Type", encoder.format_type())
+                                .body(Body::from(buffer))
+                                .unwrap(),
+                        )
+                    } else {
+                        debug!("Metrics server 404 for path: {}", req_path);
+                        Ok::<_, hyper::Error>(
+                            Response::builder()
+                                .status(404)
+                                .body(Body::from("Not Found"))
+                                .unwrap(),
+                        )
+                    }
                 }
             }))
         }

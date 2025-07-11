@@ -1,3 +1,3 @@
-pub mod block_scrapper;
+pub mod block;
 pub mod metrics;
-pub mod validator_info_scrapper;
+pub mod validator;

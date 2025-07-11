@@ -1,4 +1,3 @@
-pub mod block_scrapper;
-pub mod metrics;
+pub mod account;
+pub mod pos;
 pub mod types;
-pub mod validator_info_scrapper;

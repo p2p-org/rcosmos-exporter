@@ -5,23 +5,23 @@ use prometheus::{IntGaugeVec, Opts};
 lazy_static! {
     pub static ref LOMBARD_LATEST_SESSION_ID: IntGaugeVec = IntGaugeVec::new(
         Opts::new(
-            "lombard_latest_session_id",
+            "rcosmos_lombard_latest_session_id",
             "ID of the latest notary session"
         ),
-        &["network"]
+        &["chain_id", "network"]
     )
     .unwrap();
     pub static ref LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION: IntGaugeVec = IntGaugeVec::new(
         Opts::new(
-            "lombard_validator_signed_latest_session",
+            "rcosmos_lombard_validator_signed_latest_session",
             "1 if validator signed in the latest notary session, 0 if not"
         ),
-        &["validator", "session_id", "network"]
+        &["validator", "session_id", "chain_id", "network"]
     )
     .unwrap();
 }
 
-pub fn register_ledger_metrics() {
+pub fn lombard_custom_metrics() {
     TENDERMINT_REGISTRY
         .register(Box::new(LOMBARD_LATEST_SESSION_ID.clone()))
         .ok();
