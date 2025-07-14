@@ -42,6 +42,14 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command: |
       "
+      for i in {1..30}; do \
+        if curl -s http://clickhouse-server:8123/ping > /dev/null; then \
+          echo 'ClickHouse is up!'; \
+          break; \
+        fi; \
+        echo 'Waiting for ClickHouse...'; \
+        sleep 2; \
+      done && \
       sed -i 's|^url = .*|url = \"http://clickhouse-server:8123\"|' ch_migrations/chm.toml && \
       touch .env && \
       cargo install chm && chm migration run && \

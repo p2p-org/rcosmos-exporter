@@ -25,20 +25,13 @@ else
   exit 1
 fi
 
-sleep 3
+sleep 10
 
-for i in {1..30}; do
-  if curl -s http://localhost:8123/ping > /dev/null; then
-    echo "ClickHouse is up!"
-    break
-  fi
-  echo "Waiting for ClickHouse..."
-  sleep 2
-done
+docker logs $(docker compose ps -q clickhouse-migrate)
 
 docker stop rcosmos-exporter
 
-sleep 15
+sleep 5
 
 for env_file in test/env/*.yaml; do
   export CLICKHOUSE_URL=http://localhost:8123
