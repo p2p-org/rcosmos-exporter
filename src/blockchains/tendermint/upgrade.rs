@@ -49,7 +49,11 @@ impl Upgrade {
                 .parse::<i64>()
                 .context("Could not parse plan height")?;
             TENDERMINT_UPGRADE_PLAN
-                .with_label_values(&[&plan.name, &self.app_context.config.general.network])
+                .with_label_values(&[
+                    &plan.name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                ])
                 .set(height);
         }
 
