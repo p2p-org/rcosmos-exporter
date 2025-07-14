@@ -56,6 +56,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    info!("Config: \n {}", config_str);
     let config: AppConfig = match serde_yaml::from_str(&config_str) {
         Ok(cfg) => cfg,
         Err(e) => {
