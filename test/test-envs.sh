@@ -31,7 +31,7 @@ docker logs $(docker compose ps -q clickhouse-migrate)
 
 docker stop rcosmos-exporter
 
-sleep 5
+sleep 120
 
 for env_file in test/env/*.yaml; do
   export CLICKHOUSE_URL=http://localhost:8123
