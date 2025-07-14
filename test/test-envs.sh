@@ -19,7 +19,7 @@ fi
 # Run migrations before tests
 if docker compose ls &>/dev/null; then
   echo "🚀 Running migrations with docker compose..."
-  docker compose --profile ci up -d
+  docker compose -f docker-compose.test.yaml --project-name rcosmos-exporter-test up -d
 else
   echo "❌ docker compose not found! Please install Docker Compose."
   exit 1
@@ -27,14 +27,12 @@ fi
 
 sleep 10
 
-docker logs $(docker compose ps -q clickhouse-migrate)
-
-docker stop rcosmos-exporter
+docker logs $(docker compose --project-name rcosmos-exporter-test ps -q clickhouse-migrate)
 
 sleep 120
 
 for env_file in test/env/*.yaml; do
-  export CLICKHOUSE_URL=http://localhost:8123
+  export CLICKHOUSE_URL=http://localhost:18123
   export CLICKHOUSE_DATABASE=default
   export CLICKHOUSE_USER=default
   export CLICKHOUSE_PASSWORD=mysecurepassword123
