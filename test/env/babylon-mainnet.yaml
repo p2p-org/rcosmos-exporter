@@ -62,7 +62,7 @@ network:
       enabled: true
       interval: 30
     gov:
-      enabled: false
+      enabled: true
       interval: 30
     staking:
       enabled: true
