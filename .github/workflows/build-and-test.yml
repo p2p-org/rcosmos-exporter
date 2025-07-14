@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,107 +16,5 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build the project
-        run: |
-          cargo build --release
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rcosmos-exporter-bin
-          path: target/release/rcosmos-exporter
-
-  test:
-    needs: [build]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download binary artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: rcosmos-exporter-bin
-          path: ./bin
-
-      - name: Make binary executable
-        run: chmod +x ./bin/rcosmos-exporter
-
-      - name: Test all configurations
-        run: |
-          # Debug: Check what files are available
-          echo "Current directory contents:"
-          ls -la
-          echo "Looking for test-envs directory:"
-          ls -la test-envs/ || echo "test-envs directory not found"
-          echo "Looking for .env files:"
-          find . -name "*.env*" -type f || echo "No .env files found"
-          
-          port=9100
-          failed_tests=()
-          
-          # Check if test-envs directory exists and has files
-          if [ ! -d "test-envs" ]; then
-            echo "❌ test-envs directory not found!"
-            exit 1
-          fi
-          
-          env_files_found=0
-          for env_file in test-envs/.env*; do
-            export CLICKHOUSE_URL=http://localhost:8123
-            export CLICKHOUSE_DATABASE=default
-            export CLICKHOUSE_USER=default
-            export CLICKHOUSE_PASSWORD=mysecurepassword123
-            if [ -f "$env_file" ]; then
-              env_files_found=$((env_files_found + 1))
-              echo "🧪 Testing with $env_file on port $port"
-              
-              # Start the application with the current env file
-              env $(cat "$env_file" | xargs) PROMETHEUS_PORT=$port ./bin/rcosmos-exporter &
-              app_pid=$!
-              
-              # Wait for startup
-              sleep 8
-              
-              # Check if metrics endpoint is responding
-              if curl -s "http://localhost:$port/metrics" > /dev/null; then
-                echo "✅ $env_file - SUCCESS"
-              else
-                echo "❌ $env_file - FAILED"
-                failed_tests+=("$env_file")
-              fi
-              
-              # Simple process termination
-              kill $app_pid 2>/dev/null || true
-              sleep 2
-              
-              # If still running, force kill
-              if kill -0 $app_pid 2>/dev/null; then
-                echo "⚠️ Force killing $env_file (pid $app_pid)"
-                kill -9 $app_pid 2>/dev/null || true
-                sleep 1
-              fi
-              
-              # Increment port for next test
-              port=$((port + 1))
-              
-              # Small delay between tests
-              sleep 2
-            fi
-          done
-          
-          # Check if any env files were found
-          if [ $env_files_found -eq 0 ]; then
-            echo "❌ No .env files found in test-envs directory!"
-            exit 1
-          fi
-          
-          # Report results
-          if [ ${#failed_tests[@]} -eq 0 ]; then
-            echo "🎉 All $env_files_found tests passed!"
-          else
-            echo "💥 ${#failed_tests[@]} out of $env_files_found test(s) failed:"
-            printf '  - %s\n' "${failed_tests[@]}"
-            exit 1
-          fi
+      - name: Run test-envs.sh
+        run: ./test/test-envs.sh

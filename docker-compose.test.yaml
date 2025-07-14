@@ -1,0 +1,49 @@
+
+networks:
+  test:
+    driver: bridge
+
+services:
+  clickhouse-server:
+    container_name: clickhouse-server-test
+    restart: always
+    image: altinity/clickhouse-server:24.3.18.10426.altinitystable
+    ports:
+      - "18123:8123"   # HTTP interface
+      - "19000:9000"   # Native TCP interface
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: mysecurepassword123
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    networks:
+      - test
+
+  clickhouse-migrate:
+    image: rust:latest
+    depends_on:
+      - clickhouse-server
+    volumes:
+      - ./ch_migrations:/chm/ch_migrations
+    working_dir: /chm/
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      for i in {1..30}; do \
+        if curl -s http://clickhouse-server-test:8123/ping > /dev/null; then \
+          echo 'ClickHouse is up!'; \
+          break; \
+        fi; \
+        echo 'Waiting for ClickHouse...'; \
+        sleep 2; \
+      done && \
+      sed -i 's|^url = .*|url = \"http://clickhouse-server-test:8123\"|' ch_migrations/chm.toml && \
+      touch .env && \
+      cargo install chm && chm migration run && \
+      sed -i 's|^url = .*|url = \"http://localhost:8123\"|' ch_migrations/chm.toml
+      "
+    networks:
+      - test

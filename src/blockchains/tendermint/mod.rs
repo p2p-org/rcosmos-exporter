@@ -1,10 +1,9 @@
-pub mod address_scrapper;
-pub mod block_scrapper;
-pub mod chain_id;
+pub mod bank;
+pub mod distribution;
+pub mod gov;
 pub mod metrics;
-pub mod node_status_scrapper;
-pub mod proposal_scrapper;
+pub mod node_info;
+pub mod slashing;
+pub mod staking;
 pub mod types;
-pub mod upgrade_plan_scrapper;
-pub mod uptime_scrapper;
-pub mod validator_info_scrapper;
+pub mod upgrade;

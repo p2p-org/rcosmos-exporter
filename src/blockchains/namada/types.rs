@@ -5,22 +5,113 @@ use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct BlockResponse {
+    pub jsonrpc: String,
+    pub id: i32,
+    pub result: BlockResult,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct BlockResult {
+    pub block_id: BlockId,
     pub block: Block,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Block {
-    pub height: u64,
+pub struct BlockId {
     pub hash: String,
+    pub parts: BlockParts,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct BlockParts {
+    pub total: u32,
+    pub hash: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Block {
+    pub header: BlockHeader,
+    pub data: BlockData,
+    pub evidence: BlockEvidence,
+    pub last_commit: LastCommit,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct BlockHeader {
+    pub version: BlockVersion,
+    #[serde(rename = "chain_id")]
+    pub chain_id: String,
+    pub height: String,
     pub time: String,
+    #[serde(rename = "last_block_id")]
+    pub last_block_id: BlockId,
+    #[serde(rename = "last_commit_hash")]
+    pub last_commit_hash: String,
+    #[serde(rename = "data_hash")]
+    pub data_hash: String,
+    #[serde(rename = "validators_hash")]
+    pub validators_hash: String,
+    #[serde(rename = "next_validators_hash")]
+    pub next_validators_hash: String,
+    #[serde(rename = "consensus_hash")]
+    pub consensus_hash: String,
+    #[serde(rename = "app_hash")]
+    pub app_hash: String,
+    #[serde(rename = "last_results_hash")]
+    pub last_results_hash: String,
+    #[serde(rename = "evidence_hash")]
+    pub evidence_hash: String,
+    #[serde(rename = "proposer_address")]
     pub proposer_address: String,
-    pub txs: Option<Vec<String>>, // base64-encoded txs
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct BlockVersion {
+    pub block: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct BlockData {
+    pub txs: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct BlockEvidence {
+    pub evidence: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct LastCommit {
+    pub height: String,
+    pub round: u32,
+    #[serde(rename = "block_id")]
+    pub block_id: BlockId,
+    pub signatures: Vec<CommitSignature>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CommitSignature {
+    #[serde(rename = "block_id_flag")]
+    pub block_id_flag: u32,
+    #[serde(rename = "validator_address")]
+    pub validator_address: String,
+    pub timestamp: String,
+    pub signature: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ValidatorsResponse {
+    pub jsonrpc: String,
+    pub id: i32,
+    pub result: ValidatorsResult,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ValidatorsResult {
     pub validators: Vec<Validator>,
-    pub block_height: u64,
+    pub block_height: String,
+    pub count: String,
+    pub total: String,
 }
 
 fn option_u32_from_string_or_null<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
@@ -48,6 +139,25 @@ where
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Validator {
+    pub address: String,
+    #[serde(rename = "pub_key")]
+    pub pub_key: ValidatorPubKey,
+    #[serde(rename = "voting_power")]
+    pub voting_power: String,
+    #[serde(rename = "proposer_priority")]
+    pub proposer_priority: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ValidatorPubKey {
+    #[serde(rename = "type")]
+    pub type_field: String,
+    pub value: String,
+}
+
+// REST API Validator struct (used by block_scrapper and validator_info_scrapper)
+#[derive(Debug, Deserialize, Clone)]
+pub struct RestValidator {
     pub address: String,
     #[serde(rename = "votingPower")]
     pub voting_power: Option<String>,
