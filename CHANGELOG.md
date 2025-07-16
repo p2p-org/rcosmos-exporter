@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/p2p-org/rcosmos-exporter/compare/v2.0.1...v2.0.2) (2025-07-16)
+
+
+### Bug Fixes
+
+* **mezo:** chain_id from app context instead of config ([#70](https://github.com/p2p-org/rcosmos-exporter/issues/70)) ([2162387](https://github.com/p2p-org/rcosmos-exporter/commit/2162387822d2647589dfb0024579ba212e69b629))
+
 ## [2.0.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.0.0...v2.0.1) (2025-07-15)
 
 
