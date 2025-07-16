@@ -41,7 +41,7 @@ impl Status {
         info!("(CometBFT Node Status) Processing status metrics");
         let chain_id = &status.result.node_info.network;
         let network = &self.app_context.config.general.network;
-        let id = &self.app_context.config.general.chain_id;
+        let id = &self.app_context.config.node.id;
         COMETBFT_NODE_ID
             .with_label_values(&[
                 &self.name,
