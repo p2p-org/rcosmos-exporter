@@ -158,6 +158,7 @@ pub struct LombardLedgerConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct NodeModeConfig {
+    pub id: String,
     pub tendermint: NodeModeTendermintConfig,
     pub cometbft: NodeModeCometBFTConfig,
 }

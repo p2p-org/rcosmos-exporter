@@ -17,6 +17,7 @@ general:
     lcd: []
 
 node:
+  id: p2p
   cometbft:
     status:
       enabled: true

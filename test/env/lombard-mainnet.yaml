@@ -30,6 +30,7 @@ node:
       interval: 30
 
 network:
+  id: p2p
   cometbft:
     validators:
       enabled: true

@@ -53,18 +53,20 @@ impl NodeInfo {
         let chain_id = &self.app_context.chain_id;
         let name = &self.name;
         let network = &self.app_context.config.general.network;
+        let id = &self.app_context.config.node.id;
         // Helper macro to DRY the code
         macro_rules! update_metric {
-            ($field:ident, $value:expr, $metric:ident) => {{
+            ($field:ident, $value:expr, $id:expr, $metric:ident) => {{
                 let new_value = $value.clone();
                 if self.$field.as_ref() != Some(&new_value) {
                     if let Some(ref old_value) = self.$field {
                         // Remove old label
-                        let _ = $metric.remove_label_values(&[name, chain_id, network, old_value]);
+                        let _ =
+                            $metric.remove_label_values(&[name, chain_id, network, $id, old_value]);
                     }
                     // Set new value
                     $metric
-                        .with_label_values(&[name, chain_id, network, &new_value])
+                        .with_label_values(&[name, chain_id, network, $id, &new_value])
                         .set(1.0);
                     // Update stored field
                     self.$field = Some(new_value);
@@ -74,26 +76,31 @@ impl NodeInfo {
         update_metric!(
             app_name,
             node_info.application_version.app_name,
+            id,
             TENDERMINT_NODE_APP_NAME
         );
         update_metric!(
             app_version,
             node_info.application_version.version,
+            id,
             TENDERMINT_NODE_APP_VERSION
         );
         update_metric!(
             app_commit,
             node_info.application_version.git_commit,
+            id,
             TENDERMINT_NODE_APP_COMMIT
         );
         update_metric!(
             cosmos_sdk_version,
             node_info.application_version.cosmos_sdk_version,
+            id,
             TENDERMINT_NODE_COSMOS_SDK_VERSION
         );
         update_metric!(
             node_moniker,
             node_info.default_node_info.moniker,
+            id,
             TENDERMINT_NODE_MONIKER
         );
         Ok(())

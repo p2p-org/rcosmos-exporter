@@ -20,6 +20,7 @@ general:
         healthEndpoint: /health
 
 node:
+  id: p2p
   cometbft:
     status:
       enabled: true

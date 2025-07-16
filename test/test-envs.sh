@@ -32,7 +32,7 @@ docker logs $(docker compose --project-name rcosmos-exporter-test ps -q clickhou
 sleep 120
 
 for env_file in test/env/*.yaml; do
-  export CLICKHOUSE_URL=http://localhost:18123
+  export CLICKHOUSE_URL=http://localhost:8123
   export CLICKHOUSE_DATABASE=default
   export CLICKHOUSE_USER=default
   export CLICKHOUSE_PASSWORD=mysecurepassword123
