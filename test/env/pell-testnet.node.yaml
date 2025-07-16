@@ -21,6 +21,7 @@ general:
 
 
 node:
+  id: p2p
   tendermint:
     nodeInfo:
       enabled: true
