@@ -181,7 +181,7 @@ pub struct StakingParams {
     pub max_entries: u64,
     pub historical_entries: u64,
     pub bond_denom: String,
-    pub min_commission_rate: String,
+    pub min_commission_rate: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
