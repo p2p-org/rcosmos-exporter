@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.0.0...v2.0.1) (2025-07-15)
+
+
+### Bug Fixes
+
+* tendermint staking param and delegations fetching ([#68](https://github.com/p2p-org/rcosmos-exporter/issues/68)) ([fcae541](https://github.com/p2p-org/rcosmos-exporter/commit/fcae54193e2f6b3fa6dba3ed1ee496ff778c1be2))
+
 ## [2.0.0](https://github.com/p2p-org/rcosmos-exporter/compare/v1.4.0...v2.0.0) (2025-07-14)
 
 
