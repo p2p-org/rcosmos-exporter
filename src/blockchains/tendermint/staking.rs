@@ -78,13 +78,17 @@ impl Staking {
 
         let client = self.app_context.lcd.as_ref().unwrap();
         loop {
+            info!(
+                "(Tendermint Staking) Getting {} delegations",
+                validator_address
+            );
             let mut url = format!(
-                "/cosmos/staking/v1beta1/validators/{}/delegations?pagination.limit=100000",
+                "/cosmos/staking/v1beta1/validators/{}/delegations?pagination.limit=5000",
                 validator_address
             );
             if let Some(key) = &pagination_key {
-                let encoded_key = general_purpose::STANDARD.encode(key);
-                url = format!("{}?pagination.key={}", url, encoded_key);
+                let encoded_key = urlencoding::encode(key);
+                url = format!("{}&pagination.key={}", url, encoded_key);
             }
 
             let res = client
@@ -177,7 +181,10 @@ impl Staking {
         TENDERMINT_STAKING_PARAM_BOND_DENOM
             .with_label_values(&[&self.app_context.chain_id, network, &params.bond_denom])
             .set(0.0);
-        let min_commission_rate = params.min_commission_rate.parse::<f64>().unwrap_or(0.0);
+        let min_commission_rate = params
+            .min_commission_rate
+            .map(|rate| rate.parse::<f64>().unwrap_or(0.0))
+            .unwrap_or(0.0);
         TENDERMINT_STAKING_PARAM_MIN_COMMISSION_RATE
             .with_label_values(&[&self.app_context.chain_id, network])
             .set(min_commission_rate);

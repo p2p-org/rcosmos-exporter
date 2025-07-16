@@ -40,7 +40,7 @@ network:
       interval: 10
       window: 500
       tx:
-        enabled: true
+        enabled: false
       uptime:
         persistence: true
       
