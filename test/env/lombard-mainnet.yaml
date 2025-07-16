@@ -20,6 +20,7 @@ general:
         healthEndpoint: /cosmos/base/node/v1beta1/status
 
 node:
+  id: p2p
   tendermint:
     nodeInfo:
       enabled: true
@@ -30,7 +31,6 @@ node:
       interval: 30
 
 network:
-  id: p2p
   cometbft:
     validators:
       enabled: true
