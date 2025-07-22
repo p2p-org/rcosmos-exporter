@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.1.0...v2.1.1) (2025-07-22)
+
+
+### Bug Fixes
+
+* rename id to client and missing metrics registries ([#74](https://github.com/p2p-org/rcosmos-exporter/issues/74)) ([dd94ba8](https://github.com/p2p-org/rcosmos-exporter/commit/dd94ba8f6d6456d5a97f92dc3e4812fca5e29eab))
+
 ## [2.1.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.0.2...v2.1.0) (2025-07-16)
 
 
