@@ -48,22 +48,22 @@ lazy_static! {
     .unwrap();
     pub static ref TENDERMINT_NODE_MONIKER: GaugeVec = GaugeVec::new(
         Opts::new("rcosmos_tendermint_node_moniker", "Node moniker"),
-        &["name", "chain_id", "network", "id", "moniker"]
+        &["name", "chain_id", "network", "client", "moniker"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_APP_NAME: GaugeVec = GaugeVec::new(
         Opts::new("rcosmos_tendermint_node_app_name", "Node app name"),
-        &["name", "chain_id", "network", "id", "app_name"]
+        &["name", "chain_id", "network", "client", "app_name"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_APP_VERSION: GaugeVec = GaugeVec::new(
         Opts::new("rcosmos_tendermint_node_app_version", "Node app version"),
-        &["name", "chain_id", "network", "id", "version"]
+        &["name", "chain_id", "network", "client", "version"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_APP_COMMIT: GaugeVec = GaugeVec::new(
         Opts::new("rcosmos_tendermint_node_app_commit", "Node app commit"),
-        &["name", "chain_id", "network", "id", "commit"]
+        &["name", "chain_id", "network", "client", "commit"]
     )
     .unwrap();
     pub static ref TENDERMINT_NODE_COSMOS_SDK_VERSION: GaugeVec = GaugeVec::new(
@@ -71,7 +71,7 @@ lazy_static! {
             "rcosmos_tendermint_node_cosmos_sdk_version",
             "Node cosmos sdk version"
         ),
-        &["name", "chain_id", "network", "id", "version"]
+        &["name", "chain_id", "network", "client", "version"]
     )
     .unwrap();
     pub static ref TENDERMINT_VALIDATOR_SLASHES: GaugeVec = GaugeVec::new(
