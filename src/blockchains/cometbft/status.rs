@@ -41,25 +41,25 @@ impl Status {
         info!("(CometBFT Node Status) Processing status metrics");
         let chain_id = &status.result.node_info.network;
         let network = &self.app_context.config.general.network;
-        let id = &self.app_context.config.node.id;
+        let client = &self.app_context.config.node.client;
         COMETBFT_NODE_ID
             .with_label_values(&[
                 &self.name,
                 &chain_id,
                 &status.result.node_info.id,
                 &network,
-                id,
+                client,
             ])
             .set(0);
         COMETBFT_NODE_CATCHING_UP
-            .with_label_values(&[&self.name, &chain_id, &network, id])
+            .with_label_values(&[&self.name, &chain_id, &network, client])
             .set(if status.result.sync_info.catching_up {
                 1
             } else {
                 0
             });
         COMETBFT_NODE_LATEST_BLOCK_HEIGHT
-            .with_label_values(&[&self.name, &chain_id, &network, id])
+            .with_label_values(&[&self.name, &chain_id, &network, client])
             .set(
                 status
                     .result
@@ -69,7 +69,7 @@ impl Status {
                     .context("Could not parse latest block height")?,
             );
         COMETBFT_NODE_LATEST_BLOCK_TIME
-            .with_label_values(&[&self.name, &chain_id, &network, id])
+            .with_label_values(&[&self.name, &chain_id, &network, client])
             .set(
                 status
                     .result
@@ -79,7 +79,7 @@ impl Status {
                     .timestamp() as f64,
             );
         COMETBFT_NODE_EARLIEST_BLOCK_HEIGHT
-            .with_label_values(&[&self.name, &chain_id, &network, id])
+            .with_label_values(&[&self.name, &chain_id, &network, client])
             .set(
                 status
                     .result
@@ -89,7 +89,7 @@ impl Status {
                     .context("Could not parse earliest block height")?,
             );
         COMETBFT_NODE_EARLIEST_BLOCK_TIME
-            .with_label_values(&[&self.name, &chain_id, &network, id])
+            .with_label_values(&[&self.name, &chain_id, &network, client])
             .set(
                 status
                     .result

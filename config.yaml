@@ -43,6 +43,7 @@ general:
 # Node mode configuration
 # You must set the NODE_NAME environment variable to use this mode, in k8s this could be the pod name, it will be used to identify the node in the metrics.
 node:
+  client: p2p
   tendermint:
     nodeInfo: # Tendermint node info metrics, calls /cosmos/base/node/v1beta1/node_info LCD endpoint.
       enabled: true

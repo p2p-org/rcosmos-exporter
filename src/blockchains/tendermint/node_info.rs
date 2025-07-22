@@ -53,7 +53,7 @@ impl NodeInfo {
         let chain_id = &self.app_context.chain_id;
         let name = &self.name;
         let network = &self.app_context.config.general.network;
-        let id = &self.app_context.config.node.id;
+        let client = &self.app_context.config.node.client;
         // Helper macro to DRY the code
         macro_rules! update_metric {
             ($field:ident, $value:expr, $id:expr, $metric:ident) => {{
@@ -76,31 +76,31 @@ impl NodeInfo {
         update_metric!(
             app_name,
             node_info.application_version.app_name,
-            id,
+            client,
             TENDERMINT_NODE_APP_NAME
         );
         update_metric!(
             app_version,
             node_info.application_version.version,
-            id,
+            client,
             TENDERMINT_NODE_APP_VERSION
         );
         update_metric!(
             app_commit,
             node_info.application_version.git_commit,
-            id,
+            client,
             TENDERMINT_NODE_APP_COMMIT
         );
         update_metric!(
             cosmos_sdk_version,
             node_info.application_version.cosmos_sdk_version,
-            id,
+            client,
             TENDERMINT_NODE_COSMOS_SDK_VERSION
         );
         update_metric!(
             node_moniker,
             node_info.default_node_info.moniker,
-            id,
+            client,
             TENDERMINT_NODE_MONIKER
         );
         Ok(())

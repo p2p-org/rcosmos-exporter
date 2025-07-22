@@ -1,8 +1,8 @@
-use crate::blockchains::tendermint::metrics::REGISTRY as TENDERMINT_REGISTRY;
 use lazy_static::lazy_static;
-use prometheus::{IntGaugeVec, Opts};
+use prometheus::{IntGaugeVec, Opts, Registry};
 
 lazy_static! {
+    pub static ref REGISTRY: Registry = Registry::new();
     pub static ref LOMBARD_LATEST_SESSION_ID: IntGaugeVec = IntGaugeVec::new(
         Opts::new(
             "rcosmos_lombard_latest_session_id",
@@ -22,10 +22,10 @@ lazy_static! {
 }
 
 pub fn lombard_custom_metrics() {
-    TENDERMINT_REGISTRY
+    REGISTRY
         .register(Box::new(LOMBARD_LATEST_SESSION_ID.clone()))
         .ok();
-    TENDERMINT_REGISTRY
+    REGISTRY
         .register(Box::new(LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION.clone()))
         .ok();
 }

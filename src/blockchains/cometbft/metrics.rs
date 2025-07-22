@@ -227,7 +227,7 @@ lazy_static! {
     .unwrap();
     pub static ref COMETBFT_NODE_ID: IntGaugeVec = IntGaugeVec::new(
         Opts::new("rcosmos_cometbft_node_id", "CometBFT node ID"),
-        &["name", "chain_id", "node_id", "network", "id"]
+        &["name", "chain_id", "node_id", "network", "client"]
     )
     .unwrap();
     pub static ref COMETBFT_NODE_CATCHING_UP: IntGaugeVec = IntGaugeVec::new(
@@ -235,7 +235,7 @@ lazy_static! {
             "rcosmos_cometbft_node_catching_up",
             "CometBFT node catching up status"
         ),
-        &["name", "chain_id", "network", "id"]
+        &["name", "chain_id", "network", "client"]
     )
     .unwrap();
     pub static ref COMETBFT_NODE_LATEST_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
@@ -243,7 +243,7 @@ lazy_static! {
             "rcosmos_cometbft_node_latest_block_height",
             "CometBFT node latest block height"
         ),
-        &["name", "chain_id", "network", "id"]
+        &["name", "chain_id", "network", "client"]
     )
     .unwrap();
     pub static ref COMETBFT_NODE_LATEST_BLOCK_TIME: GaugeVec = GaugeVec::new(
@@ -251,7 +251,7 @@ lazy_static! {
             "rcosmos_cometbft_node_latest_block_time",
             "CometBFT node latest block time"
         ),
-        &["name", "chain_id", "network", "id"]
+        &["name", "chain_id", "network", "client"]
     )
     .unwrap();
     pub static ref COMETBFT_NODE_EARLIEST_BLOCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
@@ -259,7 +259,7 @@ lazy_static! {
             "rcosmos_cometbft_node_earliest_block_height",
             "CometBFT node earliest block height"
         ),
-        &["name", "chain_id", "network", "id"]
+        &["name", "chain_id", "network", "client"]
     )
     .unwrap();
     pub static ref COMETBFT_NODE_EARLIEST_BLOCK_TIME: GaugeVec = GaugeVec::new(
@@ -267,7 +267,7 @@ lazy_static! {
             "rcosmos_cometbft_node_earliest_block_time",
             "CometBFT node earliest block time"
         ),
-        &["name", "chain_id", "network", "id"]
+        &["name", "chain_id", "network", "client"]
     )
     .unwrap();
 }
