@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.0.2...v2.1.0) (2025-07-16)
+
+
+### Features
+
+* add id label to node mode metrics ([#72](https://github.com/p2p-org/rcosmos-exporter/issues/72)) ([3431c95](https://github.com/p2p-org/rcosmos-exporter/commit/3431c9563d12b09edcca794b480e7e721c3a80d4))
+
 ## [2.0.2](https://github.com/p2p-org/rcosmos-exporter/compare/v2.0.1...v2.0.2) (2025-07-16)
 
 
