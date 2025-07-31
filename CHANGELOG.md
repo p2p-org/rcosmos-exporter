@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.1.1...v2.2.0) (2025-07-31)
+
+
+### Features
+
+* default tendermint_validators to cometbft address ([#76](https://github.com/p2p-org/rcosmos-exporter/issues/76)) ([e2acd1c](https://github.com/p2p-org/rcosmos-exporter/commit/e2acd1cce0ddaafa4730ff97ed6cde07c84227b8))
+
 ## [2.1.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.1.0...v2.1.1) (2025-07-22)
 
 
