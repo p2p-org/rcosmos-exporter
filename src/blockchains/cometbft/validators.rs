@@ -9,6 +9,7 @@ use crate::blockchains::cometbft::metrics::{
     COMETBFT_VALIDATOR, COMETBFT_VALIDATOR_PROPOSER_PRIORITY, COMETBFT_VALIDATOR_VOTING_POWER,
 };
 use crate::blockchains::cometbft::types::{Validator, ValidatorsResponse};
+use crate::blockchains::tendermint::metrics::{TENDERMINT_VALIDATOR, TENDERMINT_VALIDATOR_TOKENS};
 use crate::core::app_context::AppContext;
 use crate::core::clients::path::Path;
 use crate::core::exporter::RunnableModule;
@@ -84,6 +85,35 @@ impl Validators {
                     &self.app_context.config.general.network,
                 ])
                 .set(validator.proposer_priority.parse::<i64>().unwrap_or(0));
+
+            // Only set Tendermint metrics if CometBFT validators is enabled AND Tendermint staking is disabled
+            // (to avoid conflicts when both modules are enabled)
+            if self.app_context.config.network.cometbft.validators.enabled
+                && !self.app_context.config.network.tendermint.staking.enabled
+            {
+                // Set Tendermint metrics for compatibility (address as moniker)
+                TENDERMINT_VALIDATOR
+                    .with_label_values(&[
+                        &validator.address,
+                        &validator.address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                        &alert_addresses.contains(&validator.address).to_string(),
+                    ])
+                    .set(0);
+
+                // Tokens (voting power)
+                if let Ok(tokens_val) = validator.voting_power.parse::<f64>() {
+                    TENDERMINT_VALIDATOR_TOKENS
+                        .with_label_values(&[
+                            &validator.address,
+                            &validator.address,
+                            &self.app_context.chain_id,
+                            &self.app_context.config.general.network,
+                        ])
+                        .set(tokens_val);
+                }
+            }
         }
 
         Ok(())

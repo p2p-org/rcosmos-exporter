@@ -1,0 +1,92 @@
+general:
+  network: berachain-mainnet
+  mode: network
+  chain_id: berachain-mainnet
+  metrics:
+    address: 0.0.0.0
+    port: 9100
+    path: /metrics
+  alerting:
+    validators: []
+  nodes:
+    rpc:
+      - name: p2p
+        url: https://rpc.mainnet.berachain.tm.p2p.org
+        healthEndpoint: /health
+
+node:
+  client: p2p
+  tendermint:
+    nodeInfo:
+      enabled: false
+      interval: 30
+  cometbft:
+    status:
+      enabled: false
+      interval: 30
+
+network:
+  # Enhanced CometBFT validators module now provides both:
+  # - rcosmos_cometbft_validator metrics
+  # - rcosmos_tendermint_validator metrics (with address as moniker)
+  cometbft:
+    validators:
+      enabled: true
+      interval: 30
+    block:
+      enabled: true
+      interval: 30
+      window: 100
+      tx:
+        enabled: true
+      uptime:
+        persistence: false
+  tendermint:
+    bank:
+      enabled: false
+      interval: 30
+      addresses: []
+    distribution:
+      enabled: false
+      interval: 30
+    gov:
+      enabled: false
+      interval: 30
+    staking:
+      enabled: false
+      interval: 30
+    slashing:
+      enabled: false
+      interval: 30
+    upgrade:
+      enabled: false
+      interval: 30
+  mezo:
+    poa:
+      enabled: false
+      interval: 30
+  babylon:
+    bls:
+      enabled: false
+      interval: 30
+  lombard:
+    ledger:
+      enabled: false
+      interval: 30
+      addresses: []
+  namada:
+    account:
+      enabled: false
+      interval: 30
+      addresses: []
+    pos:
+      enabled: false
+      interval: 30
+  coredao:
+    block:
+      enabled: false
+      interval: 30
+      window: 100
+    validator:
+      enabled: false
+      interval: 30

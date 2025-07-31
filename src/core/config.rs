@@ -50,6 +50,7 @@ pub struct NetworkConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct NodesConfig {
     pub rpc: Vec<NodeConfig>,
+    #[serde(default)]
     pub lcd: Vec<NodeConfig>,
 }
 
