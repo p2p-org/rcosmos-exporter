@@ -16,7 +16,7 @@ lazy_static! {
             "rcosmos_lombard_validator_signed_latest_session",
             "1 if validator signed in the notary session, 0 if not"
         ),
-        &["validator", "session_id", "chain_id", "network", "latest_session"]
+        &["validator", "session_id", "chain_id", "network"]
     )
     .unwrap();
 }
