@@ -14,7 +14,7 @@ lazy_static! {
     pub static ref LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION: IntGaugeVec = IntGaugeVec::new(
         Opts::new(
             "rcosmos_lombard_validator_signed_latest_session",
-            "1 if validator signed in the latest notary session, 0 if not"
+            "1 if validator signed in the notary session, 0 if not"
         ),
         &["validator", "session_id", "chain_id", "network"]
     )
