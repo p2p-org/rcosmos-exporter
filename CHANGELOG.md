@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.2.0...v2.3.0) (2025-08-04)
+
+
+### Features
+
+* streamline session metrics to current notary session only ([#78](https://github.com/p2p-org/rcosmos-exporter/issues/78)) ([77ed9be](https://github.com/p2p-org/rcosmos-exporter/commit/77ed9bed8a73c66be982ae8aa1dc54c3cac6bbf4))
+
 ## [2.2.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.1.1...v2.2.0) (2025-07-31)
 
 
