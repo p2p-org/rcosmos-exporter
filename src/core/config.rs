@@ -210,6 +210,7 @@ pub struct NamadaPosConfig {
 pub struct CoreDaoConfig {
     pub block: CoreDaoBlockConfig,
     pub validator: CoreDaoValidatorConfig,
+    pub staking: CoreDaoStakingConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -221,6 +222,12 @@ pub struct CoreDaoBlockConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct CoreDaoValidatorConfig {
+    pub enabled: bool,
+    pub interval: u64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CoreDaoStakingConfig {
     pub enabled: bool,
     pub interval: u64,
 }

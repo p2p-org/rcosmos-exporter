@@ -60,6 +60,81 @@ lazy_static! {
         &["validator_address", "window", "chain_id", "network", "alerts"]
     )
     .unwrap();
+    // CORE & BTC Staking Metrics
+    pub static ref COREDAO_CORE_VALIDATOR_STAKE_SHARE: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_core_validator_stake_share",
+        "Validator's CORE stake as percentage of total network CORE stake",
+        &["validator_address", "validator_name", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COREDAO_BTC_VALIDATOR_STAKE_SHARE: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_btc_validator_stake_share", 
+        "Validator's BTC stake as percentage of total network BTC stake",
+        &["validator_address", "validator_name", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COREDAO_CORE_VALIDATOR_STAKE_IN: CounterVec = register_counter_vec!(
+        "rcosmos_coredao_core_validator_stake_in_total",
+        "Total CORE tokens staked to validator (cumulative counter)",
+        &["validator_address", "validator_name", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COREDAO_CORE_VALIDATOR_STAKE_OUT: CounterVec = register_counter_vec!(
+        "rcosmos_coredao_core_validator_stake_out_total",
+        "Total CORE tokens unstaked from validator (cumulative counter)",
+        &["validator_address", "validator_name", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COREDAO_BTC_VALIDATOR_STAKE_IN: CounterVec = register_counter_vec!(
+        "rcosmos_coredao_btc_validator_stake_in_total",
+        "Total BTC staked to validator (cumulative counter)",
+        &["validator_address", "validator_name", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COREDAO_BTC_VALIDATOR_STAKE_OUT: CounterVec = register_counter_vec!(
+        "rcosmos_coredao_btc_validator_stake_out_total",
+        "Total BTC unstaked from validator (cumulative counter)",
+        &["validator_address", "validator_name", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COREDAO_TOTAL_CORE_STAKED: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_total_core_staked",
+        "Total CORE tokens staked across all validators",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COREDAO_TOTAL_BTC_STAKED: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_total_btc_staked",
+        "Total BTC staked across all validators",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    // Commission & Competition Metrics
+    pub static ref COREDAO_VALIDATOR_COMMISSION: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_validator_commission",
+        "Validator commission rate (percentage)",
+        &["validator_address", "validator_name", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COREDAO_VALIDATOR_COMMISSION_PEER_MEDIAN: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_validator_commission_peer_median",
+        "Median commission rate across all active validators (percentage)",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    // Delegator Concentration Metrics
+    pub static ref COREDAO_CORE_VALIDATOR_TOP1_SHARE: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_core_validator_top1_share",
+        "Largest delegator's share of validator's total CORE stake (percentage)",
+        &["validator_address", "validator_name", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COREDAO_BTC_VALIDATOR_TOP1_SHARE: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_btc_validator_top1_share",
+        "Largest delegator's share of validator's total BTC stake (percentage)",
+        &["validator_address", "validator_name", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
 }
 
 pub fn coredao_custom_metrics() {
@@ -97,4 +172,44 @@ pub fn coredao_custom_metrics() {
     REGISTRY
         .register(Box::new(COREDAO_VALIDATOR_UPTIME.clone()))
         .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_UPTIME: {}", e));
+
+    // Register staking metrics
+    REGISTRY
+        .register(Box::new(COREDAO_CORE_VALIDATOR_STAKE_SHARE.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_CORE_VALIDATOR_STAKE_SHARE: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_BTC_VALIDATOR_STAKE_SHARE.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_BTC_VALIDATOR_STAKE_SHARE: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_CORE_VALIDATOR_STAKE_IN.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_CORE_VALIDATOR_STAKE_IN: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_CORE_VALIDATOR_STAKE_OUT.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_CORE_VALIDATOR_STAKE_OUT: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_BTC_VALIDATOR_STAKE_IN.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_BTC_VALIDATOR_STAKE_IN: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_BTC_VALIDATOR_STAKE_OUT.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_BTC_VALIDATOR_STAKE_OUT: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_TOTAL_CORE_STAKED.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_TOTAL_CORE_STAKED: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_TOTAL_BTC_STAKED.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_TOTAL_BTC_STAKED: {}", e));
+    
+    // Register commission and concentration metrics
+    REGISTRY
+        .register(Box::new(COREDAO_VALIDATOR_COMMISSION.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_COMMISSION: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_VALIDATOR_COMMISSION_PEER_MEDIAN.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_COMMISSION_PEER_MEDIAN: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_CORE_VALIDATOR_TOP1_SHARE.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_CORE_VALIDATOR_TOP1_SHARE: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_BTC_VALIDATOR_TOP1_SHARE.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_BTC_VALIDATOR_TOP1_SHARE: {}", e));
 }

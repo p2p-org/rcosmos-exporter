@@ -6,6 +6,7 @@ use crate::blockchains::cometbft::status;
 use crate::blockchains::cometbft::validators;
 use crate::blockchains::coredao::block as coredao_block;
 use crate::blockchains::coredao::validator;
+use crate::blockchains::coredao::staking as coredao_staking;
 use crate::blockchains::lombard::ledger;
 use crate::blockchains::mezo::poa;
 use crate::blockchains::namada::account;
@@ -212,6 +213,12 @@ pub fn network_mode_modules(
             .context("❌ Failed to create Core DAO Validator module")?;
         modules.push(module);
         info!("✅ Core DAO Validator module created");
+    }
+    if app_context.config.network.coredao.staking.enabled {
+        let module = coredao_staking::factory(app_context.clone())
+            .context("❌ Failed to create Core DAO Staking module")?;
+        modules.push(module);
+        info!("✅ Core DAO Staking module created");
     }
 
     Ok(modules)
