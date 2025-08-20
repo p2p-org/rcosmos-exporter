@@ -100,17 +100,17 @@ lazy_static! {
             "rcosmos_cometbft_validator_uptime",
             "Uptime over block window"
         ),
-        &["address", "window", "chain_id", "network"]
+        &["address", "window", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref COMETBFT_VALIDATOR_1D_UPTIME: GaugeVec = GaugeVec::new(
         Opts::new("rcosmos_cometbft_validator_1d_uptime", "Uptime over 1 day"),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref COMETBFT_VALIDATOR_7D_UPTIME: GaugeVec = GaugeVec::new(
         Opts::new("rcosmos_cometbft_validator_7d_uptime", "Uptime over 7 days"),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref COMETBFT_VALIDATOR_15D_UPTIME: GaugeVec = GaugeVec::new(
@@ -118,7 +118,7 @@ lazy_static! {
             "rcosmos_cometbft_validator_15d_uptime",
             "Uptime over 15 days"
         ),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref COMETBFT_VALIDATOR_30D_UPTIME: GaugeVec = GaugeVec::new(
@@ -126,7 +126,7 @@ lazy_static! {
             "rcosmos_cometbft_validator_30d_uptime",
             "Uptime over 30 days"
         ),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref COMETBFT_VALIDATOR_1D_SIGNED_BLOCKS: GaugeVec = GaugeVec::new(
