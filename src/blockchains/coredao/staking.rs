@@ -14,7 +14,14 @@ use crate::{
         COREDAO_TOTAL_CORE_STAKED, COREDAO_TOTAL_BTC_STAKED,
         COREDAO_VALIDATOR_COMMISSION, COREDAO_VALIDATOR_COMMISSION_PEER_MEDIAN,
         COREDAO_CORE_VALIDATOR_TOP1_SHARE, COREDAO_BTC_VALIDATOR_TOP1_SHARE,
+        COREDAO_CORE_VALIDATOR_DELEGATOR_APY, COREDAO_BTC_VALIDATOR_DELEGATOR_APY,
+        COREDAO_CORE_VALIDATOR_UNCLAIMED_REWARD_RATIO, COREDAO_BTC_VALIDATOR_UNCLAIMED_REWARD_RATIO,
+        COREDAO_CORE_VALIDATOR_ROUND_REWARD_TOTAL, COREDAO_BTC_VALIDATOR_ROUND_REWARD_TOTAL,
+        COREDAO_BTC_VALIDATOR_STAKE_EXPIRATION_TIMESTAMP,
+        COREDAO_VALIDATOR_SLASH_EVENTS_TOTAL, COREDAO_VALIDATOR_PENALTY_AMOUNT_TOTAL,
+        COREDAO_CORE_VALIDATOR_CURRENT_STAKE, COREDAO_BTC_VALIDATOR_CURRENT_STAKE,
     },
+    blockchains::coredao::validator::ValidatorFetcher,
     core::{app_context::AppContext, clients::path::Path, exporter::RunnableModule},
 };
 
@@ -38,14 +45,16 @@ pub struct Staking {
     pub app_context: Arc<AppContext>,
     validator_stakes: HashMap<String, ValidatorStakeInfo>,
     last_processed_block: u64,
+    validator_fetcher: ValidatorFetcher,
 }
 
 impl Staking {
     pub fn new(app_context: Arc<AppContext>) -> Self {
         Self {
-            app_context,
+            app_context: app_context.clone(),
             validator_stakes: HashMap::new(),
             last_processed_block: 0,
+            validator_fetcher: ValidatorFetcher::new(app_context.clone()),
         }
     }
 
@@ -88,8 +97,15 @@ impl Staking {
     }
 
     fn get_validator_name(&self, address: &str) -> String {
-        // For now, use a shortened version of the address as the validator name
-        // In the future, this could be enhanced to fetch actual validator names from contracts
+        // Attempt to pull from fetcher cache
+        if let Ok(guard) = self.validator_fetcher.cache.try_read() {
+            if let Some(cached) = guard.as_ref() {
+                if let Some(v) = cached.validators.iter().find(|v| v.address.eq_ignore_ascii_case(address)) {
+                    return v.name.clone();
+                }
+            }
+        }
+        // No cached name available; fallback to address short form
         format!("{}...{}", &address[..6], &address[address.len()-4..])
     }
 
@@ -377,6 +393,9 @@ impl Staking {
         
         // Process BTC staking events  
         self.process_btc_events(from_block, to_block).await?;
+
+        // Process StakeHub roundReward events to accumulate validator rewards
+        self.process_stakehub_round_rewards(from_block, to_block).await?;
         
         Ok(())
     }
@@ -469,6 +488,88 @@ impl Staking {
             }
         }
         
+        Ok(())
+    }
+
+    async fn process_stakehub_round_rewards(&mut self, from_block: u64, to_block: u64) -> Result<()> {
+        // roundReward(string name, uint256 round, address[] validator, uint256[] amount)
+        // topic0 = keccak('roundReward(string,uint256,address[],uint256[])')
+        let topic0 = "0xd91b286bba7f90b8abe1c6445f75d50b2b4f2790251e196e83922a94e2ba4a7c";
+        let stakehub_addr = "0x0000000000000000000000000000000000001010";
+        let client = self.app_context.rpc.clone().unwrap();
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_getLogs",
+            "params": [{
+                "fromBlock": format!("0x{:x}", from_block),
+                "toBlock": format!("0x{:x}", to_block),
+                "address": stakehub_addr,
+                "topics": [topic0]
+            }],
+            "id": 1
+        });
+        let res = client.post(Path::from(""), &payload).await.context("Error fetching StakeHub roundReward events")?;
+        let result: Value = serde_json::from_str(&res).context("Error parsing StakeHub roundReward response")?;
+        if let Some(logs) = result.get("result").and_then(Value::as_array) {
+            for log in logs {
+                self.process_round_reward_event(log).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn process_round_reward_event(&mut self, log: &Value) -> Result<()> {
+        // topics[1] = keccak(name) for indexed string 'name' (contract emits indexed string)
+        // data contains round, arrays; but we can parse validators and amounts from ABI-encoded data
+        if let (Some(topics), Some(data)) = (log.get("topics").and_then(Value::as_array), log.get("data").and_then(Value::as_str)) {
+            if topics.len() >= 2 {
+                let asset_topic = topics[1].as_str().unwrap_or("");
+                let is_core = asset_topic.eq_ignore_ascii_case("0x907208bc2088fa777f18b43edd8b766e7243504cf8497f7ed936c65c7a446bbc");
+                let is_btc = asset_topic.eq_ignore_ascii_case("0xe98e2830be1a7e4156d656a7505e65d08c67660dc618072422e9c78053c261e9");
+                if !is_core && !is_btc { return Ok(()); }
+
+                // Decode ABI dynamic: round (uint256), validators (address[]), amounts (uint256[])
+                let bytes = hex::decode(data.trim_start_matches("0x")).unwrap_or_default();
+                if bytes.len() < 32 * 4 { return Ok(()); }
+                // Offsets
+                let round = u128::from_str_radix(&hex::encode(&bytes[0..32]), 16).unwrap_or(0) as u64;
+                let validators_off = usize::from_str_radix(&hex::encode(&bytes[32..64]), 16).unwrap_or(0);
+                let amounts_off = usize::from_str_radix(&hex::encode(&bytes[64..96]), 16).unwrap_or(0);
+                let base = 0;
+                // Validators array
+                let v_base = base + validators_off;
+                if bytes.len() < v_base + 32 { return Ok(()); }
+                let v_len = usize::from_str_radix(&hex::encode(&bytes[v_base..v_base+32]), 16).unwrap_or(0);
+                // Amounts array
+                let a_base = base + amounts_off;
+                if bytes.len() < a_base + 32 { return Ok(()); }
+                let a_len = usize::from_str_radix(&hex::encode(&bytes[a_base..a_base+32]), 16).unwrap_or(0);
+                if v_len == 0 || a_len == 0 || v_len != a_len { return Ok(()); }
+
+                for i in 0..v_len {
+                    let v_start = v_base + 32 + i * 32;
+                    let a_start = a_base + 32 + i * 32;
+                    if bytes.len() < v_start + 32 || bytes.len() < a_start + 32 { break; }
+                    let addr_hex = &hex::encode(&bytes[v_start+12..v_start+32]);
+                    let validator = format!("0x{}", addr_hex);
+                    let amount_hex = &hex::encode(&bytes[a_start..a_start+32]);
+                    let amount_wei = u128::from_str_radix(amount_hex, 16).unwrap_or(0) as f64;
+                    let amount_core = amount_wei / 1e18;
+                    let validator_name = self.get_validator_name(&validator);
+                    let fires_alerts = self.app_context.config.general.alerting.validators.contains(&validator).to_string();
+                    if is_core {
+                        COREDAO_CORE_VALIDATOR_ROUND_REWARD_TOTAL
+                            .with_label_values(&[&validator, &validator_name, &self.app_context.chain_id, &self.app_context.config.general.network, &fires_alerts])
+                            .inc_by(amount_core);
+                    } else if is_btc {
+                        COREDAO_BTC_VALIDATOR_ROUND_REWARD_TOTAL
+                            .with_label_values(&[&validator, &validator_name, &self.app_context.chain_id, &self.app_context.config.general.network, &fires_alerts])
+                            .inc_by(amount_core);
+                    }
+                }
+                let _ = round; // not used further now
+            }
+        }
         Ok(())
     }
 
@@ -815,29 +916,74 @@ impl Staking {
                 ])
                 .set(btc_share);
 
+            // Set current stake absolute values
+            COREDAO_CORE_VALIDATOR_CURRENT_STAKE
+                .with_label_values(&[
+                    &validator,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .set(core_stake);
+
+            COREDAO_BTC_VALIDATOR_CURRENT_STAKE
+                .with_label_values(&[
+                    &validator,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .set(btc_stake);
+
+            // Initialize event-based reward counters so they appear in /metrics even before first event
+            COREDAO_CORE_VALIDATOR_ROUND_REWARD_TOTAL
+                .with_label_values(&[
+                    &validator,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .inc_by(0.0);
+            COREDAO_BTC_VALIDATOR_ROUND_REWARD_TOTAL
+                .with_label_values(&[
+                    &validator,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .inc_by(0.0);
+
             // Initialize validator info if it doesn't exist (ensures stake flow metrics are always set)
             let validator_info = self.validator_stakes.entry(validator.clone()).or_default();
             validator_info.core_stake = core_stake;
             validator_info.btc_stake = btc_stake;
 
-            // Calculate top-1 delegator share for CORE
+            // Calculate top-1 delegator share for CORE and capture address
+            let mut core_top1_addr: String = String::from("");
             let core_top1_share = if !validator_info.core_delegators.is_empty() && core_stake > 0.0 {
-                let max_core_delegator = validator_info.core_delegators.values()
-                    .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .copied()
-                    .unwrap_or(0.0);
-                (max_core_delegator / core_stake) * 100.0
+                let (addr, amount) = validator_info.core_delegators.iter()
+                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(k, v)| (k.clone(), *v))
+                    .unwrap_or((String::new(), 0.0));
+                core_top1_addr = addr;
+                (amount / core_stake) * 100.0
             } else {
                 0.0
             };
 
-            // Calculate top-1 delegator share for BTC
+            // Calculate top-1 delegator share for BTC and capture address
+            let mut btc_top1_addr: String = String::from("");
             let btc_top1_share = if !validator_info.btc_delegators.is_empty() && btc_stake > 0.0 {
-                let max_btc_delegator = validator_info.btc_delegators.values()
-                    .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .copied()
-                    .unwrap_or(0.0);
-                (max_btc_delegator / btc_stake) * 100.0
+                let (addr, amount) = validator_info.btc_delegators.iter()
+                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(k, v)| (k.clone(), *v))
+                    .unwrap_or((String::new(), 0.0));
+                btc_top1_addr = addr;
+                (amount / btc_stake) * 100.0
             } else {
                 0.0
             };
@@ -847,6 +993,7 @@ impl Staking {
                 .with_label_values(&[
                     &validator,
                     &validator_name,
+                    &core_top1_addr,
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
                     &fires_alerts,
@@ -857,11 +1004,14 @@ impl Staking {
                 .with_label_values(&[
                     &validator,
                     &validator_name,
+                    &btc_top1_addr,
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
                     &fires_alerts,
                 ])
                 .set(btc_top1_share);
+
+            // No per-delegator share metrics (reverted to original behavior)
 
             // Ensure stake flow counters are initialized (sets to current total if not yet set)
             // This ensures all validators appear in metrics even if they have zero flow activity
@@ -1068,6 +1218,1342 @@ impl Staking {
         
         Ok(())
     }
+
+    async fn calculate_delegator_apy(&self) -> Result<()> {
+        info!("(CoreDAO Staking) Calculating delegator APY");
+        
+        
+        // Ensure validator names are cached before emitting metrics
+        let _ = self.validator_fetcher.get_validators().await.ok();
+        // Get validators and their commissions
+        let validators = self.get_validators().await?;
+        let commissions = self.get_validator_commissions().await?;
+        
+        for validator_addr in validators.iter() {
+            let validator_name = self.get_validator_name(validator_addr);
+            let fires_alerts = self.app_context.config.general.alerting.validators.contains(validator_addr).to_string();
+            
+            // Get commission rate (default to 0 if not found)
+            let commission_rate = commissions.get(validator_addr).unwrap_or(&0.0);
+            
+            // Calculate CORE delegator APY
+            // This is a simplified calculation - in practice, you'd need to get actual reward rates from contracts
+            let core_apy = self.calculate_core_delegator_apy(validator_addr, *commission_rate).await?;
+            
+            COREDAO_CORE_VALIDATOR_DELEGATOR_APY
+                .with_label_values(&[
+                    validator_addr,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .set(core_apy);
+            
+            // Calculate BTC delegator APY
+            let btc_apy = self.calculate_btc_delegator_apy(validator_addr, *commission_rate).await?;
+            
+            COREDAO_BTC_VALIDATOR_DELEGATOR_APY
+                .with_label_values(&[
+                    validator_addr,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .set(btc_apy);
+        }
+        
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    async fn calculate_core_delegator_apy(&self, validator_addr: &str, commission_rate: f64) -> Result<f64> {
+        let client = self.app_context.rpc.clone().unwrap();
+        let (_, core_agent_addr, _, _) = self.get_contract_addresses();
+
+        // APY via accruedRewardMap delta between last two rounds
+        let round = self.get_current_round(&client).await.unwrap_or(0);
+        let prev_round = round.saturating_sub(1);
+        let per_unit_today = self.get_core_accrued_per_unit_at_round(validator_addr, &client, &core_agent_addr, round).await.unwrap_or(0.0);
+        let per_unit_prev = self.get_core_accrued_per_unit_at_round(validator_addr, &client, &core_agent_addr, prev_round).await.unwrap_or(0.0);
+        let per_day_rate = (per_unit_today - per_unit_prev).max(0.0);
+        let annual_rate = per_day_rate * 365.0;
+        let apy = (annual_rate * (1.0 - commission_rate / 100.0)) * 100.0;
+        
+        info!("(CoreDAO Staking) Validator {} CORE APY calculation: per_day={:.6}, annual_rate={:.6}, commission={:.2}%, apy={:.2}%", 
+            validator_addr, per_day_rate, annual_rate, commission_rate, apy);
+        
+        Ok(apy)
+    }
+
+    #[allow(dead_code)]
+    async fn calculate_btc_delegator_apy(&self, validator_addr: &str, commission_rate: f64) -> Result<f64> {
+        let client = self.app_context.rpc.clone().unwrap();
+        let (_, _, btc_stake_addr, _) = self.get_contract_addresses();
+
+        let round = self.get_current_round(&client).await.unwrap_or(0);
+        let prev_round = round.saturating_sub(1);
+        let per_btc_today = self.get_btc_accrued_per_btc_at_round(validator_addr, &client, &btc_stake_addr, round).await.unwrap_or(0.0);
+        let per_btc_prev = self.get_btc_accrued_per_btc_at_round(validator_addr, &client, &btc_stake_addr, prev_round).await.unwrap_or(0.0);
+        let per_day_rate = (per_btc_today - per_btc_prev).max(0.0);
+        let annual_rate = per_day_rate * 365.0;
+        let apy = (annual_rate * (1.0 - commission_rate / 100.0)) * 100.0;
+        
+        info!("(CoreDAO Staking) Validator {} BTC APY calculation: per_day={:.6}, annual_rate={:.6}, commission={:.2}%, apy={:.2}%", 
+            validator_addr, per_day_rate, annual_rate, commission_rate, apy);
+        
+        Ok(apy)
+    }
+
+    #[allow(dead_code)]
+    async fn get_core_reward_rate(&self, _validator_addr: &str, _client: &crate::core::clients::http_client::NodePool, _core_agent_addr: &str) -> Result<f64> { Ok(0.0) }
+
+    #[allow(dead_code)]
+    async fn get_btc_reward_rate(&self, _validator_addr: &str, _client: &crate::core::clients::http_client::NodePool, _btc_stake_addr: &str) -> Result<f64> { Ok(0.0) }
+
+    #[allow(dead_code)]
+    async fn get_current_round(&self, client: &crate::core::clients::http_client::NodePool) -> Result<u64> {
+        // CandidateHub roundTag() selector: function roundTag() public returns (uint256)
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": "0x0000000000000000000000000000000000001005", // CandidateHub
+                "data": "0x8d859f3e"
+            }, "latest"],
+            "id": 1
+        });
+        let res = client.post(crate::core::clients::path::Path::from(""), &payload).await?;
+        let v: serde_json::Value = serde_json::from_str(&res)?;
+        if let Some(hex) = v.get("result").and_then(serde_json::Value::as_str) {
+            if hex != "0x" && hex.len() >= 66 {
+                let n = u128::from_str_radix(hex.trim_start_matches("0x"), 16).unwrap_or(0);
+                return Ok(n as u64);
+            }
+        }
+        Ok(0)
+    }
+
+    #[allow(dead_code)]
+    async fn get_core_accrued_per_unit_at_round(
+        &self,
+        validator_addr: &str,
+        client: &crate::core::clients::http_client::NodePool,
+        core_agent_addr: &str,
+        round: u64,
+    ) -> Result<f64> {
+        // accruedRewardMap(address,uint256) public mapping getter
+        let mut data = String::from("0x");
+        // keccak("accruedRewardMap(address,uint256)")[0..4] = 0x6f6f2f9d (example; relies on solidity encoding for mapping getter)
+        // But mapping getters are accessed via slot hashing, not a simple selector. Instead, use exposed helper:
+        // CoreAgent has a public view getContinuousRewardEndRoundsByCandidate; however direct mapping getter exists via ABI encoder when compiled.
+        // We will call an internal-like binary search wrapper by triggering a read path using viewCollectRewardFromCandidate? Not suitable.
+        // So we rely on storage getter for public mapping: function signature selector of accruedRewardMap(address,uint256) is keccak.
+        use tiny_keccak::{Hasher, Keccak};
+        let sig = "accruedRewardMap(address,uint256)";
+        let mut keccak = Keccak::v256();
+        let mut out = [0u8; 32];
+        keccak.update(sig.as_bytes());
+        keccak.finalize(&mut out);
+        let selector = &out[0..4];
+        data.push_str(&hex::encode(selector));
+        // Append address (32 bytes)
+        let mut addr = validator_addr.trim_start_matches("0x").to_lowercase();
+        addr = format!("{:0>64}", addr);
+        data.push_str(&addr);
+        // Append round (uint256)
+        data.push_str(&format!("{:064x}", round));
+
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": data
+            }, "latest"],
+            "id": 1
+        });
+        let res = client.post(crate::core::clients::path::Path::from(""), &payload).await?;
+        let v: serde_json::Value = serde_json::from_str(&res)?;
+        if let Some(hex) = v.get("result").and_then(serde_json::Value::as_str) {
+            if hex != "0x" && hex.len() >= 66 {
+                let val = u128::from_str_radix(hex.trim_start_matches("0x"), 16).unwrap_or(0) as f64;
+                return Ok(val / 1e24);
+            }
+        }
+        Ok(0.0)
+    }
+
+    #[allow(dead_code)]
+    async fn get_btc_accrued_per_btc_at_round(
+        &self,
+        validator_addr: &str,
+        client: &crate::core::clients::http_client::NodePool,
+        btc_stake_addr: &str,
+        round: u64,
+    ) -> Result<f64> {
+        // accruedRewardPerBTCMap(address,uint256)
+        use tiny_keccak::{Hasher, Keccak};
+        let sig = "accruedRewardPerBTCMap(address,uint256)";
+        let mut keccak = Keccak::v256();
+        let mut out = [0u8; 32];
+        keccak.update(sig.as_bytes());
+        keccak.finalize(&mut out);
+        let selector = &out[0..4];
+        let mut data = String::from("0x");
+        data.push_str(&hex::encode(selector));
+        let mut addr = validator_addr.trim_start_matches("0x").to_lowercase();
+        addr = format!("{:0>64}", addr);
+        data.push_str(&addr);
+        data.push_str(&format!("{:064x}", round));
+
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": data
+            }, "latest"],
+            "id": 1
+        });
+        let res = client.post(crate::core::clients::path::Path::from(""), &payload).await?;
+        let v: serde_json::Value = serde_json::from_str(&res)?;
+        if let Some(hex) = v.get("result").and_then(serde_json::Value::as_str) {
+            if hex != "0x" && hex.len() >= 66 {
+                let val = u128::from_str_radix(hex.trim_start_matches("0x"), 16).unwrap_or(0) as f64;
+                return Ok(val / 1e8);
+            }
+        }
+        Ok(0.0)
+    }
+
+    #[allow(dead_code)]
+    async fn try_get_core_reward_rate_methods(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str) -> Result<f64> {
+        // Method 1: getValidatorRewardRate(address)
+        let reward_rate_data = format!(
+            "0x89d49494000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": reward_rate_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching CORE validator reward rate")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing CORE validator reward rate response")?;
+
+        if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                let reward_rate = u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18; // Convert from wei to CORE
+                if reward_rate > 0.0 {
+                    return Ok(reward_rate);
+                }
+            }
+        }
+
+        // Method 2: getRewardRate(address)
+        let reward_rate_data2 = format!(
+            "0xea7cbff1000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload2 = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": reward_rate_data2
+            }, "latest"],
+            "id": 1
+        });
+
+        let res2 = client
+            .post(Path::from(""), &payload2)
+            .await
+            .context("Error fetching CORE reward rate (method 2)")?;
+
+        let result2: Value = serde_json::from_str(&res2)
+            .context("Error parsing CORE reward rate response (method 2)")?;
+
+        if let Some(hex_data) = result2.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                let reward_rate = u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18;
+                if reward_rate > 0.0 {
+                    return Ok(reward_rate);
+                }
+            }
+        }
+
+        Ok(0.0)
+    }
+
+    #[allow(dead_code)]
+    async fn try_get_btc_reward_rate_methods(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<f64> {
+        // Method 1: getValidatorRewardRate(address)
+        let reward_rate_data = format!(
+            "0x89d49494000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": reward_rate_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching BTC validator reward rate")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing BTC validator reward rate response")?;
+
+        if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                let reward_rate = u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e8; // Convert from satoshis to BTC
+                if reward_rate > 0.0 {
+                    return Ok(reward_rate);
+                }
+            }
+        }
+
+        // Method 2: getRewardRate(address)
+        let reward_rate_data2 = format!(
+            "0xea7cbff1000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload2 = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": reward_rate_data2
+            }, "latest"],
+            "id": 1
+        });
+
+        let res2 = client
+            .post(Path::from(""), &payload2)
+            .await
+            .context("Error fetching BTC reward rate (method 2)")?;
+
+        let result2: Value = serde_json::from_str(&res2)
+            .context("Error parsing BTC reward rate response (method 2)")?;
+
+        if let Some(hex_data) = result2.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                let reward_rate = u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e8;
+                if reward_rate > 0.0 {
+                    return Ok(reward_rate);
+                }
+            }
+        }
+
+        Ok(0.0)
+    }
+
+    #[allow(dead_code)]
+    async fn get_total_core_reward_rate(&self, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str) -> Result<f64> {
+        // Try getAnnualRewardRate() - no parameters
+        let reward_rate_data = "0xd73246f8";
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": reward_rate_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching total CORE reward rate")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing total CORE reward rate response")?;
+
+        let reward_rate = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(reward_rate)
+    }
+
+    #[allow(dead_code)]
+    async fn get_total_btc_reward_rate(&self, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<f64> {
+        // Try getAnnualRewardRate() - no parameters
+        let reward_rate_data = "0xd73246f8";
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": reward_rate_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching total BTC reward rate")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing total BTC reward rate response")?;
+
+        let reward_rate = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e8
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(reward_rate)
+    }
+
+    #[allow(dead_code)]
+    async fn get_total_core_stake(&self, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str) -> Result<f64> {
+        // Try getTotalStake() - no parameters
+        let total_stake_data = "0x18160ddd";
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": total_stake_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching total CORE stake")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing total CORE stake response")?;
+
+        let total_stake = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(total_stake)
+    }
+
+    #[allow(dead_code)]
+    async fn get_total_btc_stake(&self, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<f64> {
+        // Try getTotalStake() - no parameters
+        let total_stake_data = "0x18160ddd";
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": total_stake_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching total BTC stake")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing total BTC stake response")?;
+
+        let total_stake = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e8
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(total_stake)
+    }
+
+    async fn calculate_unclaimed_reward_ratios(&self) -> Result<()> {
+        info!("(CoreDAO Staking) Calculating unclaimed reward ratios");
+        
+        let client = self.app_context.rpc.clone().unwrap();
+        let (_, core_agent_addr, btc_stake_addr, _) = self.get_contract_addresses();
+        
+        // Get validators
+        let validators = self.get_validators().await?;
+        
+        for validator_addr in validators.iter() {
+            let validator_name = self.get_validator_name(validator_addr);
+            let fires_alerts = self.app_context.config.general.alerting.validators.contains(validator_addr).to_string();
+            
+            // Calculate CORE unclaimed reward ratio
+            let core_ratio = self.calculate_core_unclaimed_reward_ratio(validator_addr, &client, &core_agent_addr).await?;
+            
+            COREDAO_CORE_VALIDATOR_UNCLAIMED_REWARD_RATIO
+                .with_label_values(&[
+                    validator_addr,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .set(core_ratio);
+            
+            // Calculate BTC unclaimed reward ratio
+            let btc_ratio = self.calculate_btc_unclaimed_reward_ratio(validator_addr, &client, &btc_stake_addr).await?;
+            
+            COREDAO_BTC_VALIDATOR_UNCLAIMED_REWARD_RATIO
+                .with_label_values(&[
+                    validator_addr,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .set(btc_ratio);
+        }
+        
+        Ok(())
+    }
+
+    async fn calculate_core_unclaimed_reward_ratio(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str) -> Result<f64> {
+        // Get unclaimed CORE rewards
+        let unclaimed_data = format!(
+            "0x91fcd9a9000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": unclaimed_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching unclaimed CORE rewards")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing unclaimed CORE rewards response")?;
+
+        let unclaimed_rewards = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18 // Convert from wei to CORE
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        // Get current CORE stake amount
+        let current_stake = self.get_validator_core_stake(validator_addr, client, core_agent_addr).await?;
+        
+        // Calculate ratio: (unclaimed_rewards / total_stake) * 100
+        let ratio = if current_stake > 0.0 {
+            (unclaimed_rewards / current_stake) * 100.0
+        } else {
+            0.0
+        };
+
+        info!("(CoreDAO Staking) Validator {} CORE unclaimed ratio: {:.2}% (unclaimed: {:.2} CORE, stake: {:.2} CORE)", 
+            validator_addr, ratio, unclaimed_rewards, current_stake);
+
+        Ok(ratio)
+    }
+
+    async fn calculate_btc_unclaimed_reward_ratio(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<f64> {
+        // Get unclaimed BTC rewards
+        let unclaimed_data = format!(
+            "0x91fcd9a9000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": unclaimed_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching unclaimed BTC rewards")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing unclaimed BTC rewards response")?;
+
+        let unclaimed_rewards = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e8 // Convert from satoshis to BTC
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        // Get current BTC stake amount
+        let current_stake = self.get_validator_btc_stake(validator_addr, client, btc_stake_addr).await?;
+        
+        // Calculate ratio: (unclaimed_rewards / total_stake) * 100
+        let ratio = if current_stake > 0.0 {
+            (unclaimed_rewards / current_stake) * 100.0
+        } else {
+            0.0
+        };
+
+        info!("(CoreDAO Staking) Validator {} BTC unclaimed ratio: {:.2}% (unclaimed: {:.8} BTC, stake: {:.8} BTC)", 
+            validator_addr, ratio, unclaimed_rewards, current_stake);
+
+        Ok(ratio)
+    }
+
+    async fn get_validator_core_stake(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str) -> Result<f64> {
+        // Get current CORE stake using getValidatorStake(address)
+        let stake_data = format!(
+            "0x34664846000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": stake_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching CORE stake")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing CORE stake response")?;
+
+        let stake = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18 // Convert from wei to CORE
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(stake)
+    }
+
+    async fn get_validator_btc_stake(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<f64> {
+        // Get current BTC stake using getValidatorStake(address)
+        let stake_data = format!(
+            "0x34664846000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": stake_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching BTC stake")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing BTC stake response")?;
+
+        let stake = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e8 // Convert from satoshis to BTC
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(stake)
+    }
+
+    // Removed calculate_validator_rewards (per-unit accrued); using StakeHub events instead
+
+    #[allow(dead_code)]
+    async fn calculate_core_delegator_hhi(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str) -> Result<f64> {
+        // Get delegator list for this validator
+        let delegators = self.get_core_delegators(validator_addr, client, core_agent_addr).await?;
+        
+        if delegators.is_empty() {
+            return Ok(0.0); // No delegators means no concentration
+        }
+        
+        // Calculate total stake
+        let total_stake: f64 = delegators.values().sum();
+        
+        if total_stake == 0.0 {
+            return Ok(0.0);
+        }
+        
+        // Calculate HHI: sum of (individual_stake / total_stake)^2 * 10000
+        let hhi: f64 = delegators.values()
+            .map(|&stake| {
+                let market_share = stake / total_stake;
+                market_share * market_share * 10000.0
+            })
+            .sum();
+        
+        info!("(CoreDAO Staking) Validator {} CORE HHI: {:.2} ({} delegators, total stake: {:.2} CORE)", 
+        validator_addr, hhi, delegators.len(), total_stake);
+        
+        Ok(hhi)
+    }
+
+    #[allow(dead_code)]
+    async fn calculate_btc_delegator_hhi(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<f64> {
+        // Get delegator list for this validator
+        let delegators = self.get_btc_delegators(validator_addr, client, btc_stake_addr).await?;
+        
+        if delegators.is_empty() {
+            return Ok(0.0); // No delegators means no concentration
+        }
+        
+        // Calculate total stake
+        let total_stake: f64 = delegators.values().sum();
+        
+        if total_stake == 0.0 {
+            return Ok(0.0);
+        }
+        
+        // Calculate HHI: sum of (individual_stake / total_stake)^2 * 10000
+        let hhi: f64 = delegators.values()
+            .map(|&stake| {
+                let market_share = stake / total_stake;
+                market_share * market_share * 10000.0
+            })
+            .sum();
+        
+        info!("(CoreDAO Staking) Validator {} BTC HHI: {:.2} ({} delegators, total stake: {:.8} BTC)", 
+        validator_addr, hhi, delegators.len(), total_stake);
+        
+        Ok(hhi)
+    }
+
+    #[allow(dead_code)]
+    async fn get_core_delegators(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str) -> Result<HashMap<String, f64>> {
+        // Get delegator list using getDelegatorList(address)
+        let delegator_list_data = format!(
+            "0xe318df11000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": delegator_list_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching CORE delegator list")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing CORE delegator list response")?;
+
+        let delegators = HashMap::new();
+        
+        if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() > 66 {
+                // Parse the array of delegator addresses and their stakes
+                // This is a simplified implementation - the actual parsing depends on the contract's return format
+                // For now, we'll use a placeholder approach
+                
+                // TODO: Implement proper parsing of delegator list based on actual contract return format
+                // The contract might return a struct array or separate arrays for addresses and stakes
+                
+                info!("(CoreDAO Staking) Raw delegator list data for {}: {}", validator_addr, hex_data);
+            }
+        }
+        
+        // For now, return empty map as placeholder
+        // TODO: Implement actual delegator list parsing
+        Ok(delegators)
+    }
+
+    #[allow(dead_code)]
+    async fn get_btc_delegators(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<HashMap<String, f64>> {
+        // Get delegator list using getDelegatorList(address)
+        let delegator_list_data = format!(
+            "0xe318df11000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": delegator_list_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching BTC delegator list")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing BTC delegator list response")?;
+
+        let delegators = HashMap::new();
+        
+        if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() > 66 {
+                // Parse the array of delegator addresses and their stakes
+                // This is a simplified implementation - the actual parsing depends on the contract's return format
+                // For now, we'll use a placeholder approach
+                
+                // TODO: Implement proper parsing of delegator list based on actual contract return format
+                // The contract might return a struct array or separate arrays for addresses and stakes
+                
+                info!("(CoreDAO Staking) Raw delegator list data for {}: {}", validator_addr, hex_data);
+            }
+        }
+        
+        // For now, return empty map as placeholder
+        // TODO: Implement actual delegator list parsing
+        Ok(delegators)
+    }
+
+    // Helpers to read reward maps and current roundTag
+    #[allow(dead_code)]
+    async fn get_round_tag(&self, client: &crate::core::clients::http_client::NodePool, contract_addr: &str) -> Result<u64> {
+        // roundTag() -> uint256, selector 0x75b10c71
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": contract_addr,
+                "data": "0x75b10c71"
+            }, "latest"],
+            "id": 1
+        });
+        let res = client.post(Path::from(""), &payload).await.context("Error fetching roundTag")?;
+        let result: Value = serde_json::from_str(&res).context("Error parsing roundTag response")?;
+        let round = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as u64
+            } else { 0 }
+        } else { 0 };
+        Ok(round)
+    }
+
+    #[allow(dead_code)]
+    async fn get_accrued_reward_map_value(&self, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str, validator_addr: &str, round: u64) -> Result<f64> {
+        // CoreAgent.accruedRewardMap(address,uint256) selector 0x8397f244
+        // Encode address + uint256
+        let mut data = String::from("0x8397f244");
+        data.push_str(&format!("{:0>64}", validator_addr.trim_start_matches("0x")));
+        data.push_str(&format!("{:064x}", round));
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{"to": core_agent_addr, "data": data}, "latest"],
+            "id": 1
+        });
+        let res = client.post(Path::from(""), &payload).await.context("Error fetching accruedRewardMap")?;
+        let result: Value = serde_json::from_str(&res).context("Error parsing accruedRewardMap response")?;
+        let value = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18
+            } else { 0.0 }
+        } else { 0.0 };
+        Ok(value)
+    }
+
+    #[allow(dead_code)]
+    async fn get_accrued_reward_per_btc_value(&self, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str, validator_addr: &str, round: u64) -> Result<f64> {
+        // BitcoinStake.accruedRewardPerBTCMap(address,uint256) selector 0xe8beb1c0
+        let mut data = String::from("0xe8beb1c0");
+        data.push_str(&format!("{:0>64}", validator_addr.trim_start_matches("0x")));
+        data.push_str(&format!("{:064x}", round));
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{"to": btc_stake_addr, "data": data}, "latest"],
+            "id": 1
+        });
+        let res = client.post(Path::from(""), &payload).await.context("Error fetching accruedRewardPerBTCMap")?;
+        let result: Value = serde_json::from_str(&res).context("Error parsing accruedRewardPerBTCMap response")?;
+        let value = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18
+            } else { 0.0 }
+        } else { 0.0 };
+        Ok(value)
+    }
+
+    #[allow(dead_code)]
+    async fn get_last_reward_end_round(&self, client: &crate::core::clients::http_client::NodePool, contract_addr: &str, validator_addr: &str) -> Result<Option<u64>> {
+        // getContinuousRewardEndRoundsByCandidate(address) selector 0x5efc83de
+        let mut data = String::from("0x5efc83de");
+        data.push_str(&format!("{:0>64}", validator_addr.trim_start_matches("0x")));
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{"to": contract_addr, "data": data}, "latest"],
+            "id": 1
+        });
+        let res = client.post(Path::from(""), &payload).await.context("Error fetching continuousRewardEndRounds")?;
+        let result: Value = serde_json::from_str(&res).context("Error parsing continuousRewardEndRounds response")?;
+        if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            // ABI-encoded dynamic array. If empty, it's just 0x. Otherwise, decode last 32-byte word as last element.
+            if hex_data == "0x" { return Ok(None); }
+            let bytes = hex::decode(hex_data.trim_start_matches("0x")).unwrap_or_default();
+            if bytes.len() < 96 { return Ok(None); } // minimal dyn array encoding
+            // offset (ignored), length at bytes[32..64]
+            let len = u128::from_str_radix(&hex::encode(&bytes[32..64]), 16).unwrap_or(0) as usize;
+            if len == 0 { return Ok(None); }
+            // last element position: 64 + (len-1)*32 .. +32
+            let start = 64 + (len - 1) * 32;
+            if bytes.len() < start + 32 { return Ok(None); }
+            let last_hex = hex::encode(&bytes[start..start+32]);
+            let last = u128::from_str_radix(&last_hex, 16).unwrap_or(0) as u64;
+            return Ok(Some(last));
+        }
+        Ok(None)
+    }
+
+    async fn calculate_btc_expiration_timestamps(&self) -> Result<()> {
+        info!("(CoreDAO Staking) Calculating BTC expiration timestamps");
+        
+        let client = self.app_context.rpc.clone().unwrap();
+        let (_, _, btc_stake_addr, _) = self.get_contract_addresses();
+        
+        // Get validators
+        let validators = self.get_validators().await?;
+        
+        for validator_addr in validators.iter() {
+            let validator_name = self.get_validator_name(validator_addr);
+            let fires_alerts = self.app_context.config.general.alerting.validators.contains(validator_addr).to_string();
+            
+            // Get BTC expiration timestamp
+            let expiration_timestamp = self.get_btc_expiration_timestamp(validator_addr, &client, &btc_stake_addr).await?;
+            
+            COREDAO_BTC_VALIDATOR_STAKE_EXPIRATION_TIMESTAMP
+                .with_label_values(&[
+                    validator_addr,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .set(expiration_timestamp);
+            
+            if expiration_timestamp > 0.0 {
+                let expiration_date = chrono::DateTime::from_timestamp(expiration_timestamp as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "Invalid timestamp".to_string());
+                
+                info!("(CoreDAO Staking) Validator {} BTC expires at: {} (timestamp: {})", 
+                      validator_addr, expiration_date, expiration_timestamp);
+            }
+        }
+        
+        Ok(())
+    }
+
+    async fn get_btc_expiration_timestamp(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<f64> {
+        // Get expiration time using getExpirationTime(address)
+        let expiration_data = format!(
+            "0x2b5fef2f000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": expiration_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching BTC expiration time")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing BTC expiration time response")?;
+
+        let expiration_timestamp = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u64::from_str_radix(hex_clean, 16).unwrap_or(0) as f64
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(expiration_timestamp)
+    }
+
+    async fn calculate_slashing_event_counters(&self) -> Result<()> {
+        info!("(CoreDAO Staking) Calculating slashing event counters");
+        
+        let client = self.app_context.rpc.clone().unwrap();
+        let (validator_set_addr, _, _, _) = self.get_contract_addresses();
+        
+        // Get validators
+        let validators = self.get_validators().await?;
+        
+        for validator_addr in validators.iter() {
+            let validator_name = self.get_validator_name(validator_addr);
+            let fires_alerts = self.app_context.config.general.alerting.validators.contains(validator_addr).to_string();
+            
+            // Get slashing event count
+            let slash_count = self.get_slashing_event_count(validator_addr, &client, &validator_set_addr).await?;
+            
+            COREDAO_VALIDATOR_SLASH_EVENTS_TOTAL
+                .with_label_values(&[
+                    validator_addr,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .inc_by(slash_count as f64);
+            
+            // Get penalty amount
+            let penalty_amount = self.get_penalty_amount(validator_addr, &client, &validator_set_addr).await?;
+            
+            COREDAO_VALIDATOR_PENALTY_AMOUNT_TOTAL
+                .with_label_values(&[
+                    validator_addr,
+                    &validator_name,
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                    &fires_alerts,
+                ])
+                .inc_by(penalty_amount);
+            
+            if slash_count > 0 || penalty_amount > 0.0 {
+                info!("(CoreDAO Staking) Validator {} slashing: {} events, {:.2} CORE penalty", 
+                      validator_addr, slash_count, penalty_amount);
+            }
+        }
+        
+        Ok(())
+    }
+
+    async fn get_slashing_event_count(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, validator_set_addr: &str) -> Result<u32> {
+        // Get slash count using getSlashCount(address)
+        let slash_count_data = format!(
+            "0x66c36875000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": validator_set_addr,
+                "data": slash_count_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching slash count")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing slash count response")?;
+
+        let slash_count = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u32::from_str_radix(hex_clean, 16).unwrap_or(0)
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        Ok(slash_count)
+    }
+
+    async fn get_penalty_amount(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, validator_set_addr: &str) -> Result<f64> {
+        // Get penalty amount using getPenaltyAmount(address)
+        let penalty_data = format!(
+            "0x456f1731000000000000000000000000{}",
+            validator_addr.trim_start_matches("0x")
+        );
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": validator_set_addr,
+                "data": penalty_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching penalty amount")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing penalty amount response")?;
+
+        let penalty_amount = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18 // Convert from wei to CORE
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(penalty_amount)
+    }
+
+    #[allow(dead_code)]
+    async fn get_core_reward_pool(&self, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str) -> Result<f64> {
+        // Try getRewardPool() - no parameters
+        let reward_pool_data = "0x1b8b13a7";
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": reward_pool_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching CORE reward pool")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing CORE reward pool response")?;
+
+        let reward_pool = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(reward_pool)
+    }
+
+    #[allow(dead_code)]
+    async fn get_btc_reward_pool(&self, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<f64> {
+        // Try getRewardPool() - no parameters
+        let reward_pool_data = "0x1b8b13a7";
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": reward_pool_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching BTC reward pool")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing BTC reward pool response")?;
+
+        let reward_pool = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e8
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(reward_pool)
+    }
+
+    #[allow(dead_code)]
+    async fn get_core_annual_reward(&self, client: &crate::core::clients::http_client::NodePool, core_agent_addr: &str) -> Result<f64> {
+        // Try getAnnualReward() - no parameters
+        let annual_reward_data = "0x1d52ecaf";
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": core_agent_addr,
+                "data": annual_reward_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching CORE annual reward")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing CORE annual reward response")?;
+
+        let annual_reward = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e18
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(annual_reward)
+    }
+
+    #[allow(dead_code)]
+    async fn get_btc_annual_reward(&self, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<f64> {
+        // Try getAnnualReward() - no parameters
+        let annual_reward_data = "0x1d52ecaf";
+        
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": btc_stake_addr,
+                "data": annual_reward_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let res = client
+            .post(Path::from(""), &payload)
+            .await
+            .context("Error fetching BTC annual reward")?;
+
+        let result: Value = serde_json::from_str(&res)
+            .context("Error parsing BTC annual reward response")?;
+
+        let annual_reward = if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
+            if hex_data != "0x" && hex_data.len() >= 66 {
+                let hex_clean = hex_data.trim_start_matches("0x");
+                u128::from_str_radix(hex_clean, 16).unwrap_or(0) as f64 / 1e8
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        Ok(annual_reward)
+    }
 }
 
 impl Default for ValidatorStakeInfo {
@@ -1111,6 +2597,25 @@ impl RunnableModule for Staking {
         // Update current stake amounts and market shares
         self.update_current_stakes().await
             .context("Failed to update current stakes")?;
+
+        // Calculate delegator APY
+        self.calculate_delegator_apy().await
+            .context("Failed to calculate delegator APY")?;
+
+        // Calculate unclaimed reward ratios
+        self.calculate_unclaimed_reward_ratios().await
+            .context("Failed to calculate unclaimed reward ratios")?;
+
+        // Emit per-validator reward metrics
+        // Rewards are updated from StakeHub events
+
+        // Calculate BTC expiration timestamps
+        self.calculate_btc_expiration_timestamps().await
+            .context("Failed to calculate BTC expiration timestamps")?;
+
+        // Calculate slashing event counters
+        self.calculate_slashing_event_counters().await
+            .context("Failed to calculate slashing event counters")?;
 
         Ok(())
     }
