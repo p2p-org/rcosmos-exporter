@@ -219,6 +219,7 @@ impl Block {
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.missed_blocks as f64);
             }
@@ -260,6 +261,7 @@ impl Block {
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.missed_blocks as f64);
             }
@@ -301,6 +303,7 @@ impl Block {
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.missed_blocks as f64);
             }
@@ -342,6 +345,7 @@ impl Block {
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.missed_blocks as f64);
             }
