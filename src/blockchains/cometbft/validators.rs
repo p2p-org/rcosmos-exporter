@@ -76,6 +76,7 @@ impl Validators {
                     &validator.address,
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
+                    &alert_addresses.contains(&validator.address).to_string(),
                 ])
                 .set(validator.voting_power.parse::<i64>().unwrap_or(0));
             COMETBFT_VALIDATOR_PROPOSER_PRIORITY

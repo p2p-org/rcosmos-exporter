@@ -68,6 +68,14 @@ impl Pos {
                             address,
                             &self.app_context.chain_id.to_string(),
                             &self.app_context.config.general.network,
+                            &self
+                                .app_context
+                                .config
+                                .general
+                                .alerting
+                                .validators
+                                .contains(address)
+                                .to_string(),
                         ])
                         .set(voting_power as i64);
                 }

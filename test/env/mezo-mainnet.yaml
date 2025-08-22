@@ -8,7 +8,7 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 987158183DBF316FC7B84398F86BAADEAD96BE00
+      - CFD8B486E38C66CE633B2A225DF78EF46AA4CEBB
   nodes:
     rpc:
       - name: p2p

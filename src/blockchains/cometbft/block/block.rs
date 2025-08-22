@@ -186,12 +186,15 @@ impl Block {
         {
             let uptimes = self.signature_storage.uptimes(UptimeWindow::OneDay).await?;
             info!("(CometBFT Block) Calculating 1 day uptime for validators");
+            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
             for (_, uptime) in uptimes {
+                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
                 COMETBFT_VALIDATOR_1D_UPTIME
                     .with_label_values(&[
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.uptime);
 
@@ -216,6 +219,7 @@ impl Block {
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.missed_blocks as f64);
             }
@@ -224,12 +228,15 @@ impl Block {
                 .uptimes(UptimeWindow::SevenDays)
                 .await?;
             info!("(CometBFT Block) Calculating 7 days uptime for validators");
+            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
             for (_, uptime) in uptimes {
+                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
                 COMETBFT_VALIDATOR_7D_UPTIME
                     .with_label_values(&[
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.uptime);
 
@@ -254,6 +261,7 @@ impl Block {
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.missed_blocks as f64);
             }
@@ -262,12 +270,15 @@ impl Block {
                 .uptimes(UptimeWindow::FifteenDays)
                 .await?;
             info!("(CometBFT Block) Calculating 15 days uptime for validators");
+            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
             for (_, uptime) in uptimes {
+                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
                 COMETBFT_VALIDATOR_15D_UPTIME
                     .with_label_values(&[
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.uptime);
 
@@ -292,6 +303,7 @@ impl Block {
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.missed_blocks as f64);
             }
@@ -300,12 +312,15 @@ impl Block {
                 .uptimes(UptimeWindow::ThirtyDays)
                 .await?;
             info!("(CometBFT Block) Calculating 30 days uptime for validators");
+            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
             for (_, uptime) in uptimes {
+                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
                 COMETBFT_VALIDATOR_30D_UPTIME
                     .with_label_values(&[
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.uptime);
 
@@ -330,6 +345,7 @@ impl Block {
                         &uptime.address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.missed_blocks as f64);
             }
@@ -339,13 +355,16 @@ impl Block {
                 .uptimes(UptimeWindow::BlockWindow)
                 .await?;
             info!("(CometBFT Block) Calculating uptime for validators");
+            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
             for (_, uptime) in uptimes {
+                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
                 COMETBFT_VALIDATOR_BLOCKWINDOW_UPTIME
                     .with_label_values(&[
                         &uptime.address,
                         &block_window.to_string(),
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
+                        &fires_alerts,
                     ])
                     .set(uptime.uptime);
             }
