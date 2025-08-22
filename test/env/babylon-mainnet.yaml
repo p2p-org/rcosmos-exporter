@@ -108,3 +108,6 @@ network:
     validator:
       enabled: false
       interval: 30
+    staking:
+      enabled: false
+      interval: 30
