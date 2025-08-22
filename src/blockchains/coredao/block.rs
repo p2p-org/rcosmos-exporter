@@ -384,6 +384,9 @@ impl Block {
     fn calculate_historical_uptime(&self) {
         info!("(Core DAO Block) Calculating historical uptime over block window");
 
+        // For CoreDAO round-robin, we need to calculate uptime differently
+        // We need to determine the rotation order and count opportunities vs actual signs
+
         let window_size = self.block_window.window;
         let blocks = self.block_window.blocks();
 
@@ -392,41 +395,70 @@ impl Block {
             return;
         }
 
-        // Count actual signs per validator in the window and gather unique validators
-        let mut sign_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-        let mut unique_validators: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Get the rotation order from recent blocks in the window
+        let mut rotation_validators = Vec::new();
+        let mut seen_validators = std::collections::HashSet::new();
+
+        // Build rotation order by looking at the sequence of block signers
         for block_signers in blocks {
             for signer in block_signers {
-                *sign_counts.entry(signer.clone()).or_insert(0) += 1;
-                unique_validators.insert(signer.clone());
+                if !seen_validators.contains(signer) {
+                    rotation_validators.push(signer.clone());
+                    seen_validators.insert(signer.clone());
+                }
             }
         }
 
-        if unique_validators.is_empty() {
+        if rotation_validators.is_empty() {
             info!("(Core DAO Block) No validators found in block window");
             return;
         }
 
-        let rotation_size = unique_validators.len() as f64;
-        let total_blocks = blocks.len() as f64;
-        let expected_per_validator = if rotation_size > 0.0 { total_blocks / rotation_size } else { 0.0 };
+        let rotation_size = rotation_validators.len();
+        info!(
+            "(Core DAO Block) Detected rotation with {} validators",
+            rotation_size
+        );
 
-        // Uptime = signed_count / expected_per_validator, capped at 100%
-        for validator_address in &unique_validators {
-            let signed_count = *sign_counts.get(validator_address).unwrap_or(&0) as f64;
-            let uptime_percentage = if expected_per_validator > 0.0 {
-                (signed_count / expected_per_validator).min(1.0) * 100.0
-            } else { 0.0 };
+        // Calculate uptime for each validator in the rotation
+        let mut validator_uptimes = std::collections::HashMap::new();
+
+        for (block_index, block_signers) in blocks.iter().enumerate() {
+            // Determine which validator should have signed this block based on round-robin
+            let expected_validator_index = block_index % rotation_size;
+            if expected_validator_index < rotation_validators.len() {
+                let expected_validator = &rotation_validators[expected_validator_index];
+
+                // Check if the expected validator actually signed the block
+                let did_sign = block_signers.contains(expected_validator);
+
+                let stats = validator_uptimes
+                    .entry(expected_validator.clone())
+                    .or_insert((0, 0));
+                stats.1 += 1; // total opportunities
+                if did_sign {
+                    stats.0 += 1; // successful signs
+                }
+            }
+        }
+
+        // Calculate and set uptime percentages
+        for (validator_address, (signed_count, total_opportunities)) in &validator_uptimes {
+            let uptime_percentage = if *total_opportunities > 0 {
+                (*signed_count as f64 / *total_opportunities as f64) * 100.0
+            } else {
+                0.0
+            };
 
             let fires_alerts = self
                 .validator_alert_addresses
-                .contains(validator_address)
+                .contains(&validator_address)
                 .to_string();
 
-            let validator_name = self.name_for(validator_address);
+            let validator_name = self.name_for(&validator_address);
             COREDAO_VALIDATOR_UPTIME
                 .with_label_values(&[
-                    validator_address,
+                    &validator_address,
                     &validator_name,
                     &window_size.to_string(),
                     &self.app_context.chain_id,
@@ -435,17 +467,17 @@ impl Block {
                 ])
                 .set(uptime_percentage);
 
-            if self.validator_alert_addresses.contains(validator_address) {
+            if self.validator_alert_addresses.contains(&validator_address) {
                 info!(
-                    "(Core DAO Block) Validator {} historical uptime: {:.2}% (signed {:.0} of expected {:.1}) over {} blocks",
-                    validator_address, uptime_percentage, signed_count, expected_per_validator, window_size
+                    "(Core DAO Block) Validator {} historical uptime: {:.2}% ({}/{} opportunities) over {} blocks",
+                    validator_address, uptime_percentage, signed_count, total_opportunities, window_size
                 );
             }
         }
 
-        // Set 0% for alert validators that didn't appear in the window
+        // Set 0% uptime for alert validators that aren't in the current rotation
         for validator_address in &self.validator_alert_addresses {
-            if !unique_validators.contains(validator_address) {
+            if !validator_uptimes.contains_key(validator_address) {
                 let validator_name = self.name_for(validator_address);
                 COREDAO_VALIDATOR_UPTIME
                     .with_label_values(&[
@@ -459,7 +491,7 @@ impl Block {
                     .set(0.0);
 
                 info!(
-                    "(Core DAO Block) Alert validator {} not present in window - 0% uptime over {} blocks",
+                    "(Core DAO Block) Alert validator {} not in current rotation - 0% uptime over {} blocks",
                     validator_address, window_size
                 );
             }

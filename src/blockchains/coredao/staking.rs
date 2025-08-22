@@ -20,6 +20,8 @@ use crate::{
         COREDAO_BTC_VALIDATOR_STAKE_EXPIRATION_TIMESTAMP,
         COREDAO_VALIDATOR_SLASH_EVENTS_TOTAL, COREDAO_VALIDATOR_PENALTY_AMOUNT_TOTAL,
         COREDAO_CORE_VALIDATOR_CURRENT_STAKE, COREDAO_BTC_VALIDATOR_CURRENT_STAKE,
+        COREDAO_BLOCK_REWARD, COREDAO_BLOCK_REWARD_INCENTIVE_PERCENT, COREDAO_VALIDATORSET_TOTAL_INCOME,
+        COREDAO_VALIDATORSET_ACTIVE_VALIDATORS, COREDAO_ROUND_TAG, COREDAO_STAKEHUB_SURPLUS,
     },
     blockchains::coredao::validator::ValidatorFetcher,
     core::{app_context::AppContext, clients::path::Path, exporter::RunnableModule},
@@ -105,8 +107,8 @@ impl Staking {
                 }
             }
         }
-        // No cached name available; fallback to address short form
-        format!("{}...{}", &address[..6], &address[address.len()-4..])
+        // No cached name available; fallback to full address to keep labels consistent
+        address.to_string()
     }
 
     async fn get_validator_commissions(&self) -> Result<HashMap<String, f64>> {
@@ -876,8 +878,9 @@ impl Staking {
         for (validator, core_stake) in core_stakes {
             let btc_stake = btc_stakes.get(&validator).copied().unwrap_or(0.0);
             
-            let core_share = if total_core > 0.0 { core_stake / total_core * 100.0 } else { 0.0 };
-            let btc_share = if total_btc > 0.0 { btc_stake / total_btc * 100.0 } else { 0.0 };
+            // Use absolute amounts instead of percentages for stake share metrics
+            let core_share = core_stake;
+            let btc_share = btc_stake;
             
             let fires_alerts = self.app_context.config.general.alerting.validators.contains(&validator).to_string();
             let validator_name = self.get_validator_name(&validator);
@@ -1011,7 +1014,6 @@ impl Staking {
                 ])
                 .set(btc_top1_share);
 
-            // No per-delegator share metrics (reverted to original behavior)
 
             // Ensure stake flow counters are initialized (sets to current total if not yet set)
             // This ensures all validators appear in metrics even if they have zero flow activity
@@ -1215,9 +1217,78 @@ impl Staking {
                 }
             }
         }
+
+        // Emit global protocol metrics
+        self.emit_protocol_metrics().await.ok();
         
         Ok(())
     }
+
+    async fn emit_protocol_metrics(&self) -> Result<()> {
+        let client = self.app_context.rpc.clone().unwrap();
+        let (validator_set_addr, core_agent_addr, _btc_stake_addr, _candidate_hub_addr) = self.get_contract_addresses();
+
+        // ValidatorSet getters (selectors computed via cast):
+        // blockReward() -> 0x0ac168a1
+        // blockRewardIncentivePercent() -> 0x983443df
+        // totalInCome() -> 0x4392b201
+        async fn read_u256(client: &crate::core::clients::http_client::NodePool, to: &str, data: &str) -> Option<u128> {
+            let payload = json!({"jsonrpc":"2.0","method":"eth_call","params":[{"to": to, "data": data}, "latest"],"id":1});
+            let res = client.post(Path::from(""), &payload).await.ok()?;
+            let v: Value = serde_json::from_str(&res).ok()?;
+            let hex = v.get("result").and_then(Value::as_str)?;
+            if hex != "0x" && hex.len() >= 66 { Some(u128::from_str_radix(hex.trim_start_matches("0x"),16).ok()?) } else { Some(0) }
+        }
+
+        if let Some(block_reward_wei) = read_u256(&client, &validator_set_addr, "0x0ac168a1").await {
+            COREDAO_BLOCK_REWARD
+                .with_label_values(&[&self.app_context.chain_id, &self.app_context.config.general.network])
+                .set(block_reward_wei as f64 / 1e18);
+        }
+        if let Some(pct) = read_u256(&client, &validator_set_addr, "0x983443df").await {
+            COREDAO_BLOCK_REWARD_INCENTIVE_PERCENT
+                .with_label_values(&[&self.app_context.chain_id, &self.app_context.config.general.network])
+                .set(pct as f64);
+        }
+        if let Some(income_wei) = read_u256(&client, &validator_set_addr, "0x4392b201").await {
+            COREDAO_VALIDATORSET_TOTAL_INCOME
+                .with_label_values(&[&self.app_context.chain_id, &self.app_context.config.general.network])
+                .set(income_wei as f64 / 1e18);
+        }
+        // ValidatorSet.getValidators() length
+        if let Some(num_active) = self.read_address_array_len(&validator_set_addr, "0xb7ab4db5").await {
+            COREDAO_VALIDATORSET_ACTIVE_VALIDATORS
+                .with_label_values(&[&self.app_context.chain_id, &self.app_context.config.general.network])
+                .set(num_active as f64);
+        }
+        // CoreAgent.roundTag() -> 0x75b10c71 (use CoreAgent to avoid ABI differences)
+        if let Some(round) = read_u256(&client, &core_agent_addr, "0x75b10c71").await {
+            COREDAO_ROUND_TAG
+                .with_label_values(&[&self.app_context.chain_id, &self.app_context.config.general.network])
+                .set(round as f64);
+        }
+
+        // StakeHub.surplus() -> 0x13888565 ; stateMap(agent) omitted for now
+        if let Some(surplus_wei) = read_u256(&client, "0x0000000000000000000000000000000000001012", "0x13888565").await {
+            COREDAO_STAKEHUB_SURPLUS
+                .with_label_values(&[&self.app_context.chain_id, &self.app_context.config.general.network])
+                .set(surplus_wei as f64 / 1e18);
+        }
+        Ok(())
+    }
+
+    async fn read_address_array_len(&self, to: &str, selector_hex: &str) -> Option<usize> {
+        let client = self.app_context.rpc.clone()?;
+        let payload = json!({"jsonrpc":"2.0","method":"eth_call","params":[{"to": to, "data": selector_hex}, "latest"],"id":1});
+        let res = client.post(Path::from(""), &payload).await.ok()?;
+        let v: Value = serde_json::from_str(&res).ok()?;
+        let hex_data = v.get("result").and_then(Value::as_str)?.trim_start_matches("0x");
+        if hex_data.len() < 128 { return None; }
+        let len_hex = &hex_data[64..128];
+        usize::from_str_radix(len_hex, 16).ok()
+    }
+
+
 
     async fn calculate_delegator_apy(&self) -> Result<()> {
         info!("(CoreDAO Staking) Calculating delegator APY");
@@ -1345,19 +1416,8 @@ impl Staking {
     ) -> Result<f64> {
         // accruedRewardMap(address,uint256) public mapping getter
         let mut data = String::from("0x");
-        // keccak("accruedRewardMap(address,uint256)")[0..4] = 0x6f6f2f9d (example; relies on solidity encoding for mapping getter)
-        // But mapping getters are accessed via slot hashing, not a simple selector. Instead, use exposed helper:
-        // CoreAgent has a public view getContinuousRewardEndRoundsByCandidate; however direct mapping getter exists via ABI encoder when compiled.
-        // We will call an internal-like binary search wrapper by triggering a read path using viewCollectRewardFromCandidate? Not suitable.
-        // So we rely on storage getter for public mapping: function signature selector of accruedRewardMap(address,uint256) is keccak.
-        use tiny_keccak::{Hasher, Keccak};
-        let sig = "accruedRewardMap(address,uint256)";
-        let mut keccak = Keccak::v256();
-        let mut out = [0u8; 32];
-        keccak.update(sig.as_bytes());
-        keccak.finalize(&mut out);
-        let selector = &out[0..4];
-        data.push_str(&hex::encode(selector));
+        // accruedRewardMap(address,uint256) -> 0x8397f244
+        data.push_str("8397f244");
         // Append address (32 bytes)
         let mut addr = validator_addr.trim_start_matches("0x").to_lowercase();
         addr = format!("{:0>64}", addr);
@@ -1393,16 +1453,9 @@ impl Staking {
         btc_stake_addr: &str,
         round: u64,
     ) -> Result<f64> {
-        // accruedRewardPerBTCMap(address,uint256)
-        use tiny_keccak::{Hasher, Keccak};
-        let sig = "accruedRewardPerBTCMap(address,uint256)";
-        let mut keccak = Keccak::v256();
-        let mut out = [0u8; 32];
-        keccak.update(sig.as_bytes());
-        keccak.finalize(&mut out);
-        let selector = &out[0..4];
+        // accruedRewardPerBTCMap(address,uint256) -> 0xe8beb1c0
         let mut data = String::from("0x");
-        data.push_str(&hex::encode(selector));
+        data.push_str("e8beb1c0");
         let mut addr = validator_addr.trim_start_matches("0x").to_lowercase();
         addr = format!("{:0>64}", addr);
         data.push_str(&addr);
@@ -2057,9 +2110,11 @@ impl Staking {
 
     #[allow(dead_code)]
     async fn get_btc_delegators(&self, validator_addr: &str, client: &crate::core::clients::http_client::NodePool, btc_stake_addr: &str) -> Result<HashMap<String, f64>> {
-        // Get delegator list using getDelegatorList(address)
-        let delegator_list_data = format!(
-            "0xe318df11000000000000000000000000{}",
+        // BitcoinStake doesn't have a getDelegatorList function like CoreAgent
+        // Instead, we can get the candidate's total stake from candidateMap(address)
+        // candidateMap(address) -> 0x20c94d98
+        let candidate_data = format!(
+            "0x20c94d98000000000000000000000000{}",
             validator_addr.trim_start_matches("0x")
         );
         
@@ -2068,7 +2123,7 @@ impl Staking {
             "method": "eth_call",
             "params": [{
                 "to": btc_stake_addr,
-                "data": delegator_list_data
+                "data": candidate_data
             }, "latest"],
             "id": 1
         });
@@ -2076,28 +2131,35 @@ impl Staking {
         let res = client
             .post(Path::from(""), &payload)
             .await
-            .context("Error fetching BTC delegator list")?;
+            .context("Error fetching BTC candidate data")?;
 
         let result: Value = serde_json::from_str(&res)
-            .context("Error parsing BTC delegator list response")?;
+            .context("Error parsing BTC candidate data response")?;
 
-        let delegators = HashMap::new();
+        let mut delegators = HashMap::new();
         
         if let Some(hex_data) = result.get("result").and_then(Value::as_str) {
             if hex_data != "0x" && hex_data.len() > 66 {
-                // Parse the array of delegator addresses and their stakes
-                // This is a simplified implementation - the actual parsing depends on the contract's return format
-                // For now, we'll use a placeholder approach
+                // Parse the candidate struct: (stakedAmount, realtimeAmount, continuousRewardEndRounds[])
+                // For now, we'll create a placeholder delegator entry with the total stake
+                // This is a simplified approach since we can't get individual delegator lists
+                let hex_clean = hex_data.trim_start_matches("0x");
+                if hex_clean.len() >= 128 {
+                    // Parse stakedAmount (first 64 bytes)
+                    let staked_amount_hex = &hex_clean[0..64];
+                    if let Ok(staked_amount) = u128::from_str_radix(staked_amount_hex, 16) {
+                        if staked_amount > 0 {
+                            // Create a placeholder delegator entry with the total stake
+                            delegators.insert("total_btc_stake".to_string(), staked_amount as f64 / 1e8); // Convert from satoshis
+                        }
+                    }
+                }
                 
-                // TODO: Implement proper parsing of delegator list based on actual contract return format
-                // The contract might return a struct array or separate arrays for addresses and stakes
-                
-                info!("(CoreDAO Staking) Raw delegator list data for {}: {}", validator_addr, hex_data);
+                info!("(CoreDAO Staking) BTC candidate data for {}: {}", validator_addr, hex_data);
             }
         }
         
-        // For now, return empty map as placeholder
-        // TODO: Implement actual delegator list parsing
+        // Return the delegators map (will be empty or contain total stake)
         Ok(delegators)
     }
 
@@ -2235,7 +2297,7 @@ impl Staking {
                     .unwrap_or_else(|| "Invalid timestamp".to_string());
                 
                 info!("(CoreDAO Staking) Validator {} BTC expires at: {} (timestamp: {})", 
-                      validator_addr, expiration_date, expiration_timestamp);
+                    validator_addr, expiration_date, expiration_timestamp);
             }
         }
         
@@ -2579,6 +2641,10 @@ pub fn factory(app_context: Arc<AppContext>) -> anyhow::Result<Box<dyn RunnableM
 #[async_trait]
 impl RunnableModule for Staking {
     async fn run(&mut self) -> Result<()> {
+        // Prime validator name cache early to ensure get_validator_name returns names
+        // consistently for label values before processing any events/metrics.
+        let _ = self.validator_fetcher.get_validators().await;
+
         let latest_block = self.get_latest_block_number().await
             .context("Failed to get latest block number")?;
 

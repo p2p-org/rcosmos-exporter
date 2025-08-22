@@ -132,6 +132,16 @@ impl ValidatorFetcher {
                         .get("operatorAddress")
                         .and_then(|addr| addr.as_str())?;
                     
+                    // Only include validators with validatorStatus == "1" (active)
+                    let status = validator_obj
+                        .get("validatorStatus")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("0");
+                    
+                    if status != "1" {
+                        return None; // Skip inactive validators
+                    }
+                    
                     let name = validator_obj
                         .get("validatorName")
                         .and_then(|name| name.as_str())
@@ -158,8 +168,8 @@ impl ValidatorFetcher {
         let client = self.app_context.rpc.as_ref()
             .context("RPC client not available")?;
 
-        // Use contract ValidatorSet.sol using function getValidatorOps()
-        let data = "0x93f2d404";
+        // Use contract ValidatorSet.sol using function getValidators()
+        let data = "0xb7ab4db5";
 
         let payload = json!({
             "jsonrpc": "2.0",
@@ -514,6 +524,8 @@ impl Validator {
                 all_validators.push(validator.clone());
             }
         }
+
+
 
         let alert_addresses = self.app_context.config.general.alerting.validators.clone();
 

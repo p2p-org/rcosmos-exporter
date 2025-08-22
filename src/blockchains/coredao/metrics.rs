@@ -63,13 +63,13 @@ lazy_static! {
     // CORE & BTC Staking Metrics
     pub static ref COREDAO_CORE_VALIDATOR_STAKE_SHARE: GaugeVec = register_gauge_vec!(
         "rcosmos_coredao_core_validator_stake_share",
-        "Validator's CORE stake as percentage of total network CORE stake",
+        "Validator's CORE stake amount (absolute value)",
         &["validator_address", "validator_name", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref COREDAO_BTC_VALIDATOR_STAKE_SHARE: GaugeVec = register_gauge_vec!(
         "rcosmos_coredao_btc_validator_stake_share", 
-        "Validator's BTC stake as percentage of total network BTC stake",
+        "Validator's BTC stake amount (absolute value)",
         &["validator_address", "validator_name", "chain_id", "network", "alerts"]
     )
     .unwrap();
@@ -107,6 +107,56 @@ lazy_static! {
         "rcosmos_coredao_total_btc_staked",
         "Total BTC staked across all validators",
         &["chain_id", "network"]
+    )
+    .unwrap();
+    // Protocol parameters and state
+    pub static ref COREDAO_BLOCK_REWARD: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_block_reward",
+        "Current block reward (CORE)",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COREDAO_BLOCK_REWARD_INCENTIVE_PERCENT: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_block_reward_incentive_percent",
+        "Block reward incentive percent (0-100)",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COREDAO_VALIDATORSET_TOTAL_INCOME: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_validatorset_total_income",
+        "Total income pending distribution in ValidatorSet (CORE)",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COREDAO_VALIDATORSET_ACTIVE_VALIDATORS: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_validatorset_active_validators",
+        "Number of active validators in current set",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COREDAO_ROUND_TAG: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_round_tag",
+        "Current CoreDAO round tag (epoch index)",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+
+    pub static ref COREDAO_STAKEHUB_SURPLUS: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_stakehub_surplus",
+        "StakeHub surplus (CORE)",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COREDAO_ASSET_STATE_AMOUNT: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_asset_state_amount",
+        "StakeHub asset state amount (per asset)",
+        &["asset", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COREDAO_ASSET_STATE_FACTOR: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_asset_state_factor",
+        "StakeHub asset state factor (per asset)",
+        &["asset", "chain_id", "network"]
     )
     .unwrap();
     // Commission & Competition Metrics
@@ -186,7 +236,6 @@ lazy_static! {
     )
     .unwrap();
     
-    // Deprecated per-unit accrued metrics removed; using event-based counters below.
     // Event-based cumulative rewards per validator (sum of roundReward amounts)
     pub static ref COREDAO_CORE_VALIDATOR_ROUND_REWARD_TOTAL: CounterVec = register_counter_vec!(
         "rcosmos_coredao_core_validator_round_reward_total",
@@ -200,6 +249,7 @@ lazy_static! {
         &["validator_address", "validator_name", "chain_id", "network", "alerts"]
     )
     .unwrap();
+    
     
     // Slashing event counter (for Prometheus time-based calculations)
     pub static ref COREDAO_VALIDATOR_SLASH_EVENTS_TOTAL: CounterVec = register_counter_vec!(
@@ -277,6 +327,31 @@ pub fn coredao_custom_metrics() {
     REGISTRY
         .register(Box::new(COREDAO_TOTAL_BTC_STAKED.clone()))
         .unwrap_or_else(|e| eprintln!("Error registering COREDAO_TOTAL_BTC_STAKED: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_BLOCK_REWARD.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_BLOCK_REWARD: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_BLOCK_REWARD_INCENTIVE_PERCENT.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_BLOCK_REWARD_INCENTIVE_PERCENT: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_VALIDATORSET_TOTAL_INCOME.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATORSET_TOTAL_INCOME: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_VALIDATORSET_ACTIVE_VALIDATORS.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATORSET_ACTIVE_VALIDATORS: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_ROUND_TAG.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_ROUND_TAG: {}", e));
+    
+    REGISTRY
+        .register(Box::new(COREDAO_STAKEHUB_SURPLUS.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_STAKEHUB_SURPLUS: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_ASSET_STATE_AMOUNT.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_ASSET_STATE_AMOUNT: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_ASSET_STATE_FACTOR.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_ASSET_STATE_FACTOR: {}", e));
     
     // Register commission and concentration metrics
     REGISTRY
