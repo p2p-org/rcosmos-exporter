@@ -84,6 +84,7 @@ impl Validators {
                     &validator.address,
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
+                    &alert_addresses.contains(&validator.address).to_string(),
                 ])
                 .set(validator.proposer_priority.parse::<i64>().unwrap_or(0));
 
