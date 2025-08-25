@@ -3,6 +3,7 @@ config.toml
 Cargo.lock
 
 target/
+contracts 
 
 .DS_Store
 .vscode

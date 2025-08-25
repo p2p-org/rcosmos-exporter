@@ -210,6 +210,7 @@ pub struct NamadaPosConfig {
 pub struct CoreDaoConfig {
     pub block: CoreDaoBlockConfig,
     pub validator: CoreDaoValidatorConfig,
+    pub staking: CoreDaoStakingConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -221,6 +222,49 @@ pub struct CoreDaoBlockConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct CoreDaoValidatorConfig {
+    pub enabled: bool,
+    pub interval: u64,
+    #[serde(default)]
+    pub api: CoreDaoValidatorApiConfig,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct CoreDaoValidatorApiConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_cache_duration")]
+    pub cache_duration_seconds: u64,
+}
+
+impl CoreDaoValidatorApiConfig {
+    /// Get the API key, preferring environment variable over config file
+    pub fn get_api_key(&self) -> Option<String> {
+        // First try environment variable
+        std::env::var("COREDAO_VALIDATOR_API_KEY").ok()
+            // Fall back to config file
+            .or_else(|| if !self.api_key.is_empty() { Some(self.api_key.clone()) } else { None })
+    }
+
+    /// Get the API URL from config file
+    pub fn get_url(&self) -> Option<String> {
+        if !self.url.is_empty() {
+            Some(self.url.clone())
+        } else {
+            None
+        }
+    }
+}
+
+fn default_cache_duration() -> u64 {
+    300 // 5 minutes default cache duration
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CoreDaoStakingConfig {
     pub enabled: bool,
     pub interval: u64,
 }

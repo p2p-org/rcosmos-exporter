@@ -86,7 +86,10 @@ network:
     block:
       enabled: false
       interval: 30
-      window: 100
+      window: 500
     validator:
+      enabled: false
+      interval: 30
+    staking:
       enabled: false
       interval: 30

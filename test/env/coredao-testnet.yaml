@@ -1,5 +1,5 @@
 general:
-  network: coredao-mainnet
+  network: coredao-testnet
   mode: network
   chain_id: coredao
   metrics:
@@ -8,13 +8,18 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 987158183DBF316FC7B84398F86BAADEAD96BE00
+      - "0xa95253aa936de5926a75e7742ac422f26477c50f"
   nodes:
     rpc:
       - name: p2p
         url: https://rpc.test2.btcs.network
         healthEndpoint: /
-    lcd: []
+
+    lcd:
+      - name: p2p
+        url: https://api.test2.btcs.network
+        healthEndpoint: /
+
 
 node:
   client: p2p
@@ -93,5 +98,8 @@ network:
       interval: 30
       window: 500
     validator:
+      enabled: true
+      interval: 30
+    staking:
       enabled: true
       interval: 30

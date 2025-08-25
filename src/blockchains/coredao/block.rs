@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::{HashMap, VecDeque}, sync::Arc};
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -11,6 +11,7 @@ use crate::{
         COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK, COREDAO_VALIDATOR_SIGNED_BLOCKS,
         COREDAO_VALIDATOR_UPTIME,
     },
+    blockchains::coredao::validator::ValidatorFetcher,
     core::{
         app_context::AppContext, block_window::BlockWindow, clients::path::Path,
         exporter::RunnableModule,
@@ -28,6 +29,12 @@ pub struct Block {
     block_window: BlockWindow,
     // Validator addresses to monitor and alert on
     validator_alert_addresses: Vec<String>,
+    // Validator name cache (address -> name)
+    validator_names: HashMap<String, String>,
+    // Fetcher to refresh names periodically
+    validator_fetcher: ValidatorFetcher,
+    // Consensus address -> operator address mapping
+    consensus_to_operator: HashMap<String, String>,
     initialized: bool,
 }
 
@@ -36,14 +43,88 @@ impl Block {
         let addresses = app_context.config.general.alerting.validators.clone();
         let window = app_context.config.network.coredao.block.window as usize;
         Block {
-            app_context,
+            app_context: app_context.clone(),
             recent_blocks: VecDeque::with_capacity(100),
             max_blocks: 100,
             block_window: BlockWindow::new(window),
             validator_alert_addresses: addresses,
             last_processed_block: 0,
+            validator_names: HashMap::new(),
+            validator_fetcher: ValidatorFetcher::new(app_context.clone()),
+            consensus_to_operator: HashMap::new(),
             initialized: false,
         }
+    }
+
+    async fn refresh_validator_names(&mut self) {
+        if let Ok(list) = self.validator_fetcher.get_validators().await {
+            let mut map: HashMap<String, String> = HashMap::with_capacity(list.len());
+            for v in list.into_iter() {
+                map.insert(v.address.to_lowercase(), v.name);
+            }
+            self.validator_names = map;
+        }
+    }
+
+    fn name_for(&self, address: &str) -> String {
+        let key = address.to_lowercase();
+        self.validator_names
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| address.to_string())
+    }
+
+    async fn refresh_consensus_operator_map(&mut self) {
+        // Read ValidatorSet operator and consensus lists and zip
+        let client = if let Some(rpc) = self.app_context.rpc.as_ref() { rpc } else { return; };
+        // getValidatorOps()
+        let payload_ops = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": "0x0000000000000000000000000000000000001000",
+                "data": "0x93f2d404"
+            }, "latest"],
+            "id": 1
+        });
+        // getValidators() -> consensus list
+        let payload_cons = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": "0x0000000000000000000000000000000000001000",
+                "data": "0xb7ab4db5"
+            }, "latest"],
+            "id": 1
+        });
+        let (res_ops, res_cons) = match (client.post(Path::from(""), &payload_ops).await.ok(), client.post(Path::from(""), &payload_cons).await.ok()) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return,
+        };
+        let parse_addresses = |res: &str| -> Option<Vec<String>> {
+            let v: serde_json::Value = serde_json::from_str(res).ok()?;
+            let hex_data = v.get("result").and_then(serde_json::Value::as_str)?.trim_start_matches("0x");
+            if hex_data.len() < 128 { return None; }
+            let length_hex = &hex_data[64..128];
+            let length = u64::from_str_radix(length_hex, 16).ok()? as usize;
+            let mut out = Vec::with_capacity(length);
+            for i in 0..length {
+                let start = 128 + i * 64;
+                if start + 64 <= hex_data.len() {
+                    let addr = format!("0x{}", &hex_data[start + 24..start + 64]);
+                    out.push(addr.to_lowercase());
+                }
+            }
+            Some(out)
+        };
+        let ops = match parse_addresses(&res_ops) { Some(v) => v, None => return };
+        let cons = match parse_addresses(&res_cons) { Some(v) => v, None => return };
+        if ops.len() != cons.len() { return; }
+        let mut map = HashMap::with_capacity(cons.len());
+        for (c, o) in cons.into_iter().zip(ops.into_iter()) {
+            map.insert(c, o);
+        }
+        self.consensus_to_operator = map;
     }
 
     async fn get_latest_block_number(&self) -> anyhow::Result<u64> {
@@ -113,6 +194,9 @@ impl Block {
     }
 
     async fn process_new_blocks(&mut self) -> anyhow::Result<()> {
+        // Refresh names at the start of each cycle so metrics always use latest names
+        self.refresh_validator_names().await;
+        self.refresh_consensus_operator_map().await;
         let latest_block = self
             .get_latest_block_number()
             .await
@@ -129,19 +213,26 @@ impl Block {
                         .context("Could not obtain block by number")?;
 
                 let consensus_address = consensus_address.to_lowercase();
+                let operator_address = self
+                    .consensus_to_operator
+                    .get(&consensus_address)
+                    .cloned()
+                    .unwrap_or(consensus_address.clone());
                 self.recent_blocks
-                    .push_back((block_number, consensus_address.clone()));
+                    .push_back((block_number, operator_address.clone()));
 
-                // Add to block window for historical uptime tracking
+                // Add operator address to block window for historical uptime tracking
                 self.block_window
-                    .add_block_signers(vec![consensus_address.clone()]);
+                    .add_block_signers(vec![operator_address.clone()]);
 
                 // Increment the counter if this block was signed by one of our alert validators
                 for target in &self.validator_alert_addresses {
-                    if &consensus_address == target {
+                    if &operator_address == target {
+                        let validator_name = self.name_for(target);
                         COREDAO_VALIDATOR_SIGNED_BLOCKS
                             .with_label_values(&[
                                 target,
+                                &validator_name,
                                 &self.app_context.chain_id,
                                 &self.app_context.config.general.network,
                                 "true",
@@ -233,9 +324,12 @@ impl Block {
                 .validator_alert_addresses
                 .contains(&validator)
                 .to_string();
+            let validator_name = self.name_for(validator);
             COREDAO_VALIDATOR_PARTICIPATION
                 .with_label_values(&[
+                    // Use operator address for labeling consistently
                     validator,
+                    &validator_name,
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
                     &fires_alerts,
@@ -256,6 +350,7 @@ impl Block {
                 .validator_alert_addresses
                 .contains(validator)
                 .to_string();
+            let validator_name = self.name_for(validator);
             let block_number_value = latest_rotation
                 .iter()
                 .rev()
@@ -266,6 +361,7 @@ impl Block {
             COREDAO_VALIDATOR_RECENT_ACTIVITY
                 .with_label_values(&[
                     validator,
+                    &validator_name,
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
                     &fires_alerts,
@@ -275,6 +371,7 @@ impl Block {
             COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK
                 .with_label_values(&[
                     validator,
+                    &validator_name,
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
                     &fires_alerts,
@@ -358,9 +455,11 @@ impl Block {
                 .contains(&validator_address)
                 .to_string();
 
+            let validator_name = self.name_for(&validator_address);
             COREDAO_VALIDATOR_UPTIME
                 .with_label_values(&[
                     &validator_address,
+                    &validator_name,
                     &window_size.to_string(),
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
@@ -379,12 +478,14 @@ impl Block {
         // Set 0% uptime for alert validators that aren't in the current rotation
         for validator_address in &self.validator_alert_addresses {
             if !validator_uptimes.contains_key(validator_address) {
+                let validator_name = self.name_for(validator_address);
                 COREDAO_VALIDATOR_UPTIME
                     .with_label_values(&[
                         validator_address,
+                        &validator_name,
                         &window_size.to_string(),
-                        &self.app_context.config.general.network,
                         &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
                         "true",
                     ])
                     .set(0.0);
@@ -416,6 +517,8 @@ impl RunnableModule for Block {
                 );
                 COREDAO_VALIDATOR_RECENT_ACTIVITY
                     .with_label_values(&[
+                        target_address,
+                        // name fallback at init
                         target_address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,

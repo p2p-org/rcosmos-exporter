@@ -1,5 +1,5 @@
 use crate::blockchains::lombard::metrics::{
-    LOMBARD_LATEST_SESSION_ID, LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION,
+    LOMBARD_LATEST_SESSION, LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION,
 };
 use crate::blockchains::lombard::types::NotarySessionResponse;
 use crate::core::app_context::AppContext;
@@ -47,8 +47,8 @@ impl Ledger {
             }
 
             // Set the latest session ID metric
-            LOMBARD_LATEST_SESSION_ID
-                .with_label_values(&[chain_id, network])
+            LOMBARD_LATEST_SESSION
+                .with_label_values(&[&latest_session.id, chain_id, network])
                 .set(latest_session.id.parse::<i64>().unwrap_or(0));
             
             let current_session_id_num = latest_session.id.parse::<i64>().unwrap_or(0);

@@ -30,6 +30,12 @@ use std::fs;
 
 #[tokio::main]
 async fn main() {
+    // Load environment variables from .env file if it exists
+    if let Err(e) = dotenv::dotenv() {
+        // It's okay if .env doesn't exist, just log it at debug level
+        tracing::debug!("No .env file found: {}", e);
+    }
+
     tracing_subscriber::fmt().with_target(false).init();
 
     println!("{}", ascii_art());
