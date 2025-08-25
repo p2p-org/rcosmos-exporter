@@ -92,11 +92,11 @@ network:
   
   coredao:
     block:
-      enabled: true
+      enabled: false
       interval: 30
       window: 500
     validator:
-      enabled: true
+      enabled: false
       interval: 30
     staking:
       enabled: false
