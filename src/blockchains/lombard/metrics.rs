@@ -3,12 +3,12 @@ use prometheus::{IntGaugeVec, Opts, Registry};
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
-    pub static ref LOMBARD_LATEST_SESSION_ID: IntGaugeVec = IntGaugeVec::new(
+    pub static ref LOMBARD_LATEST_SESSION: IntGaugeVec = IntGaugeVec::new(
         Opts::new(
-            "rcosmos_lombard_latest_session_id",
-            "ID of the latest notary session"
+            "rcosmos_lombard_latest_session",
+            "Latest notary session information"
         ),
-        &["chain_id", "network"]
+        &["session_id", "chain_id", "network"]
     )
     .unwrap();
     pub static ref LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION: IntGaugeVec = IntGaugeVec::new(
@@ -23,7 +23,7 @@ lazy_static! {
 
 pub fn lombard_custom_metrics() {
     REGISTRY
-        .register(Box::new(LOMBARD_LATEST_SESSION_ID.clone()))
+        .register(Box::new(LOMBARD_LATEST_SESSION.clone()))
         .ok();
     REGISTRY
         .register(Box::new(LOMBARD_VALIDATOR_SIGNED_LATEST_SESSION.clone()))
