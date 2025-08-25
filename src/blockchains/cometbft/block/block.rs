@@ -515,6 +515,7 @@ impl Block {
                 &block_proposer,
                 &self.app_context.chain_id,
                 &self.app_context.config.general.network,
+                &validator_alert_addresses.contains(&block_proposer).to_string(),
             ])
             .inc();
 
