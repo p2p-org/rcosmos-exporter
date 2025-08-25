@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.2.2...v2.3.0) (2025-08-25)
+
+
+### Features
+
+* add alerts label to more metrics ([#82](https://github.com/p2p-org/rcosmos-exporter/issues/82)) ([54da0d3](https://github.com/p2p-org/rcosmos-exporter/commit/54da0d372790829651dffb89f0788c44d8fb0094))
+* Staking module for COREDAO ([#80](https://github.com/p2p-org/rcosmos-exporter/issues/80)) ([75f3f76](https://github.com/p2p-org/rcosmos-exporter/commit/75f3f7696248a45116c52e8fd8607777e047a2f6))
+
 ## [2.2.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.1.1...v2.2.0) (2025-07-31)
 
 
