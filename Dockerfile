@@ -1,4 +1,4 @@
-FROM rust AS builder
+FROM rust:1.88 AS builder
 
 RUN apt update && \
     apt install -y pkg-config libssl-dev perl make git

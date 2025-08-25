@@ -21,7 +21,7 @@ lazy_static! {
             "rcosmos_cometbft_validator_proposer_priority",
             "Validator proposer priority on the network"
         ),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref COMETBFT_BLOCK_TXS: GaugeVec = GaugeVec::new(
@@ -92,7 +92,7 @@ lazy_static! {
             "rcosmos_cometbft_validator_proposed_blocks",
             "Number of blocks proposed by validator"
         ),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref COMETBFT_VALIDATOR_BLOCKWINDOW_UPTIME: GaugeVec = GaugeVec::new(
