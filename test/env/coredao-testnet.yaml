@@ -18,7 +18,7 @@ general:
     lcd:
       - name: p2p
         url: https://api.test2.btcs.network
-        healthEndpoint: /
+        healthEndpoint: /health
 
 
 node:

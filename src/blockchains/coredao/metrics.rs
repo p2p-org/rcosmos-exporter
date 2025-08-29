@@ -264,6 +264,20 @@ lazy_static! {
         &["validator_address", "validator_name", "chain_id", "network", "alerts"]
     )
     .unwrap();
+
+    // API Status Metrics
+    pub static ref COREDAO_STAKING_API_LAST_UPDATE: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_staking_api_last_update",
+        "Timestamp of last successful update from CoreDAO staking API (Unix timestamp)",
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COREDAO_STAKING_API_UP: GaugeVec = register_gauge_vec!(
+        "rcosmos_coredao_staking_api_up",
+        "Whether CoreDAO staking API is accessible (1=up, 0=down)",
+        &["chain_id", "network"]
+    )
+    .unwrap();
 }
 
 pub fn coredao_custom_metrics() {
@@ -411,4 +425,12 @@ pub fn coredao_custom_metrics() {
     REGISTRY
         .register(Box::new(COREDAO_VALIDATOR_PENALTY_AMOUNT_TOTAL.clone()))
         .unwrap_or_else(|e| eprintln!("Error registering COREDAO_VALIDATOR_PENALTY_AMOUNT_TOTAL: {}", e));
+
+    // Register API status metrics
+    REGISTRY
+        .register(Box::new(COREDAO_STAKING_API_LAST_UPDATE.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_STAKING_API_LAST_UPDATE: {}", e));
+    REGISTRY
+        .register(Box::new(COREDAO_STAKING_API_UP.clone()))
+        .unwrap_or_else(|e| eprintln!("Error registering COREDAO_STAKING_API_UP: {}", e));
 }
