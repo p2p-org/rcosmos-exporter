@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.3.0...v2.4.0) (2025-08-29)
+
+
+### Features
+
+* P2P CoreDAO validator APY ([#85](https://github.com/p2p-org/rcosmos-exporter/issues/85)) ([256e479](https://github.com/p2p-org/rcosmos-exporter/commit/256e479272f5dfee0c710bcf3e844ef54e5097e2))
+
 ## [2.3.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.2.2...v2.3.0) (2025-08-25)
 
 
