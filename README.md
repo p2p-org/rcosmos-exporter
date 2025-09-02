@@ -6,18 +6,24 @@
 
 ---
 
+
 ## Table of Contents
 
-- [Features](#features)
-- [Quick Start (Docker Compose)](#quick-start-docker-compose)
-- [Configuration](#configuration)
-- [Modes: Node vs Network](#modes-node-vs-network)
-- [Chain ID Handling](#chain-id-handling)
-- [Available Modules](#available-modules)
-- [Metrics](#metrics)
-- [Grafana Dashboards](#grafana-dashboards)
-- [Contributing](#contributing)
-- [License](#license)
+- [rcosmos-exporter](#rcosmos-exporter)
+  - [Table of Contents](#table-of-contents)
+  - [Features](#features)
+  - [Quick Start (Docker Compose)](#quick-start-docker-compose)
+  - [Configuration](#configuration)
+    - [Environment Variables](#environment-variables)
+    - [Example: `config.yaml`](#example-configyaml)
+  - [Modes: Node vs Network](#modes-node-vs-network)
+  - [Chain ID Handling](#chain-id-handling)
+  - [Available Modules](#available-modules)
+  - [Metrics](#metrics)
+  - [Grafana Dashboards](#grafana-dashboards)
+  - [Advanced: ClickHouse](#advanced-clickhouse)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 ---
 
@@ -194,6 +200,14 @@ network:
       interval: 30
       window: 500
     validator:
+      enabled: false
+      interval: 30
+      api: 
+        enabled: false
+        url: "" # Fallback for the lcd URL 
+        api_key: "" # Fallback for the COREDAO_VALIDATOR_API_KEY environment variable
+        cache_duration_seconds: 300 
+    staking: 
       enabled: false
       interval: 30
 ```
