@@ -3,7 +3,7 @@ use std::{collections::{HashMap, VecDeque}, sync::Arc};
 use anyhow::Context;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     blockchains::coredao::metrics::{
@@ -58,12 +58,12 @@ impl Block {
 
     async fn refresh_validator_names(&mut self) {
         if let Ok(list) = self.validator_fetcher.get_validators().await {
-            let mut map: HashMap<String, String> = HashMap::with_capacity(list.len());
+            // Update existing cache instead of replacing it
             for v in list.into_iter() {
-                map.insert(v.address.to_lowercase(), v.name);
+                self.validator_names.insert(v.address.to_lowercase(), v.name);
             }
-            self.validator_names = map;
         }
+        // If API call fails, keep the existing cache to avoid creating duplicate metrics
     }
 
     fn name_for(&self, address: &str) -> String {
@@ -71,7 +71,12 @@ impl Block {
         self.validator_names
             .get(&key)
             .cloned()
-            .unwrap_or_else(|| address.to_string())
+            .unwrap_or_else(|| {
+                // If cache is empty, try to get name from a blocking call
+                // This should rarely happen with the new cache management
+                warn!("Validator name not found in cache for {}, using address as fallback", address);
+                address.to_string()
+            })
     }
 
     async fn refresh_consensus_operator_map(&mut self) {
@@ -120,11 +125,10 @@ impl Block {
         let ops = match parse_addresses(&res_ops) { Some(v) => v, None => return };
         let cons = match parse_addresses(&res_cons) { Some(v) => v, None => return };
         if ops.len() != cons.len() { return; }
-        let mut map = HashMap::with_capacity(cons.len());
+        // Update existing mapping instead of replacing it
         for (c, o) in cons.into_iter().zip(ops.into_iter()) {
-            map.insert(c, o);
+            self.consensus_to_operator.insert(c, o);
         }
-        self.consensus_to_operator = map;
     }
 
     async fn get_latest_block_number(&self) -> anyhow::Result<u64> {
@@ -197,6 +201,12 @@ impl Block {
         // Refresh names at the start of each cycle so metrics always use latest names
         self.refresh_validator_names().await;
         self.refresh_consensus_operator_map().await;
+
+        // Ensure cache is populated before processing blocks to avoid duplicate metrics
+        if self.validator_names.is_empty() {
+            warn!("Validator names cache is empty, skipping block processing to avoid duplicate metrics");
+            return Ok(());
+        }
         let latest_block = self
             .get_latest_block_number()
             .await
@@ -510,6 +520,10 @@ pub fn factory(app_context: Arc<AppContext>) -> anyhow::Result<Box<dyn RunnableM
 impl RunnableModule for Block {
     async fn run(&mut self) -> anyhow::Result<()> {
         if !self.initialized {
+            // Pre-populate validator names cache to avoid duplicate metrics
+            self.refresh_validator_names().await;
+            self.refresh_consensus_operator_map().await;
+
             for target_address in &self.validator_alert_addresses {
                 debug!(
                     "(Core DAO Block) Forcibly initializing recent activity metric for {}",
@@ -518,8 +532,8 @@ impl RunnableModule for Block {
                 COREDAO_VALIDATOR_RECENT_ACTIVITY
                     .with_label_values(&[
                         target_address,
-                        // name fallback at init
-                        target_address,
+                        // Use proper name from cache, fallback to address
+                        &self.name_for(target_address),
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
                         "true",
