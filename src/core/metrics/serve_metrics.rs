@@ -5,6 +5,7 @@ use crate::blockchains::cometbft::metrics::REGISTRY as cometbft_registry;
 use crate::blockchains::coredao::metrics::REGISTRY as coredao_registry;
 use crate::blockchains::lombard::metrics::REGISTRY as lombard_registry;
 use crate::blockchains::tendermint::metrics::REGISTRY as tendermint_registry;
+use crate::blockchains::sei::metrics::REGISTRY as sei_registry;
 
 use hyper::{
     service::{make_service_fn, service_fn},
@@ -49,6 +50,7 @@ pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, path:
                         metric_families.extend(coredao_registry.gather());
                         metric_families.extend(lombard_registry.gather());
                         metric_families.extend(babylon_registry.gather());
+                        metric_families.extend(sei_registry.gather());
                         metric_families.extend(EXPORTER_REGISTRY.gather());
 
                         encoder.encode(&metric_families, &mut buffer).unwrap();

@@ -47,13 +47,13 @@ impl Block {
         // Fetch and process transactions
         let txs = self.fetch_sei_txs(height).await?;
 
-        // Update transaction count
+        // Update transaction count as a gauge to match Allora naming
         COMETBFT_BLOCK_TXS
             .with_label_values(&[
                 &self.app_context.chain_id,
                 &self.app_context.config.general.network,
             ])
-            .inc_by(txs.len() as f64);
+            .set(txs.len() as f64);
 
         Ok(())
     }
