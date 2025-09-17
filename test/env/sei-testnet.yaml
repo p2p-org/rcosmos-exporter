@@ -1,0 +1,141 @@
+# General configuration
+# This is the general configuration for the exporter.
+general:
+  network: sei-testnet # The network label for the metrics.
+  chain_id: atlantic-2 # The chain ID for the metrics. If set to cometbft, the exporter will automatically detect the chain ID (if it is CometBFT based).
+  mode: network # The mode for the exporter. Either network or node.
+  metrics:
+    address: 0.0.0.0 # The address to bind the metrics server to.
+    port: 9100 # The port to bind the metrics server to.
+    path: /metrics # The path to the metrics server.
+  alerting:
+    validators: # Validator addresses to have the alert="true" label set. Accesible through app context struct.
+      - BACF913967B72651273BEB084DC9F88B664A8D04
+  # Nodes to fetch metrics from.
+  # Although possible, for node mode you should set only one node per type (rpc and lcd) and run the exporter as a sidecar or as a systemd service for VM's.
+  #
+  # Node mode example:
+  # nodes:
+  #   rpc:
+  #     - name: localhost
+  #       url: https://localhost:26657 # RPC endpoint
+  #       healthEndpoint: /health
+  #   lcd:
+  #     - name: localhost
+  #       url: http://localhost:1317 # LCD/API endpoint
+  #       healthEndpoint: /cosmos/base/node/v1beta1/status
+  nodes:
+    rpc: # RPC nodes.
+      - name: p2p
+        url: https://rpc.testnet.sei.tm.p2p.world/
+        healthEndpoint: /health
+    lcd: # LCD/API nodes.
+      - name: p2p
+        url: https://api.testnet.sei.tm.p2p.world/
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+
+# Node mode configuration
+# You must set the NODE_NAME environment variable to use this mode, in k8s this could be the pod name, it will be used to identify the node in the metrics.
+node:
+  client: p2p
+  tendermint:
+    nodeInfo: # Tendermint node info metrics, calls /cosmos/base/node/v1beta1/node_info LCD endpoint.
+      enabled: true
+      interval: 30
+  cometbft:
+    status: # CometBFT status metrics, calls /status RPC endpoint.
+      enabled: true
+      interval: 30
+
+# Network mode configuration
+network:
+  cometbft:
+    validators: # CometBFT validators metrics, calls /validators RPC endpoint.
+      enabled: false
+      interval: 10
+    block: # CometBFT block metrics, if persistence is not enabled, the uptime metrics will be calculated based on the block window.
+      enabled: false
+      interval: 10
+      window: 500
+      tx: # CometBFT tx metrics, gas, amount of txs per block, calls /tx_search and requires the node to have tx indexing enabled.
+        enabled: true
+      # If you want to persist the validators signature in Clickhouse, you must have the following environment variables set:
+      # CLICKHOUSE_URL ,CLICKHOUSE_DATABASE ,CLICKHOUSE_USER ,CLICKHOUSE_PASSWORD
+      #
+      # i.e:
+      # export CLICKHOUSE_URL=http://localhost:8123
+      # export CLICKHOUSE_DATABASE=default
+      # export CLICKHOUSE_USER=default
+      # export CLICKHOUSE_PASSWORD=mysecurepassword123
+      uptime:
+        persistence: true
+
+  tendermint:
+    bank: # Obtains bank balances for the given addresses. https://docs.cosmos.network/main/build/modules/bank
+      addresses: []
+        # - bbn1x3w0zqxn7tyfpawnylulhpyr9ds4v8rzdefjga
+        # - bbn1hz8qfjz2fduf9d437ev9w97plzdy8as0rc6lsr
+        # - bbn13ewj3k8g7kuvc7k0wk9v3nzzse5tvhe3lngp5q
+        # - bbn1wy0tyl8djfccnmaw67sxzr3kgnnnpal62lzxpx
+      enabled: false
+      interval: 30
+    distribution: # Obtains rewards/commisions information.https://docs.cosmos.network/main/build/modules/distribution
+      enabled: true
+      interval: 30
+    gov: # Obtains proposals information from the gov module. https://docs.cosmos.network/main/build/modules/gov
+      enabled: false
+      interval: 30
+    staking: # Obtains staking information. https://docs.cosmos.network/main/build/modules/gov
+      enabled: false
+      interval: 30
+    slashing: # Obtains slashing module information. https://docs.cosmos.network/main/build/modules/slashing
+      enabled: true
+      interval: 30
+    upgrade: # Obtains upgrade plans from the upgrade module. https://docs.cosmos.network/main/build/modules/upgrade
+      enabled: true
+      interval: 60
+
+  mezo:
+    poa: # Obtains Mezo's PoA validator information.
+      enabled: false
+      interval: 30
+
+  babylon:
+    bls: # BLS Checkpoint information.
+      enabled: false
+      interval: 30
+
+  lombard:
+    ledger: # Obtains ledger information.
+      addresses: []
+      enabled: false
+      interval: 30
+
+  namada:
+    account: # Obtains account information.
+      addresses: []
+      enabled: false
+      interval: 30
+    pos: # Obtains validator information.
+      enabled: false
+      interval: 30
+
+  coredao:
+    block: # Obtains block information.
+      enabled: false
+      interval: 30
+      window: 500
+    validator: # Obtains validator information.
+      enabled: false
+      interval: 30
+    staking:
+      enabled: false
+      interval: 30
+
+  sei:
+    validators: # Sei validators metrics, calls /validators RPC endpoint with Sei-specific parsing.
+      enabled: true
+      interval: 10
+    block: # Sei block metrics, calls /tx_search RPC endpoint with Sei-specific parsing.
+      enabled: true
+      interval: 10

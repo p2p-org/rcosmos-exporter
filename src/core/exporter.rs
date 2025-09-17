@@ -11,6 +11,8 @@ use crate::blockchains::lombard::ledger;
 use crate::blockchains::mezo::poa;
 use crate::blockchains::namada::account;
 use crate::blockchains::namada::pos;
+use crate::blockchains::sei::block as sei_block;
+use crate::blockchains::sei::validators as sei_validators;
 use crate::blockchains::tendermint::bank;
 use crate::blockchains::tendermint::distribution;
 use crate::blockchains::tendermint::gov;
@@ -219,6 +221,20 @@ pub fn network_mode_modules(
             .context("❌ Failed to create Core DAO Staking module")?;
         modules.push(module);
         info!("✅ Core DAO Staking module created");
+    }
+
+    // --- Sei ---
+    if app_context.config.network.sei.validators.enabled {
+        let module = sei_validators::factory(app_context.clone())
+            .context("❌ Failed to create Sei Validators module")?;
+        modules.push(module);
+        info!("✅ Sei Validators module created");
+    }
+    if app_context.config.network.sei.block.enabled {
+        let module = sei_block::factory(app_context.clone())
+            .context("❌ Failed to create Sei Block module")?;
+        modules.push(module);
+        info!("✅ Sei Block module created");
     }
 
     Ok(modules)
