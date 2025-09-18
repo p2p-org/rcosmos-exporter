@@ -1,4 +1,7 @@
-use std::{collections::{HashMap, VecDeque}, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -6,12 +9,14 @@ use serde_json::{json, Value};
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    blockchains::coredao::metrics::{
-        COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY,
-        COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK, COREDAO_VALIDATOR_SIGNED_BLOCKS,
-        COREDAO_VALIDATOR_UPTIME,
+    blockchains::coredao::{
+        metrics::{
+            COREDAO_VALIDATOR_PARTICIPATION, COREDAO_VALIDATOR_RECENT_ACTIVITY,
+            COREDAO_VALIDATOR_RECENT_ACTIVITY_BLOCK, COREDAO_VALIDATOR_SIGNED_BLOCKS,
+            COREDAO_VALIDATOR_UPTIME,
+        },
+        shared_cache::SharedValidatorCache,
     },
-    blockchains::coredao::validator::ValidatorFetcher,
     core::{
         app_context::AppContext, block_window::BlockWindow, clients::path::Path,
         exporter::RunnableModule,
@@ -29,10 +34,8 @@ pub struct Block {
     block_window: BlockWindow,
     // Validator addresses to monitor and alert on
     validator_alert_addresses: Vec<String>,
-    // Validator name cache (address -> name)
-    validator_names: HashMap<String, String>,
-    // Fetcher to refresh names periodically
-    validator_fetcher: ValidatorFetcher,
+    // Shared validator cache for consistent name resolution
+    shared_cache: Arc<SharedValidatorCache>,
     // Consensus address -> operator address mapping
     consensus_to_operator: HashMap<String, String>,
     initialized: bool,
@@ -49,39 +52,32 @@ impl Block {
             block_window: BlockWindow::new(window),
             validator_alert_addresses: addresses,
             last_processed_block: 0,
-            validator_names: HashMap::new(),
-            validator_fetcher: ValidatorFetcher::new(app_context.clone()),
+            shared_cache: Arc::new(SharedValidatorCache::new(app_context.clone())),
             consensus_to_operator: HashMap::new(),
             initialized: false,
         }
     }
 
-    async fn refresh_validator_names(&mut self) {
-        if let Ok(list) = self.validator_fetcher.get_validators().await {
-            // Update existing cache instead of replacing it
-            for v in list.into_iter() {
-                self.validator_names.insert(v.address.to_lowercase(), v.name);
+    async fn refresh_validator_cache(&mut self) {
+        // Refresh the shared cache if needed
+        if self.shared_cache.should_refresh().await {
+            if let Err(e) = self.shared_cache.refresh_cache().await {
+                warn!("Failed to refresh shared validator cache: {}", e);
             }
         }
-        // If API call fails, keep the existing cache to avoid creating duplicate metrics
     }
 
-    fn name_for(&self, address: &str) -> String {
-        let key = address.to_lowercase();
-        self.validator_names
-            .get(&key)
-            .cloned()
-            .unwrap_or_else(|| {
-                // If cache is empty, try to get name from a blocking call
-                // This should rarely happen with the new cache management
-                warn!("Validator name not found in cache for {}, using address as fallback", address);
-                address.to_string()
-            })
+    async fn name_for(&self, address: &str) -> String {
+        self.shared_cache.get_validator_name(address).await
     }
 
     async fn refresh_consensus_operator_map(&mut self) {
         // Read ValidatorSet operator and consensus lists and zip
-        let client = if let Some(rpc) = self.app_context.rpc.as_ref() { rpc } else { return; };
+        let client = if let Some(rpc) = self.app_context.rpc.as_ref() {
+            rpc
+        } else {
+            return;
+        };
         // getValidatorOps()
         let payload_ops = serde_json::json!({
             "jsonrpc": "2.0",
@@ -102,14 +98,22 @@ impl Block {
             }, "latest"],
             "id": 1
         });
-        let (res_ops, res_cons) = match (client.post(Path::from(""), &payload_ops).await.ok(), client.post(Path::from(""), &payload_cons).await.ok()) {
+        let (res_ops, res_cons) = match (
+            client.post(Path::from(""), &payload_ops).await.ok(),
+            client.post(Path::from(""), &payload_cons).await.ok(),
+        ) {
             (Some(a), Some(b)) => (a, b),
             _ => return,
         };
         let parse_addresses = |res: &str| -> Option<Vec<String>> {
             let v: serde_json::Value = serde_json::from_str(res).ok()?;
-            let hex_data = v.get("result").and_then(serde_json::Value::as_str)?.trim_start_matches("0x");
-            if hex_data.len() < 128 { return None; }
+            let hex_data = v
+                .get("result")
+                .and_then(serde_json::Value::as_str)?
+                .trim_start_matches("0x");
+            if hex_data.len() < 128 {
+                return None;
+            }
             let length_hex = &hex_data[64..128];
             let length = u64::from_str_radix(length_hex, 16).ok()? as usize;
             let mut out = Vec::with_capacity(length);
@@ -122,13 +126,22 @@ impl Block {
             }
             Some(out)
         };
-        let ops = match parse_addresses(&res_ops) { Some(v) => v, None => return };
-        let cons = match parse_addresses(&res_cons) { Some(v) => v, None => return };
-        if ops.len() != cons.len() { return; }
-        // Update existing mapping instead of replacing it
-        for (c, o) in cons.into_iter().zip(ops.into_iter()) {
-            self.consensus_to_operator.insert(c, o);
+        let ops = match parse_addresses(&res_ops) {
+            Some(v) => v,
+            None => return,
+        };
+        let cons = match parse_addresses(&res_cons) {
+            Some(v) => v,
+            None => return,
+        };
+        if ops.len() != cons.len() {
+            return;
         }
+        let mut map = HashMap::with_capacity(cons.len());
+        for (c, o) in cons.into_iter().zip(ops.into_iter()) {
+            map.insert(c, o);
+        }
+        self.consensus_to_operator = map;
     }
 
     async fn get_latest_block_number(&self) -> anyhow::Result<u64> {
@@ -198,15 +211,9 @@ impl Block {
     }
 
     async fn process_new_blocks(&mut self) -> anyhow::Result<()> {
-        // Refresh names at the start of each cycle so metrics always use latest names
-        self.refresh_validator_names().await;
+        // Refresh cache at the start of each cycle so metrics always use latest names
+        self.refresh_validator_cache().await;
         self.refresh_consensus_operator_map().await;
-
-        // Ensure cache is populated before processing blocks to avoid duplicate metrics
-        if self.validator_names.is_empty() {
-            warn!("Validator names cache is empty, skipping block processing to avoid duplicate metrics");
-            return Ok(());
-        }
         let latest_block = self
             .get_latest_block_number()
             .await
@@ -238,7 +245,7 @@ impl Block {
                 // Increment the counter if this block was signed by one of our alert validators
                 for target in &self.validator_alert_addresses {
                     if &operator_address == target {
-                        let validator_name = self.name_for(target);
+                        let validator_name = self.name_for(target).await;
                         COREDAO_VALIDATOR_SIGNED_BLOCKS
                             .with_label_values(&[
                                 target,
@@ -267,8 +274,8 @@ impl Block {
                 );
             }
 
-            self.calculate_validator_participation();
-            self.calculate_historical_uptime();
+            self.calculate_validator_participation().await;
+            self.calculate_historical_uptime().await;
 
             self.last_processed_block = latest_block;
         } else {
@@ -277,7 +284,7 @@ impl Block {
         Ok(())
     }
 
-    fn calculate_validator_participation(&mut self) {
+    async fn calculate_validator_participation(&mut self) {
         if self.recent_blocks.is_empty() {
             return;
         }
@@ -334,7 +341,7 @@ impl Block {
                 .validator_alert_addresses
                 .contains(&validator)
                 .to_string();
-            let validator_name = self.name_for(validator);
+            let validator_name = self.name_for(validator).await;
             COREDAO_VALIDATOR_PARTICIPATION
                 .with_label_values(&[
                     // Use operator address for labeling consistently
@@ -360,7 +367,7 @@ impl Block {
                 .validator_alert_addresses
                 .contains(validator)
                 .to_string();
-            let validator_name = self.name_for(validator);
+            let validator_name = self.name_for(validator).await;
             let block_number_value = latest_rotation
                 .iter()
                 .rev()
@@ -391,7 +398,7 @@ impl Block {
         }
     }
 
-    fn calculate_historical_uptime(&self) {
+    async fn calculate_historical_uptime(&self) {
         info!("(Core DAO Block) Calculating historical uptime over block window");
 
         // For CoreDAO round-robin, we need to calculate uptime differently
@@ -465,7 +472,7 @@ impl Block {
                 .contains(&validator_address)
                 .to_string();
 
-            let validator_name = self.name_for(&validator_address);
+            let validator_name = self.name_for(&validator_address).await;
             COREDAO_VALIDATOR_UPTIME
                 .with_label_values(&[
                     &validator_address,
@@ -488,7 +495,7 @@ impl Block {
         // Set 0% uptime for alert validators that aren't in the current rotation
         for validator_address in &self.validator_alert_addresses {
             if !validator_uptimes.contains_key(validator_address) {
-                let validator_name = self.name_for(validator_address);
+                let validator_name = self.name_for(validator_address).await;
                 COREDAO_VALIDATOR_UPTIME
                     .with_label_values(&[
                         validator_address,
@@ -520,10 +527,6 @@ pub fn factory(app_context: Arc<AppContext>) -> anyhow::Result<Box<dyn RunnableM
 impl RunnableModule for Block {
     async fn run(&mut self) -> anyhow::Result<()> {
         if !self.initialized {
-            // Pre-populate validator names cache to avoid duplicate metrics
-            self.refresh_validator_names().await;
-            self.refresh_consensus_operator_map().await;
-
             for target_address in &self.validator_alert_addresses {
                 debug!(
                     "(Core DAO Block) Forcibly initializing recent activity metric for {}",
@@ -532,8 +535,8 @@ impl RunnableModule for Block {
                 COREDAO_VALIDATOR_RECENT_ACTIVITY
                     .with_label_values(&[
                         target_address,
-                        // Use proper name from cache, fallback to address
-                        &self.name_for(target_address),
+                        // name fallback at init
+                        target_address,
                         &self.app_context.chain_id,
                         &self.app_context.config.general.network,
                         "true",
