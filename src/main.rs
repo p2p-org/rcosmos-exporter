@@ -1,8 +1,8 @@
 #![recursion_limit = "256"]
 
 use crate::blockchains::coredao::metrics::coredao_custom_metrics;
-
 use crate::blockchains::lombard::metrics::lombard_custom_metrics;
+use crate::blockchains::sei::metrics::sei_custom_metrics;
 use crate::blockchains::tendermint::metrics::tendermint_custom_metrics;
 use crate::core::config::Mode;
 use crate::core::exporter::network_mode_modules;
@@ -150,6 +150,7 @@ async fn main() {
     babylon_custom_metrics();
     lombard_custom_metrics();
     coredao_custom_metrics();
+    sei_custom_metrics();
 
     let modules = match app_context.config.general.mode {
         Mode::Node => {

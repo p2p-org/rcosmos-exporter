@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.6.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.5.0...v2.6.0) (2025-09-17)
+
+
+### Features
+
+* sei uptime metrics ([#91](https://github.com/p2p-org/rcosmos-exporter/issues/91)) ([e2e0b79](https://github.com/p2p-org/rcosmos-exporter/commit/e2e0b7954eafb7b96195da564c025e9c9fc202e5))
+
+## [2.5.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.4.0...v2.5.0) (2025-09-17)
+
+
+### Features
+
+* sei blockchain and default all config options to false ([#89](https://github.com/p2p-org/rcosmos-exporter/issues/89)) ([38da88d](https://github.com/p2p-org/rcosmos-exporter/commit/38da88d4e128d1023655993715e6997027750f38))
+
 ## [2.4.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.3.0...v2.4.0) (2025-08-29)
 
 
