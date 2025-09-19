@@ -1,287 +1,61 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::info;
-use tokio::sync::RwLock;
 
 use crate::{
-    blockchains::coredao::metrics::{
-        COREDAO_VALIDATORS, COREDAO_VALIDATOR_JAILED, COREDAO_VALIDATOR_SLASH_BLOCK,
-        COREDAO_VALIDATOR_SLASH_COUNT,
+    blockchains::coredao::{
+        metrics::{
+            COREDAO_VALIDATORS, COREDAO_VALIDATOR_JAILED, COREDAO_VALIDATOR_SLASH_BLOCK,
+            COREDAO_VALIDATOR_SLASH_COUNT,
+        },
+        shared_cache::SharedValidatorCache,
     },
     core::{app_context::AppContext, clients::path::Path, exporter::RunnableModule},
 };
 
-#[derive(Debug, Clone)]
-pub struct ValidatorInfo {
-    pub address: String,
-    pub name: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct CachedValidators {
-    pub validators: Vec<ValidatorInfo>,
-    timestamp: Instant,
-}
-
-impl CachedValidators {
-    fn new(validators: Vec<ValidatorInfo>) -> Self {
-        Self {
-            validators,
-            timestamp: Instant::now(),
-        }
-    }
-
-    fn is_expired(&self, cache_duration: Duration) -> bool {
-        self.timestamp.elapsed() > cache_duration
-    }
-}
+// Re-export ValidatorInfo from shared_cache for backward compatibility
+// Legacy ValidatorFetcher - now delegates to SharedValidatorCache
+pub use crate::blockchains::coredao::shared_cache::ValidatorInfo;
 
 pub struct ValidatorFetcher {
-    app_context: Arc<AppContext>,
-    pub cache: Arc<RwLock<Option<CachedValidators>>>,
+    shared_cache: Arc<SharedValidatorCache>,
 }
 
 impl ValidatorFetcher {
     pub fn new(app_context: Arc<AppContext>) -> Self {
         Self {
-            app_context,
-            cache: Arc::new(RwLock::new(None)),
+            shared_cache: Arc::new(SharedValidatorCache::new(app_context)),
         }
-    }
-
-    pub async fn fetch_validators_from_api(&self) -> anyhow::Result<Vec<ValidatorInfo>> {
-        let api_config = &self.app_context.config.network.coredao.validator.api;
-        
-        if !api_config.enabled {
-            bail!("API fetching is not enabled");
-        }
-
-        // Determine base URL:
-        // 1) Use explicit validator.api.url if present
-        // 2) Otherwise derive from general.nodes.lcd (prefer node.client match, else first)
-        let base_url = if let Some(url) = api_config.get_url() {
-            url
-        } else {
-            let client_name = &self.app_context.config.node.client;
-            let lcd_nodes = &self.app_context.config.general.nodes.lcd;
-
-            let selected = lcd_nodes
-                .iter()
-                .find(|n| &n.name == client_name)
-                .or_else(|| lcd_nodes.first())
-                .map(|n| n.url.clone());
-
-            selected.ok_or_else(|| anyhow::anyhow!(
-                "No LCD nodes configured to derive API base URL"
-            ))?
-        };
-
-        // Ensure the endpoint path is present
-        const ENDPOINT: &str = "/api/stats/list_of_validators";
-        let trimmed = base_url.trim_end_matches('/');
-        let final_url = if trimmed.ends_with(ENDPOINT) || trimmed.contains(ENDPOINT) {
-            trimmed.to_string()
-        } else {
-            format!("{}{}", trimmed, ENDPOINT)
-        };
-
-        info!(
-            "(Core DAO Validator) Fetching validators from API: {}",
-            final_url
-        );
-
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .context("Failed to create HTTP client")?;
-
-        let mut request = client.get(&final_url);
-
-        // API expects the key as a query parameter: ?apikey=...
-        if let Some(api_key) = api_config.get_api_key() {
-            info!("(Core DAO Validator) Using API key as query parameter (length: {})", api_key.len());
-            request = request.query(&[("apikey", api_key)]);
-        } else {
-            info!("(Core DAO Validator) No API key found, making unauthenticated request");
-        }
-
-        let response = request.send().await
-            .context("Failed to send API request")?;
-
-        if !response.status().is_success() {
-            bail!("API request failed with status: {}", response.status());
-        }
-
-        let body = response.text().await
-            .context("Failed to read API response body")?;
-
-        // Parse the API response - handle the actual format with result array containing validator objects
-        let json_value: Value = serde_json::from_str(&body)
-            .context("Failed to parse API response as JSON")?;
-
-        let validators: Vec<ValidatorInfo> = if let Some(result_array) = json_value.get("result").and_then(|v| v.as_array()) {
-            result_array
-                .iter()
-                .filter_map(|validator_obj| {
-                    // Extract operatorAddress and validatorName from each validator object
-                    let address = validator_obj
-                        .get("operatorAddress")
-                        .and_then(|addr| addr.as_str())?;
-                    
-                    // Only include validators with validatorStatus == "1" (active)
-                    let status = validator_obj
-                        .get("validatorStatus")
-                        .and_then(|s| s.as_str())
-                        .unwrap_or("0");
-                    
-                    if status != "1" {
-                        return None; // Skip inactive validators
-                    }
-                    
-                    let name = validator_obj
-                        .get("validatorName")
-                        .and_then(|name| name.as_str())
-                        .filter(|n| !n.is_empty()) // Filter out empty strings
-                        .unwrap_or(address); // Fallback to address if name is not available or empty
-                    
-                    Some(ValidatorInfo {
-                        address: address.to_string(),
-                        name: name.to_string(),
-                    })
-                })
-                .collect()
-        } else {
-            bail!("API response does not contain a valid 'result' array with validator objects");
-        };
-
-        info!("(Core DAO Validator) Successfully fetched {} validators from API", validators.len());
-        Ok(validators)
-    }
-
-    pub async fn fetch_validators_from_rpc(&self) -> anyhow::Result<Vec<ValidatorInfo>> {
-        info!("(Core DAO Validator) Fetching validators from RPC (fallback)");
-
-        let client = self.app_context.rpc.as_ref()
-            .context("RPC client not available")?;
-
-        // Use contract ValidatorSet.sol using function getValidators()
-        let data = "0xb7ab4db5";
-
-        let payload = json!({
-            "jsonrpc": "2.0",
-            "method": "eth_call",
-            "params": [{
-                "to": "0x0000000000000000000000000000000000001000",
-                "data": data
-            }, "latest"],
-            "id": 1
-        });
-
-        info!(
-            "(Core DAO Validator) Sending RPC request with payload: {}",
-            payload
-        );
-
-        let res = client
-            .post(Path::from(""), &payload)
-            .await
-            .context("Error fetching validators from RPC")?;
-
-        let result: Value =
-            serde_json::from_str(&res).context("Error parsing json of the validators response")?;
-
-        let hex_data = result
-            .get("result")
-            .and_then(Value::as_str)
-            .context("Invalid result format for validators response")?
-            .trim_start_matches("0x")
-            .to_string();
-
-        // Parse the ABI-encoded array of addresses
-        // Skip first 64 hex chars (32 bytes) for the offset
-        // Next 64 hex chars (32 bytes) contain the array length
-        let length_hex = &hex_data.get(64..128).context("Could not get length hex")?;
-
-        let length = u64::from_str_radix(length_hex, 16).unwrap_or(0) as usize;
-
-        let mut validators = Vec::with_capacity(length);
-
-        // Each address is 32 bytes (64 hex chars), but we only need the last 20 bytes (40 hex chars)
-        for i in 0..length {
-            let start = 128 + i * 64;
-            if start + 64 <= hex_data.len() {
-                // Take the last 40 hex chars of each 64-char segment (20 bytes of address)
-                let address = format!("0x{}", &hex_data[start + 24..start + 64]);
-                validators.push(ValidatorInfo {
-                    address: address.clone(),
-                    name: address, // Use address as name for RPC fallback
-                });
-            }
-        }
-
-        info!("(Core DAO Validator) Successfully fetched {} validators from RPC", validators.len());
-        Ok(validators)
     }
 
     pub async fn get_validators(&self) -> anyhow::Result<Vec<ValidatorInfo>> {
-        let api_config = &self.app_context.config.network.coredao.validator.api;
-        let cache_duration = Duration::from_secs(api_config.cache_duration_seconds);
-
-        // Check cache first
-        {
-            let cache = self.cache.read().await;
-            if let Some(cached) = cache.as_ref() {
-                if !cached.is_expired(cache_duration) {
-                    info!("✅ (Core DAO Validator) Using cached validators ({} validators)", cached.validators.len());
-                    return Ok(cached.validators.clone());
-                }
+        // Check if cache needs refresh
+        if self.shared_cache.should_refresh().await {
+            if let Err(e) = self.shared_cache.refresh_cache().await {
+                info!("Failed to refresh cache: {}", e);
             }
         }
 
-        // Try API first if enabled
-        if api_config.enabled {
-            info!("(Core DAO Validator) Attempting to fetch validators from API...");
-            match self.fetch_validators_from_api().await {
-                Ok(validators) => {
-                    // Cache the result
-                    let mut cache = self.cache.write().await;
-                    *cache = Some(CachedValidators::new(validators.clone()));
-                    info!("✅ (Core DAO Validator) Successfully fetched {} validators from API", validators.len());
-                    return Ok(validators);
-                }
-                Err(e) => {
-                    info!("❌ (Core DAO Validator) API fetch failed: {}. Falling back to RPC.", e);
-                }
-            }
-        }
-
-        // Fallback to RPC
-        info!("(Core DAO Validator) Fetching validators from RPC (fallback)");
-        let validators = self.fetch_validators_from_rpc().await?;
-        
-        // Cache the RPC result as well
-        let mut cache = self.cache.write().await;
-        *cache = Some(CachedValidators::new(validators.clone()));
-        info!("✅ (Core DAO Validator) Successfully fetched {} validators from RPC", validators.len());
-        
-        Ok(validators)
+        Ok(self.shared_cache.get_all_validators().await)
     }
 }
 
 pub struct Validator {
     pub app_context: Arc<AppContext>,
     pub fetcher: ValidatorFetcher,
+    shared_cache: Arc<SharedValidatorCache>,
 }
 
 impl Validator {
     pub fn new(app_context: Arc<AppContext>) -> Self {
-        Self { 
+        let shared_cache = Arc::new(SharedValidatorCache::new(app_context.clone()));
+        Self {
             app_context: app_context.clone(),
             fetcher: ValidatorFetcher::new(app_context),
+            shared_cache,
         }
     }
 
@@ -431,38 +205,35 @@ impl Validator {
 
         // Check if there's an error in the response
         if let Some(error) = result.get("error") {
-            bail!(format!("RPC error in slash info response: {}", error))
-        };
+            bail!("RPC error in slash info response: {}", error);
+        }
 
         let result_hex = match result.get("result") {
             Some(Value::String(hex)) => {
                 let trimmed = hex.trim_start_matches("0x");
                 info!("(Core DAO Validator) Extracted hex result: {}", trimmed);
-                trimmed
+                trimmed.to_string()
             }
             Some(other) => {
-                bail!(format!(
-                    "Unexpected result type for slash info: {:?}",
-                    other
-                ));
+                bail!("Unexpected result type for slash info: {:?}", other);
             }
             None => {
-                bail!(format!("No result field in slash info response"));
+                bail!("No result field in slash info response");
             }
         };
 
         // Check if the result is empty
         if result_hex.is_empty() {
-            bail!(format!(
+            bail!(
                 "Empty slash info result for {} - likely not slashed",
                 validator_address
-            ));
+            );
         }
 
         // Parse the result - for empty or error responses, return -1
         // This handles the case where the validator has no slash info
         if result_hex == "0x" || result_hex.len() < 128 {
-            bail!(format!("No slash info for validator {}", validator_address));
+            bail!("No slash info for validator {}", validator_address);
         }
 
         // Parse the two uint256 values
@@ -490,7 +261,7 @@ impl Validator {
             .get_validators()
             .await
             .context("Could not obtain active validators")?;
-        
+
         let active_validators: Vec<String> = active_validators_info
             .iter()
             .map(|v| v.address.to_lowercase())
@@ -525,8 +296,6 @@ impl Validator {
             }
         }
 
-
-
         let alert_addresses = self.app_context.config.general.alerting.validators.clone();
 
         for validator in &alert_addresses {
@@ -540,14 +309,10 @@ impl Validator {
             let fires_alerts = alert_addresses.contains(validator).to_string();
 
             let is_active = active_validators.contains(validator);
-            
-            // Find validator name from active_validators_info, or use address as fallback
-            let validator_name = active_validators_info
-                .iter()
-                .find(|v| v.address.to_lowercase() == *validator)
-                .map(|v| v.name.clone())
-                .unwrap_or_else(|| validator.clone());
-            
+
+            // Use shared cache for consistent name resolution
+            let validator_name = self.shared_cache.get_validator_name(validator).await;
+
             info!(
                 "(Core DAO Validator) Setting validator metric for: {} ({}) (active: {})",
                 validator, validator_name, is_active
