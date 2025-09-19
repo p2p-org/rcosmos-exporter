@@ -93,3 +93,11 @@ network:
     staking:
       enabled: false
       interval: 30
+
+  sei:
+    validators: # Sei validators metrics, calls /validators RPC endpoint with Sei-specific parsing.
+      enabled: false
+      interval: 10
+    block: # Sei block metrics, calls /tx_search RPC endpoint with Sei-specific parsing.
+      enabled: false
+      interval: 10
