@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.6.0...v2.6.1) (2025-10-09)
+
+
+### Bug Fixes
+
+* sei testnet uptime and remove proposal text ([#94](https://github.com/p2p-org/rcosmos-exporter/issues/94)) ([574bb85](https://github.com/p2p-org/rcosmos-exporter/commit/574bb85e82a46d3d39539c71437bae3d1497126a))
+
 ## [2.6.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.5.0...v2.6.0) (2025-09-17)
 
 
