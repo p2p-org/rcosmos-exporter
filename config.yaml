@@ -10,7 +10,7 @@ general:
     path: /metrics # The path to the metrics server.
   alerting:
     validators: # Validator addresses to have the alert="true" label set. Accesible through app context struct.
-      - 44C395A4A96C6D1A450ED33B5A8DDB359CEFED36 
+      - 44C395A4A96C6D1A450ED33B5A8DDB359CEFED36
   # Nodes to fetch metrics from.
   # Although possible, for node mode you should set only one node per type (rpc and lcd) and run the exporter as a sidecar or as a systemd service for VM's.
   #
@@ -73,8 +73,8 @@ network:
       # export CLICKHOUSE_DATABASE=default
       # export CLICKHOUSE_USER=default
       # export CLICKHOUSE_PASSWORD=mysecurepassword123
-      uptime: 
-        persistence: true
+      uptime:
+        persistence: false
 
   tendermint:
     bank: # Obtains bank balances for the given addresses. https://docs.cosmos.network/main/build/modules/bank

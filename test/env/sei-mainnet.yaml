@@ -1,8 +1,8 @@
 # General configuration
 # This is the general configuration for the exporter.
 general:
-  network: sei-testnet # The network label for the metrics.
-  chain_id: atlantic-2
+  network: sei-mainnet # The network label for the metrics.
+  chain_id: pacific-1
   mode: network # The mode for the exporter. Either network or node.
   metrics:
     address: 0.0.0.0 # The address to bind the metrics server to.
@@ -10,7 +10,7 @@ general:
     path: /metrics # The path to the metrics server.
   alerting:
     validators: # Validator addresses to have the alert="true" label set. Accesible through app context struct.
-      - BACF913967B72651273BEB084DC9F88B664A8D04
+      - 59AB86020766FCDC61BB0139639D1646760F21D9
   # Nodes to fetch metrics from.
   # Although possible, for node mode you should set only one node per type (rpc and lcd) and run the exporter as a sidecar or as a systemd service for VM's.
   #
@@ -27,17 +27,17 @@ general:
   nodes:
     rpc: # RPC nodes.
       - name: p2p
-        url: https://rpc.testnet.sei.tm.p2p.world/
+        url: https://rpc.mainnet.sei.tm.p2p.org/
         healthEndpoint: /health
       - name: polkachu
-        url: https://sei-testnet-rpc.polkachu.com/
+        url: https://sei-rpc.polkachu.com/
         healthEndpoint: /health
     lcd: # LCD/API nodes.
       - name: p2p
-        url: https://api.testnet.sei.tm.p2p.world/
+        url: https://api.mainnet.sei.tm.p2p.org/
         healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
       - name: polkachu
-        url: https://sei-testnet-api.polkachu.com/
+        url: https://sei-api.polkachu.com/
         healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
 # Node mode configuration
