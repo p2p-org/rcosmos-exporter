@@ -31,8 +31,6 @@ lazy_static! {
         ),
         &[
             "id",
-            "type",
-            "title",
             "status",
             "voting_start_time",
             "voting_end_time",
