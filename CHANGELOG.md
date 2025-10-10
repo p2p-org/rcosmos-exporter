@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.3](https://github.com/p2p-org/rcosmos-exporter/compare/v2.6.2...v2.6.3) (2025-10-10)
+
+
+### Bug Fixes
+
+* never populate duplicate series, only one with either address or… ([#88](https://github.com/p2p-org/rcosmos-exporter/issues/88)) ([f5dbfb0](https://github.com/p2p-org/rcosmos-exporter/commit/f5dbfb0e01f2bf14dcb2c494427b7b1e15674194))
+
 ## [2.6.2](https://github.com/p2p-org/rcosmos-exporter/compare/v2.6.1...v2.6.2) (2025-10-09)
 
 
