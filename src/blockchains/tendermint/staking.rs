@@ -148,6 +148,10 @@ impl Staking {
     }
 
     async fn get_params(&self) -> anyhow::Result<()> {
+        if !self.app_context.config.network.tendermint.staking.params {
+            return Ok(());
+        }
+
         info!("(Tendermint Staking) Getting staking params");
         let client = self.app_context.lcd.as_ref().unwrap();
         let network = &self.app_context.config.general.network;
@@ -280,132 +284,149 @@ impl Staking {
             // Update the moniker map
             self.monikers.insert(address.clone(), moniker.clone());
 
-            info!(
-                "(Tendermint Staking) Getting {} delegations",
-                validator.operator_address
-            );
-            let delegations_count = self
-                .get_validator_delegations_count(&validator.operator_address)
-                .await
-                .context("Could not get validator delegations count")?;
-            info!(
-                "(Tendermint Staking) Getting {} unbonding delegations",
-                validator.operator_address
-            );
-            let unbonding_delegations_count = self
-                .get_validator_unbonding_delegations_count(&validator.operator_address)
-                .await
-                .context("Could not get validator unbonding delegations count")?;
-            let tokens: f64 = validator
-                .tokens
-                .parse()
-                .context("Could not parse validator tokens")?;
-            let delegator_shares: f64 = validator
-                .delegator_shares
-                .parse()
-                .context("Could not parse validator shares")?;
-            let jailed = validator.jailed;
+            let (delegations_count, unbonding_delegations_count) = if self.app_context.config.network.tendermint.staking.delegations {
+                info!(
+                    "(Tendermint Staking) Getting {} delegations",
+                    validator.operator_address
+                );
+                let delegations_count = self
+                    .get_validator_delegations_count(&validator.operator_address)
+                    .await
+                    .unwrap_or(0);
+                info!(
+                    "(Tendermint Staking) Getting {} unbonding delegations",
+                    validator.operator_address
+                );
+                let unbonding_delegations_count = self
+                    .get_validator_unbonding_delegations_count(&validator.operator_address)
+                    .await
+                    .unwrap_or(0);
+                (delegations_count, unbonding_delegations_count)
+            } else {
+                (0, 0)
+            };
+            if self.app_context.config.network.tendermint.staking.validators {
+                let tokens: f64 = validator
+                    .tokens
+                    .parse()
+                    .context("Could not parse validator tokens")?;
+                let delegator_shares: f64 = validator
+                    .delegator_shares
+                    .parse()
+                    .context("Could not parse validator shares")?;
+                let jailed = validator.jailed;
 
-            TENDERMINT_VALIDATOR
-                .with_label_values(&[
-                    moniker,
-                    &address,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                    &alerts.contains(&address).to_string(),
-                ])
-                .set(0);
-            TENDERMINT_VALIDATOR_DELEGATOR_SHARES
-                .with_label_values(&[
-                    moniker,
-                    &address,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                ])
-                .set(delegator_shares);
-            TENDERMINT_VALIDATOR_TOKENS
-                .with_label_values(&[
-                    moniker,
-                    &address,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                ])
-                .set(tokens);
-            TENDERMINT_VALIDATOR_JAILED
-                .with_label_values(&[
-                    moniker,
-                    &address,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                    &alerts.contains(&address).to_string(),
-                ])
-                .set(if jailed { 1 } else { 0 });
-            TENDERMINT_VALIDATOR_DELEGATIONS
-                .with_label_values(&[
-                    moniker,
-                    &address,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                ])
-                .set(delegations_count as f64);
-            TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS
-                .with_label_values(&[
-                    moniker,
-                    &address,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                ])
-                .set(unbonding_delegations_count as f64);
-            TENDERMINT_VALIDATOR_COMMISSION_RATE
-                .with_label_values(&[
-                    moniker,
-                    &address,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                ])
-                .set(
-                    validator
-                        .commission
-                        .commission_rates
-                        .rate
-                        .parse::<f64>()
-                        .unwrap_or(0.0),
-                );
-            TENDERMINT_VALIDATOR_COMMISSION_MAX_RATE
-                .with_label_values(&[
-                    moniker,
-                    &address,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                ])
-                .set(
-                    validator
-                        .commission
-                        .commission_rates
-                        .max_rate
-                        .parse::<f64>()
-                        .unwrap_or(0.0),
-                );
-            TENDERMINT_VALIDATOR_COMMISSION_MAX_CHANGE_RATE
-                .with_label_values(&[
-                    moniker,
-                    &address,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                ])
-                .set(
-                    validator
-                        .commission
-                        .commission_rates
-                        .max_change_rate
-                        .parse::<f64>()
-                        .unwrap_or(0.0),
-                );
+                TENDERMINT_VALIDATOR
+                    .with_label_values(&[
+                        moniker,
+                        &address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                        &alerts.contains(&address).to_string(),
+                    ])
+                    .set(0);
+                TENDERMINT_VALIDATOR_DELEGATOR_SHARES
+                    .with_label_values(&[
+                        moniker,
+                        &address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                    ])
+                    .set(delegator_shares);
+                TENDERMINT_VALIDATOR_TOKENS
+                    .with_label_values(&[
+                        moniker,
+                        &address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                    ])
+                    .set(tokens);
+                TENDERMINT_VALIDATOR_JAILED
+                    .with_label_values(&[
+                        moniker,
+                        &address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                        &alerts.contains(&address).to_string(),
+                    ])
+                    .set(if jailed { 1 } else { 0 });
+            }
+
+            if self.app_context.config.network.tendermint.staking.delegations {
+                TENDERMINT_VALIDATOR_DELEGATIONS
+                    .with_label_values(&[
+                        moniker,
+                        &address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                    ])
+                    .set(delegations_count as f64);
+                TENDERMINT_VALIDATOR_UNBONDING_DELEGATIONS
+                    .with_label_values(&[
+                        moniker,
+                        &address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                    ])
+                    .set(unbonding_delegations_count as f64);
+            }
+
+            if self.app_context.config.network.tendermint.staking.commissions {
+                TENDERMINT_VALIDATOR_COMMISSION_RATE
+                    .with_label_values(&[
+                        moniker,
+                        &address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                    ])
+                    .set(
+                        validator
+                            .commission
+                            .commission_rates
+                            .rate
+                            .parse::<f64>()
+                            .unwrap_or(0.0),
+                    );
+                TENDERMINT_VALIDATOR_COMMISSION_MAX_RATE
+                    .with_label_values(&[
+                        moniker,
+                        &address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                    ])
+                    .set(
+                        validator
+                            .commission
+                            .commission_rates
+                            .max_rate
+                            .parse::<f64>()
+                            .unwrap_or(0.0),
+                    );
+                TENDERMINT_VALIDATOR_COMMISSION_MAX_CHANGE_RATE
+                    .with_label_values(&[
+                        moniker,
+                        &address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                    ])
+                    .set(
+                        validator
+                            .commission
+                            .commission_rates
+                            .max_change_rate
+                            .parse::<f64>()
+                            .unwrap_or(0.0),
+                    );
+            }
         }
         Ok(())
     }
 
     async fn get_pool(&self) -> anyhow::Result<()> {
+        if !self.app_context.config.network.tendermint.staking.pool {
+            return Ok(());
+        }
+
         info!("(Tendermint Staking) Getting pool");
         let client = self.app_context.lcd.as_ref().unwrap();
         let network = &self.app_context.config.general.network;

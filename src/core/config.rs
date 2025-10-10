@@ -166,7 +166,7 @@ pub struct TendermintConfig {
     #[serde(default)]
     pub gov: TendermintSubmoduleConfig,
     #[serde(default)]
-    pub staking: TendermintSubmoduleConfig,
+    pub staking: TendermintStakingConfig,
     #[serde(default)]
     pub slashing: TendermintSubmoduleConfig,
     #[serde(default)]
@@ -179,7 +179,7 @@ impl Default for TendermintConfig {
             bank: TendermintBankConfig::default(),
             distribution: TendermintSubmoduleConfig::default(),
             gov: TendermintSubmoduleConfig::default(),
-            staking: TendermintSubmoduleConfig::default(),
+            staking: TendermintStakingConfig::default(),
             slashing: TendermintSubmoduleConfig::default(),
             upgrade: TendermintSubmoduleConfig::default(),
         }
@@ -214,11 +214,43 @@ pub struct TendermintSubmoduleConfig {
     pub interval: u64,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct TendermintStakingConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_interval_30")]
+    pub interval: u64,
+    #[serde(default = "default_true")]
+    pub validators: bool,
+    #[serde(default = "default_true")]
+    pub delegations: bool,
+    #[serde(default = "default_true")]
+    pub commissions: bool,
+    #[serde(default = "default_true")]
+    pub pool: bool,
+    #[serde(default = "default_true")]
+    pub params: bool,
+}
+
 impl Default for TendermintSubmoduleConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             interval: 30,
+        }
+    }
+}
+
+impl Default for TendermintStakingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval: 30,
+            validators: true,
+            delegations: true,
+            commissions: true,
+            pool: true,
+            params: true,
         }
     }
 }
@@ -528,6 +560,10 @@ fn default_interval_30() -> u64 {
     30
 }
 
+fn default_true() -> bool {
+    true
+}
+
 
 fn default_window_500() -> u64 {
     500
@@ -577,6 +613,8 @@ pub struct SeiBlockConfig {
     #[serde(default = "default_window_500")]
     pub window: u64,
     #[serde(default)]
+    pub tx: SeiBlockTxConfig,
+    #[serde(default)]
     pub uptime: SeiBlockUptimeConfig,
 }
 
@@ -586,7 +624,22 @@ impl Default for SeiBlockConfig {
             enabled: false,
             interval: 10,
             window: 500,
+            tx: SeiBlockTxConfig::default(),
             uptime: SeiBlockUptimeConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SeiBlockTxConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for SeiBlockTxConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
         }
     }
 }

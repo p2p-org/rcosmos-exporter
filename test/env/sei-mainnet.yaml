@@ -92,8 +92,13 @@ network:
       enabled: false
       interval: 30
     staking: # Obtains staking information. https://docs.cosmos.network/main/build/modules/gov
-      enabled: false
+      enabled: true
       interval: 30
+      validators: true
+      delegations: false
+      commissions: false
+      pool: false
+      params: false
     slashing: # Obtains slashing module information. https://docs.cosmos.network/main/build/modules/slashing
       enabled: true
       interval: 30
