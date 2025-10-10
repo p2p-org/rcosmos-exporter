@@ -574,6 +574,10 @@ pub struct SeiBlockConfig {
     pub enabled: bool,
     #[serde(default = "default_interval_10")]
     pub interval: u64,
+    #[serde(default = "default_window_500")]
+    pub window: u64,
+    #[serde(default)]
+    pub uptime: SeiBlockUptimeConfig,
 }
 
 impl Default for SeiBlockConfig {
@@ -581,6 +585,20 @@ impl Default for SeiBlockConfig {
         Self {
             enabled: false,
             interval: 10,
+            window: 500,
+            uptime: SeiBlockUptimeConfig::default(),
         }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SeiBlockUptimeConfig {
+    #[serde(default)]
+    pub persistence: bool,
+}
+
+impl Default for SeiBlockUptimeConfig {
+    fn default() -> Self {
+        Self { persistence: false }
     }
 }

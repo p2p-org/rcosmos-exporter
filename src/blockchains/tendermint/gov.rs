@@ -51,13 +51,7 @@ impl Gov {
         );
         for proposal in &proposals {
             info!("Proposal ID: {} Status: {}", proposal.id, proposal.status);
-            // Fill metric labels: id, type, title, status, voting_start_time, voting_end_time
-            let proposal_type = proposal
-                .messages
-                .get(0)
-                .map(|m| m.msg_type.clone())
-                .unwrap_or_else(|| "unknown".to_string());
-            let title = proposal.metadata.clone().unwrap_or_else(|| "".to_string());
+            // Fill metric labels: id, status, voting_start_time, voting_end_time
             let voting_start_time = proposal
                 .voting_start_time
                 .map(|dt| dt.and_utc().timestamp().to_string())
@@ -69,8 +63,6 @@ impl Gov {
             TENDERMINT_PROPOSAL
                 .with_label_values(&[
                     &proposal.id,
-                    &proposal_type,
-                    &title,
                     &proposal.status,
                     &voting_start_time,
                     &voting_end_time,
