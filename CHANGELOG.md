@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.2](https://github.com/p2p-org/rcosmos-exporter/compare/v2.6.1...v2.6.2) (2025-10-09)
+
+
+### Bug Fixes
+
+* trigger release ([#96](https://github.com/p2p-org/rcosmos-exporter/issues/96)) ([096db36](https://github.com/p2p-org/rcosmos-exporter/commit/096db362df2af086cd7d8efd004e18758b3c72fd))
+
 ## [2.6.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.6.0...v2.6.1) (2025-10-09)
 
 
