@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.6.3...v2.7.0) (2025-10-15)
+
+
+### Features
+
+* granular staking enablement ([#98](https://github.com/p2p-org/rcosmos-exporter/issues/98)) ([44e65eb](https://github.com/p2p-org/rcosmos-exporter/commit/44e65eb60f3dd1f0b52c8397f350d96b8312d95e))
+
 ## [2.6.3](https://github.com/p2p-org/rcosmos-exporter/compare/v2.6.2...v2.6.3) (2025-10-10)
 
 
