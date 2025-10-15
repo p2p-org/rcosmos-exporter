@@ -45,7 +45,7 @@ impl Block {
         let signature_storage: Box<dyn SignatureStorage> = if app_context
             .config
             .network
-            .cometbft
+            .sei
             .block
             .uptime
             .persistence
@@ -61,7 +61,7 @@ impl Block {
         } else {
             Box::new(InMemorySignatureStorage {
                 block_window: crate::core::block_window::BlockWindow::new(
-                    app_context.config.network.cometbft.block.window as usize,
+                    app_context.config.network.sei.block.window as usize,
                 ),
                 processed_height: 0,
             })
@@ -205,7 +205,7 @@ impl Block {
                 .sum::<usize>() as f64
                 / block.data.txs.len() as f64;
 
-            if self.app_context.config.network.cometbft.block.tx.enabled {
+            if self.app_context.config.network.sei.block.tx.enabled {
                 let txs_info = self
                     .fetch_sei_txs(height)
                     .await
@@ -241,7 +241,7 @@ impl Block {
             ])
             .set(block_avg_tx_size);
 
-        if self.app_context.config.network.cometbft.block.tx.enabled {
+        if self.app_context.config.network.sei.block.tx.enabled {
             COMETBFT_BLOCK_GAS_WANTED
                 .with_label_values(&[
                     &self.app_context.chain_id,
@@ -353,7 +353,7 @@ impl RunnableModule for Block {
             .height
             .parse::<usize>()
             .context("Could not parse last block height")?;
-        let block_window = self.app_context.config.network.cometbft.block.window as usize;
+        let block_window = self.app_context.config.network.sei.block.window as usize;
 
         let mut height_to_process = self
             .signature_storage
