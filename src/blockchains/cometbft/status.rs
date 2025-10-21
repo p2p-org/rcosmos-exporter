@@ -11,10 +11,39 @@ use crate::{
             COMETBFT_NODE_EARLIEST_BLOCK_TIME, COMETBFT_NODE_ID, COMETBFT_NODE_LATEST_BLOCK_HEIGHT,
             COMETBFT_NODE_LATEST_BLOCK_TIME,
         },
-        cometbft::types::StatusResponse,
+        cometbft::types::{StatusResponse, StatusResult},
     },
     core::{app_context::AppContext, clients::path::Path, exporter::RunnableModule},
 };
+
+/// Recursively search for a key in nested JSON, regardless of nesting level
+fn find_nested_value<'a>(json: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
+    match json {
+        serde_json::Value::Object(map) => {
+            // Check if this level has the key
+            if let Some(value) = map.get(key) {
+                return Some(value);
+            }
+            // Recursively search in all object values
+            for value in map.values() {
+                if let Some(found) = find_nested_value(value, key) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        serde_json::Value::Array(arr) => {
+            // Search in array elements
+            for value in arr {
+                if let Some(found) = find_nested_value(value, key) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
 
 pub struct Status {
     app_context: std::sync::Arc<AppContext>,
@@ -32,9 +61,33 @@ impl Status {
             .get(Path::from("/status"))
             .await
             .context("Could not fetch status from node")?;
-        let status: StatusResponse =
-            serde_json::from_str(&response).context("Could not deserialize status response")?;
-        Ok(status)
+
+        // Parse as JSON to dynamically find sync_info and node_info
+        let json: serde_json::Value = serde_json::from_str(&response)
+            .context("Could not parse status response as JSON")?;
+
+        // Dynamically find all required fields regardless of nesting
+        let sync_info = find_nested_value(&json, "sync_info")
+            .context("Could not find sync_info in response")?;
+        let node_info = find_nested_value(&json, "node_info")
+            .context("Could not find node_info in response")?;
+        let validator_info = find_nested_value(&json, "validator_info");
+
+        // Create StatusResponse with dynamically found values
+        let status_result = StatusResult {
+            node_info: serde_json::from_value(node_info.clone())
+                .context("Could not deserialize node_info")?,
+            sync_info: serde_json::from_value(sync_info.clone())
+                .context("Could not deserialize sync_info")?,
+            validator_info: if let Some(vi) = validator_info {
+                Some(serde_json::from_value(vi.clone())
+                    .context("Could not deserialize validator_info")?)
+            } else {
+                None
+            },
+        };
+
+        Ok(StatusResponse { result: status_result })
     }
 
     async fn process_status_metrics(&self, status: &StatusResponse) -> anyhow::Result<()> {
