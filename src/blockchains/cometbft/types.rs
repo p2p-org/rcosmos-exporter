@@ -90,12 +90,42 @@ pub struct StatusResponse {
 pub struct StatusResult {
     pub node_info: NodeInfo,
     pub sync_info: SyncInfo,
+    #[serde(default)]
+    pub validator_info: Option<ValidatorInfo>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct NodeInfo {
     pub id: String,
     pub network: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub moniker: Option<String>,
+    #[serde(default)]
+    pub listen_addr: Option<String>,
+    #[serde(default)]
+    pub protocol_version: Option<ProtocolVersion>,
+    #[serde(default)]
+    pub other: Option<NodeOther>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProtocolVersion {
+    #[serde(default)]
+    pub p2p: Option<String>,
+    #[serde(default)]
+    pub block: Option<String>,
+    #[serde(default)]
+    pub app: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NodeOther {
+    #[serde(default)]
+    pub tx_index: Option<String>,
+    #[serde(default)]
+    pub rpc_address: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,6 +137,22 @@ pub struct SyncInfo {
     pub earliest_block_height: String,
     #[serde(with = "serde_naive_datetime")]
     pub earliest_block_time: NaiveDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ValidatorInfo {
+    pub address: String,
+    #[serde(default)]
+    pub pub_key: Option<ValidatorPubKey>,
+    #[serde(default)]
+    pub voting_power: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ValidatorPubKey {
+    #[serde(rename = "type")]
+    pub key_type: String,
+    pub value: String,
 }
 
 mod serde_naive_datetime {

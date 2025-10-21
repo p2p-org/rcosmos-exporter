@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.7.0...v2.7.1) (2025-10-21)
+
+
+### Bug Fixes
+
+* parse any nested sync_info from status ([#102](https://github.com/p2p-org/rcosmos-exporter/issues/102)) ([4d28e7e](https://github.com/p2p-org/rcosmos-exporter/commit/4d28e7eb143cefe0b511835a264376c3a8bd9d18))
+
 ## [2.7.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.6.3...v2.7.0) (2025-10-15)
 
 
