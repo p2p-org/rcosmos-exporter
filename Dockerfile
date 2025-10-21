@@ -9,7 +9,7 @@ COPY . .
 
 RUN cargo build --release
 
-FROM gcr.io/distroless/cc-debian12
+FROM gcr.io/distroless/cc-debian13
 EXPOSE 9100
 
 COPY --from=builder /build/target/release/rcosmos-exporter /
