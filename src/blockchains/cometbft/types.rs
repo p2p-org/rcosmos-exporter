@@ -91,6 +91,7 @@ pub struct StatusResult {
     pub node_info: NodeInfo,
     pub sync_info: SyncInfo,
     #[serde(default)]
+    #[allow(dead_code)]
     pub validator_info: Option<ValidatorInfo>,
 }
 
@@ -99,32 +100,42 @@ pub struct NodeInfo {
     pub id: String,
     pub network: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub version: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub moniker: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub listen_addr: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub protocol_version: Option<ProtocolVersion>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub other: Option<NodeOther>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ProtocolVersion {
     #[serde(default)]
+    #[allow(dead_code)]
     pub p2p: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub block: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub app: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct NodeOther {
     #[serde(default)]
+    #[allow(dead_code)]
     pub tx_index: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub rpc_address: Option<String>,
 }
 
@@ -141,17 +152,22 @@ pub struct SyncInfo {
 
 #[derive(Debug, Deserialize)]
 pub struct ValidatorInfo {
+    #[allow(dead_code)]
     pub address: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub pub_key: Option<ValidatorPubKey>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub voting_power: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ValidatorPubKey {
     #[serde(rename = "type")]
+    #[allow(dead_code)]
     pub key_type: String,
+    #[allow(dead_code)]
     pub value: String,
 }
 
