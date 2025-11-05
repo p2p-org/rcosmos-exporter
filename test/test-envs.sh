@@ -1,15 +1,34 @@
 #!/bin/bash
 set -euo pipefail
 
-# Always build the binary at the start
+# Prepare binary
 BIN_PATH="target/release/rcosmos-exporter"
-echo "🔨 Building the binary with cargo build --release..."
-cargo build --release
-chmod +x $BIN_PATH
+if [ "${PREBUILT:-}" = "1" ]; then
+  echo "📦 Using prebuilt binary at $BIN_PATH"
+  if [ ! -f "$BIN_PATH" ]; then
+    echo "❌ Prebuilt binary not found at $BIN_PATH"
+    exit 1
+  fi
+  chmod +x "$BIN_PATH"
+else
+  echo "🔨 Building the binary with cargo build --release..."
+  cargo build --release
+  chmod +x "$BIN_PATH"
+fi
 
 failed_tests=()
 error_metric_failed=()
 env_files_found=0
+
+# If an env file is passed as an argument, only test that file
+single_env_file=""
+if [ $# -ge 1 ]; then
+  single_env_file="$1"
+  if [ ! -f "$single_env_file" ]; then
+    echo "❌ Provided env file does not exist: $single_env_file"
+    exit 1
+  fi
+fi
 
 if [ ! -d "test/env" ]; then
   echo "❌ test/env directory not found!"
@@ -31,7 +50,14 @@ docker logs $(docker compose --project-name rcosmos-exporter-test ps -q clickhou
 
 sleep 120
 
-for env_file in test/env/*.yaml; do
+files_to_test=()
+if [ -n "$single_env_file" ]; then
+  files_to_test+=("$single_env_file")
+else
+  for f in test/env/*.yaml; do files_to_test+=("$f"); done
+fi
+
+for env_file in "${files_to_test[@]}"; do
   export CLICKHOUSE_URL=http://localhost:18123
   export CLICKHOUSE_DATABASE=default
   export CLICKHOUSE_USER=default
@@ -129,4 +155,4 @@ if [ -z "$exit_code" ] || [ $exit_code -eq 0 ]; then
   exit 0
 fi
 
-exit $exit_code 
+exit $exit_code
