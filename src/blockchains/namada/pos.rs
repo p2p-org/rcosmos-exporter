@@ -61,24 +61,22 @@ impl Pos {
                 ])
                 .set(0);
             // Voting power
-            if let Some(voting_power_str) = validator.voting_power.as_ref() {
-                if let Ok(voting_power) = voting_power_str.parse::<f64>() {
-                    COMETBFT_VALIDATOR_VOTING_POWER
-                        .with_label_values(&[
-                            address,
-                            &self.app_context.chain_id.to_string(),
-                            &self.app_context.config.general.network,
-                            &self
-                                .app_context
-                                .config
-                                .general
-                                .alerting
-                                .validators
-                                .contains(address)
-                                .to_string(),
-                        ])
-                        .set(voting_power as i64);
-                }
+            if let Some(voting_power) = validator.voting_power {
+                COMETBFT_VALIDATOR_VOTING_POWER
+                    .with_label_values(&[
+                        address,
+                        &self.app_context.chain_id.to_string(),
+                        &self.app_context.config.general.network,
+                        &self
+                            .app_context
+                            .config
+                            .general
+                            .alerting
+                            .validators
+                            .contains(address)
+                            .to_string(),
+                    ])
+                    .set(voting_power as i64);
             }
             // Jailed status
             let is_jailed = validator.state.as_deref() == Some("jailed");
@@ -98,18 +96,16 @@ impl Pos {
                         .to_string(),
                 ])
                 .set(if is_jailed { 1 } else { 0 });
-            // Tokens (if available)
-            if let Some(tokens) = validator.voting_power.as_ref() {
-                if let Ok(tokens_val) = tokens.parse::<f64>() {
-                    TENDERMINT_VALIDATOR_TOKENS
-                        .with_label_values(&[
-                            name,
-                            address,
-                            &self.app_context.chain_id.to_string(),
-                            &self.app_context.config.general.network,
-                        ])
-                        .set(tokens_val);
-                }
+            // Tokens (if available) - use voting power as proxy if present
+            if let Some(tokens) = validator.voting_power {
+                TENDERMINT_VALIDATOR_TOKENS
+                    .with_label_values(&[
+                        name,
+                        address,
+                        &self.app_context.chain_id.to_string(),
+                        &self.app_context.config.general.network,
+                    ])
+                    .set(tokens as f64);
             }
             // Commission rate
             if let Some(commission) = validator.commission.as_ref() {
@@ -138,17 +134,15 @@ impl Pos {
                 }
             }
             // Delegator shares (simulate as voting_power for now if not available)
-            if let Some(voting_power_str) = validator.voting_power.as_ref() {
-                if let Ok(shares) = voting_power_str.parse::<f64>() {
-                    TENDERMINT_VALIDATOR_DELEGATOR_SHARES
-                        .with_label_values(&[
-                            name,
-                            address,
-                            &self.app_context.chain_id.to_string(),
-                            &self.app_context.config.general.network,
-                        ])
-                        .set(shares);
-                }
+            if let Some(shares) = validator.voting_power {
+                TENDERMINT_VALIDATOR_DELEGATOR_SHARES
+                    .with_label_values(&[
+                        name,
+                        address,
+                        &self.app_context.chain_id.to_string(),
+                        &self.app_context.config.general.network,
+                    ])
+                    .set(shares as f64);
             }
             // Delegations (bonds)
             let bonds_url = format!("/api/v1/pos/bond/{}", address);
