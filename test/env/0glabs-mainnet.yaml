@@ -1,6 +1,6 @@
 general:
-  network: lombard-mainnet
-  chain_id: cometbft
+  network: 0glabs-mainnet
+  chain_id: 0glabs-16661
   mode: network
   metrics:
     address: 0.0.0.0
@@ -8,16 +8,17 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 8FA4FD65BB5C9EED5D89FF33E2A300B304F74058
+      - BF7EE3DA66B424DDF344A138F7FE35C6462DF661
   nodes:
     rpc:
-      - name: p2p
-        url: https://rpc.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /status
+      - name: p2p-01
+        url: https://rpc0.0glabs-mainnet.tm.p2p.world/
+        healthEndpoint: /health
+      - name: p2p-02
+        url: https://rpc0.0glabs-mainnet.tm.p2p.org/
+        healthEndpoint: /health
     lcd:
-      - name: p2p
-        url: https://api.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+      []
 
 node:
   client: 
@@ -50,13 +51,13 @@ network:
       enabled: false
       interval: 30
     distribution:
-      enabled: true
+      enabled: false
       interval: 30
     gov:
       enabled: false
       interval: 30
     staking:
-      enabled: true
+      enabled: false
       interval: 30
       validators: true
       delegations: true
@@ -64,11 +65,11 @@ network:
       pool: true
       params: true
     slashing:
-      enabled: true
+      enabled: false
       interval: 30
     upgrade:
-      enabled: true
-      interval: 30
+      enabled: false
+      interval: 60
 
   mezo:
     poa:
@@ -82,9 +83,8 @@ network:
 
   lombard:
     ledger:
-      addresses:
-        - lomvaloper1khqmhwhfrlw6fuj70l67rdw253qh809qndfsua
-      enabled: true
+      addresses: []
+      enabled: false
       interval: 30
 
   namada:

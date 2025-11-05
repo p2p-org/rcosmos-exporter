@@ -1,6 +1,6 @@
 general:
-  network: lombard-mainnet
-  chain_id: cometbft
+  network: coredao-mainnet
+  chain_id: coredao-mainnet
   mode: network
   metrics:
     address: 0.0.0.0
@@ -8,16 +8,16 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 8FA4FD65BB5C9EED5D89FF33E2A300B304F74058
+      - 0x86835128b29fef52fc61299ebb50d85e03960976
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /status
+        url: https://rpc.coredao.org/
+        healthEndpoint: /
     lcd:
       - name: p2p
-        url: https://api.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+        url: https://openapi.coredao.org
+        healthEndpoint: /health
 
 node:
   client: 
@@ -33,10 +33,10 @@ node:
 network:
   cometbft:
     validators:
-      enabled: true
+      enabled: false
       interval: 30
     block:
-      enabled: true
+      enabled: false
       interval: 30
       window: 500
       tx:
@@ -50,13 +50,13 @@ network:
       enabled: false
       interval: 30
     distribution:
-      enabled: true
+      enabled: false
       interval: 30
     gov:
       enabled: false
       interval: 30
     staking:
-      enabled: true
+      enabled: false
       interval: 30
       validators: true
       delegations: true
@@ -64,10 +64,10 @@ network:
       pool: true
       params: true
     slashing:
-      enabled: true
+      enabled: false
       interval: 30
     upgrade:
-      enabled: true
+      enabled: false
       interval: 30
 
   mezo:
@@ -82,9 +82,8 @@ network:
 
   lombard:
     ledger:
-      addresses:
-        - lomvaloper1khqmhwhfrlw6fuj70l67rdw253qh809qndfsua
-      enabled: true
+      addresses: []
+      enabled: false
       interval: 30
 
   namada:
@@ -98,19 +97,19 @@ network:
 
   coredao:
     block:
-      enabled: false
+      enabled: true
       interval: 30
       window: 500
     validator:
-      enabled: false
+      enabled: true
       interval: 30
       api:
-        enabled: false
+        enabled: true
         url: 
         api_key: 
         cache_duration_seconds: 300
     staking:
-      enabled: false
+      enabled: true
       interval: 30
 
   sei:

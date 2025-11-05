@@ -13,10 +13,16 @@ general:
     rpc:
       - name: p2p
         url: https://rpc.bbn-1.babylon.tm.p2p.org
-        healthEndpoint: /health
+        healthEndpoint: /status
       - name: polkachu
         url: https://babylon-rpc.polkachu.com
-        healthEndpoint: /health
+        healthEndpoint: /status
+      - name: allnodes
+        url: https://babylon-rpc.publicnode.com:443
+        healthEndpoint: /status
+      - name: itrocket
+        url: https://babylon-mainnet-rpc.itrocket.net
+        healthEndpoint: /status
     lcd:
       - name: p2p
         url: https://api.bbn-1.babylon.tm.p2p.org
@@ -24,9 +30,15 @@ general:
       - name: polkachu
         url: https://babylon-api.polkachu.com
         healthEndpoint: /cosmos/base/node/v1beta1/status
+      - name: allnodes
+        url: https://babylon-rest.publicnode.com
+        healthEndpoint: /cosmos/base/node/v1beta1/status
+      - name: itrocket
+        url: https://babylon-mainnet-api.itrocket.net
+        healthEndpoint: /cosmos/base/node/v1beta1/status
 
 node:
-  client: p2p
+  client: 
   tendermint:
     nodeInfo:
       enabled: true
@@ -40,10 +52,10 @@ network:
   cometbft:
     validators:
       enabled: true
-      interval: 10
+      interval: 30
     block:
       enabled: true
-      interval: 10
+      interval: 30
       window: 500
       tx:
         enabled: true
@@ -68,12 +80,17 @@ network:
     staking:
       enabled: true
       interval: 30
+      validators: true
+      delegations: true
+      commissions: true
+      pool: true
+      params: true
     slashing:
       enabled: true
       interval: 30
     upgrade:
       enabled: true
-      interval: 60
+      interval: 30
 
   mezo:
     poa:
@@ -108,14 +125,24 @@ network:
     validator:
       enabled: false
       interval: 30
+      api:
+        enabled: false
+        url: 
+        api_key: 
+        cache_duration_seconds: 300
     staking:
       enabled: false
       interval: 30
 
   sei:
-    validators: # Sei validators metrics, calls /validators RPC endpoint with Sei-specific parsing.
+    validators:
       enabled: false
       interval: 10
-    block: # Sei block metrics, calls /tx_search RPC endpoint with Sei-specific parsing.
+    block:
       enabled: false
       interval: 10
+      window: 500
+      tx:
+        enabled: false
+      uptime:
+        persistence: false

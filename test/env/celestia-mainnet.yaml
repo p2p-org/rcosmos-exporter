@@ -1,5 +1,5 @@
 general:
-  network: lombard-mainnet
+  network: celestia-mainnet
   chain_id: cometbft
   mode: network
   metrics:
@@ -8,16 +8,34 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 8FA4FD65BB5C9EED5D89FF33E2A300B304F74058
+      - 1650146F478A6096E4F980803646FC8EE3C36103
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.lombard.tm.p2p.org
+        url: https://celestia-mainnet-archive.tm.p2p.org
+        healthEndpoint: /status
+      - name: polkachu
+        url: https://celestia-rpc.polkachu.com
+        healthEndpoint: /status
+      - name: allnodes
+        url: https://celestia-rpc.publicnode.com
+        healthEndpoint: /status
+      - name: itrocket
+        url: https://celestia-mainnet-rpc.itrocket.net
         healthEndpoint: /status
     lcd:
       - name: p2p
-        url: https://api.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+        url: https://api-celestia-mainnet-archive.tm.p2p.org
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: polkachu
+        url: https://celestia-api.polkachu.com
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: allnodes
+        url: https://celestia-rest.publicnode.com
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: itrocket
+        url: https://celestia-mainnet-api.itrocket.net
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
 node:
   client: 
@@ -53,7 +71,7 @@ network:
       enabled: true
       interval: 30
     gov:
-      enabled: false
+      enabled: true
       interval: 30
     staking:
       enabled: true
@@ -67,7 +85,7 @@ network:
       enabled: true
       interval: 30
     upgrade:
-      enabled: true
+      enabled: false
       interval: 30
 
   mezo:
@@ -82,9 +100,8 @@ network:
 
   lombard:
     ledger:
-      addresses:
-        - lomvaloper1khqmhwhfrlw6fuj70l67rdw253qh809qndfsua
-      enabled: true
+      addresses: []
+      enabled: false
       interval: 30
 
   namada:

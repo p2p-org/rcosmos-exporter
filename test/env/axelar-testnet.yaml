@@ -1,5 +1,5 @@
 general:
-  network: lombard-mainnet
+  network: axelar-testnet
   chain_id: cometbft
   mode: network
   metrics:
@@ -8,16 +8,22 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 8FA4FD65BB5C9EED5D89FF33E2A300B304F74058
+      - 4A975DC9B6F91042772CD4B6876B6023AF0E5AD7
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.lombard.tm.p2p.org
+        url: https://rpc.testnet.axelar.tm.p2p.org
+        healthEndpoint: /status
+      - name: qubelabs
+        url: https://axelar-testnet-rpc.qubelabs.io
         healthEndpoint: /status
     lcd:
       - name: p2p
-        url: https://api.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+        url: https://api.testnet.axelar.tm.p2p.org
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: qubelabs
+        url: https://axelar-testnet-lcd.qubelabs.io
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
 node:
   client: 
@@ -82,9 +88,8 @@ network:
 
   lombard:
     ledger:
-      addresses:
-        - lomvaloper1khqmhwhfrlw6fuj70l67rdw253qh809qndfsua
-      enabled: true
+      addresses: []
+      enabled: false
       interval: 30
 
   namada:

@@ -1,6 +1,6 @@
 general:
-  network: lombard-mainnet
-  chain_id: cometbft
+  network: cronos-mainnet
+  chain_id: crypto-org-chain-mainnet-1
   mode: network
   metrics:
     address: 0.0.0.0
@@ -8,16 +8,19 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 8FA4FD65BB5C9EED5D89FF33E2A300B304F74058
+      - 604F119E8CF76512DC004615051C7ABEB6E05ABF
   nodes:
     rpc:
-      - name: p2p
-        url: https://rpc.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /status
+      - name: publicnode
+        url: https://cronos-pos-rpc.publicnode.com
+        healthEndpoint: /health
+      - name: cronos-official
+        url: https://rpc.mainnet.cronos-pos.org
+        healthEndpoint: /health
     lcd:
-      - name: p2p
-        url: https://api.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+      - name: publicnode
+        url: https://cronos-pos-rest.publicnode.com
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
 node:
   client: 
@@ -53,7 +56,7 @@ network:
       enabled: true
       interval: 30
     gov:
-      enabled: false
+      enabled: true
       interval: 30
     staking:
       enabled: true
@@ -82,9 +85,8 @@ network:
 
   lombard:
     ledger:
-      addresses:
-        - lomvaloper1khqmhwhfrlw6fuj70l67rdw253qh809qndfsua
-      enabled: true
+      addresses: []
+      enabled: false
       interval: 30
 
   namada:

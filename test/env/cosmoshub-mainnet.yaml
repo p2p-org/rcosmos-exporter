@@ -1,5 +1,5 @@
 general:
-  network: lombard-mainnet
+  network: cosmoshub-mainnet
   chain_id: cometbft
   mode: network
   metrics:
@@ -8,15 +8,34 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 8FA4FD65BB5C9EED5D89FF33E2A300B304F74058
+      - 0939CD5EE88F6E4101175096450BB25D2DFAACE8
+      - DA6AAAA959C9EF88A3EB37B1F107CB2667EBBAAB
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.lombard.tm.p2p.org
+        url: https://rpc1.sygnum.mainnet.cosmos-hub.tm.p2p.world/
+        healthEndpoint: /status
+      - name: polkachu
+        url: https://cosmos-rpc.polkachu.com/
+        healthEndpoint: /status
+      - name: itrocket
+        url: https://cosmoshub-mainnet-rpc.itrocket.net
+        healthEndpoint: /status
+      - name: allnodes
+        url: https://cosmos-rpc.publicnode.com:443
         healthEndpoint: /status
     lcd:
       - name: p2p
-        url: https://api.mainnet.lombard.tm.p2p.org
+        url: https://api1.sygnum.mainnet.cosmos-hub.tm.p2p.world/
+        healthEndpoint: /cosmos/base/node/v1beta1/status
+      - name: polkachu
+        url: https://cosmos-api.polkachu.com/
+        healthEndpoint: /cosmos/base/node/v1beta1/status
+      - name: itrocket
+        url: https://cosmoshub-mainnet-api.itrocket.net
+        healthEndpoint: /cosmos/base/node/v1beta1/status
+      - name: allnodes
+        url: https://cosmos-rest.publicnode.com
         healthEndpoint: /cosmos/base/node/v1beta1/status
 
 node:
@@ -53,7 +72,7 @@ network:
       enabled: true
       interval: 30
     gov:
-      enabled: false
+      enabled: true
       interval: 30
     staking:
       enabled: true
@@ -82,9 +101,8 @@ network:
 
   lombard:
     ledger:
-      addresses:
-        - lomvaloper1khqmhwhfrlw6fuj70l67rdw253qh809qndfsua
-      enabled: true
+      addresses: []
+      enabled: false
       interval: 30
 
   namada:

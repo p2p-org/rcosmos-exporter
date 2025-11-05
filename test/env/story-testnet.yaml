@@ -1,5 +1,5 @@
 general:
-  network: lombard-mainnet
+  network: story-testnet
   chain_id: cometbft
   mode: network
   metrics:
@@ -8,16 +8,17 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 8FA4FD65BB5C9EED5D89FF33E2A300B304F74058
+      - 5F833A51EF9A4A97353A8B61DF0DABA0BFFA759E
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.lombard.tm.p2p.org
+        url: https://rpc.testnet.story.tm.p2p.org
+        healthEndpoint: /status
+      - name: polkachu
+        url: https://story-testnet-rpc.polkachu.com
         healthEndpoint: /status
     lcd:
-      - name: p2p
-        url: https://api.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+      []
 
 node:
   client: 
@@ -40,7 +41,7 @@ network:
       interval: 30
       window: 500
       tx:
-        enabled: true
+        enabled: false
       uptime:
         persistence: true
 
@@ -50,13 +51,13 @@ network:
       enabled: false
       interval: 30
     distribution:
-      enabled: true
+      enabled: false
       interval: 30
     gov:
       enabled: false
       interval: 30
     staking:
-      enabled: true
+      enabled: false
       interval: 30
       validators: true
       delegations: true
@@ -64,10 +65,10 @@ network:
       pool: true
       params: true
     slashing:
-      enabled: true
+      enabled: false
       interval: 30
     upgrade:
-      enabled: true
+      enabled: false
       interval: 30
 
   mezo:
@@ -82,9 +83,8 @@ network:
 
   lombard:
     ledger:
-      addresses:
-        - lomvaloper1khqmhwhfrlw6fuj70l67rdw253qh809qndfsua
-      enabled: true
+      addresses: []
+      enabled: false
       interval: 30
 
   namada:

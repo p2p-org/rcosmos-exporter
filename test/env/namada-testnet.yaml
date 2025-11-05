@@ -1,5 +1,5 @@
 general:
-  network: lombard-mainnet
+  network: namada-testnet
   chain_id: cometbft
   mode: network
   metrics:
@@ -8,16 +8,19 @@ general:
     path: /metrics
   alerting:
     validators:
-      - 8FA4FD65BB5C9EED5D89FF33E2A300B304F74058
+      - E0E2D34EA2D21AFDE817E7C382FE9C4C28F51349
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.lombard.tm.p2p.org
+        url: https://rpc.namada-housefire.tm.p2p.world/
+        healthEndpoint: /status
+      - name: tududes
+        url: https://rpc.housefire.tududes.com
         healthEndpoint: /status
     lcd:
       - name: p2p
-        url: https://api.mainnet.lombard.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+        url: https://indexer.housefire.tududes.com
+        healthEndpoint: /health
 
 node:
   client: 
@@ -40,7 +43,7 @@ network:
       interval: 30
       window: 500
       tx:
-        enabled: true
+        enabled: false
       uptime:
         persistence: true
 
@@ -50,13 +53,13 @@ network:
       enabled: false
       interval: 30
     distribution:
-      enabled: true
+      enabled: false
       interval: 30
     gov:
       enabled: false
       interval: 30
     staking:
-      enabled: true
+      enabled: false
       interval: 30
       validators: true
       delegations: true
@@ -64,10 +67,10 @@ network:
       pool: true
       params: true
     slashing:
-      enabled: true
+      enabled: false
       interval: 30
     upgrade:
-      enabled: true
+      enabled: false
       interval: 30
 
   mezo:
@@ -82,9 +85,8 @@ network:
 
   lombard:
     ledger:
-      addresses:
-        - lomvaloper1khqmhwhfrlw6fuj70l67rdw253qh809qndfsua
-      enabled: true
+      addresses: []
+      enabled: false
       interval: 30
 
   namada:
@@ -93,7 +95,7 @@ network:
       enabled: false
       interval: 30
     pos:
-      enabled: false
+      enabled: true
       interval: 30
 
   coredao:
