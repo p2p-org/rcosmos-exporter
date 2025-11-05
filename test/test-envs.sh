@@ -1,11 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 
-# Always build the binary at the start
+# Prepare binary
 BIN_PATH="target/release/rcosmos-exporter"
-echo "🔨 Building the binary with cargo build --release..."
-cargo build --release
-chmod +x $BIN_PATH
+if [ "${PREBUILT:-}" = "1" ]; then
+  echo "📦 Using prebuilt binary at $BIN_PATH"
+  if [ ! -f "$BIN_PATH" ]; then
+    echo "❌ Prebuilt binary not found at $BIN_PATH"
+    exit 1
+  fi
+  chmod +x "$BIN_PATH"
+else
+  echo "🔨 Building the binary with cargo build --release..."
+  cargo build --release
+  chmod +x "$BIN_PATH"
+fi
 
 failed_tests=()
 error_metric_failed=()
