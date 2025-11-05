@@ -1,5 +1,5 @@
 general:
-  network: mezo-mainnet
+  network: celestia-testnet
   chain_id: cometbft
   mode: network
   metrics:
@@ -8,16 +8,34 @@ general:
     path: /metrics
   alerting:
     validators:
-      - CFD8B486E38C66CE633B2A225DF78EF46AA4CEBB
+      - BEEE6DB44A01D8005CD59904F9AEE12BE9DBA6A3
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.mezo.tm.p2p.org/
+        url: http://celestia-testnet-p2p-sentry.tm.p2p.world
+        healthEndpoint: /status
+      - name: polkachu
+        url: https://celestia-testnet-rpc.polkachu.com
+        healthEndpoint: /status
+      - name: allnodes
+        url: https://celestia-mocha-rpc.publicnode.com:443
+        healthEndpoint: /status
+      - name: itrocket
+        url: https://celestia-testnet-rpc.itrocket.net
         healthEndpoint: /status
     lcd:
       - name: p2p
-        url: https://api.mainnet.mezo.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+        url: http://celestia-testnet-p2p-sentry-rest.tm.p2p.world
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: polkachu
+        url: https://celestia-testnet-api.polkachu.com
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: allnodes
+        url: https://celestia-mocha-rest.publicnode.com
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: itrocket
+        url: https://celestia-testnet-api.itrocket.net
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
 node:
   client:
@@ -50,13 +68,13 @@ network:
       enabled: false
       interval: 30
     distribution:
-      enabled: false
+      enabled: true
       interval: 30
     gov:
-      enabled: false
+      enabled: true
       interval: 30
     staking:
-      enabled: false
+      enabled: true
       interval: 30
       validators: true
       delegations: true
@@ -64,15 +82,15 @@ network:
       pool: true
       params: true
     slashing:
-      enabled: false
+      enabled: true
       interval: 30
     upgrade:
-      enabled: true
+      enabled: false
       interval: 30
 
   mezo:
     poa:
-      enabled: true
+      enabled: false
       interval: 30
 
   babylon:

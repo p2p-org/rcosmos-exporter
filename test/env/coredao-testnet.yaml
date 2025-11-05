@@ -1,34 +1,32 @@
 general:
   network: coredao-testnet
+  chain_id: coredao-testnet
   mode: network
-  chain_id: coredao
   metrics:
     address: 0.0.0.0
     port: 9100
     path: /metrics
   alerting:
     validators:
-      - "0xa95253aa936de5926a75e7742ac422f26477c50f"
+      - 0xa95253aa936de5926a75e7742ac422f26477c50f
   nodes:
     rpc:
       - name: p2p
         url: https://rpc.test2.btcs.network
         healthEndpoint: /
-
     lcd:
       - name: p2p
         url: https://api.test2.btcs.network
         healthEndpoint: /health
 
-
 node:
-  client: p2p
-  cometbft:
-    status:
-      enabled: true
-      interval: 30
+  client:
   tendermint:
     nodeInfo:
+      enabled: true
+      interval: 30
+  cometbft:
+    status:
       enabled: true
       interval: 30
 
@@ -36,10 +34,10 @@ network:
   cometbft:
     validators:
       enabled: false
-      interval: 10
+      interval: 30
     block:
       enabled: false
-      interval: 10
+      interval: 30
       window: 500
       tx:
         enabled: true
@@ -60,12 +58,17 @@ network:
     staking:
       enabled: false
       interval: 30
+      validators: true
+      delegations: true
+      commissions: true
+      pool: true
+      params: true
     slashing:
       enabled: false
       interval: 30
     upgrade:
       enabled: false
-      interval: 60
+      interval: 30
 
   mezo:
     poa:
@@ -100,14 +103,24 @@ network:
     validator:
       enabled: true
       interval: 30
+      api:
+        enabled: true
+        url:
+        api_key:
+        cache_duration_seconds: 300
     staking:
       enabled: true
       interval: 30
 
   sei:
-    validators: # Sei validators metrics, calls /validators RPC endpoint with Sei-specific parsing.
+    validators:
       enabled: false
       interval: 10
-    block: # Sei block metrics, calls /tx_search RPC endpoint with Sei-specific parsing.
+    block:
       enabled: false
       interval: 10
+      window: 500
+      tx:
+        enabled: false
+      uptime:
+        persistence: false
