@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.7.1...v2.8.0) (2025-11-05)
+
+
+### Features
+
+* updates ([#104](https://github.com/p2p-org/rcosmos-exporter/issues/104)) ([e11355b](https://github.com/p2p-org/rcosmos-exporter/commit/e11355b9d46c4b3d2f5dded79d8dfa4c51f63f52))
+
 ## [2.7.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.7.0...v2.7.1) (2025-10-21)
 
 
