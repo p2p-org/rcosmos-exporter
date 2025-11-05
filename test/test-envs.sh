@@ -11,6 +11,16 @@ failed_tests=()
 error_metric_failed=()
 env_files_found=0
 
+# If an env file is passed as an argument, only test that file
+single_env_file=""
+if [ $# -ge 1 ]; then
+  single_env_file="$1"
+  if [ ! -f "$single_env_file" ]; then
+    echo "❌ Provided env file does not exist: $single_env_file"
+    exit 1
+  fi
+fi
+
 if [ ! -d "test/env" ]; then
   echo "❌ test/env directory not found!"
   exit 1
@@ -31,7 +41,14 @@ docker logs $(docker compose --project-name rcosmos-exporter-test ps -q clickhou
 
 sleep 120
 
-for env_file in test/env/*.yaml; do
+files_to_test=()
+if [ -n "$single_env_file" ]; then
+  files_to_test+=("$single_env_file")
+else
+  for f in test/env/*.yaml; do files_to_test+=("$f"); done
+fi
+
+for env_file in "${files_to_test[@]}"; do
   export CLICKHOUSE_URL=http://localhost:18123
   export CLICKHOUSE_DATABASE=default
   export CLICKHOUSE_USER=default
@@ -129,4 +146,4 @@ if [ -z "$exit_code" ] || [ $exit_code -eq 0 ]; then
   exit 0
 fi
 
-exit $exit_code 
+exit $exit_code
