@@ -20,7 +20,7 @@ general:
         healthEndpoint: /cosmos/base/node/v1beta1/status
 
 node:
-  client: 
+  client: p2p
   tendermint:
     nodeInfo:
       enabled: true

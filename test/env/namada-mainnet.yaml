@@ -29,7 +29,7 @@ general:
         healthEndpoint: /health
 
 node:
-  client: 
+  client: p2p
   tendermint:
     nodeInfo:
       enabled: true
