@@ -6,9 +6,37 @@ on:
       - main
 
 jobs:
-  build-and-test:
+  generate-matrix:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.collect.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Collect test env files
+        id: collect
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const dir = 'test/env';
+            let include = [];
+            if (fs.existsSync(dir)) {
+              for (const f of fs.readdirSync(dir)) {
+                if (f.endsWith('.yaml') || f.endsWith('.yml')) {
+                  include.push({ env_file: path.posix.join(dir, f), env_name: path.parse(f).name });
+                }
+              }
+            }
+            if (include.length === 0) {
+              core.setFailed('No env files found in test/env');
+            }
+            core.setOutput('matrix', JSON.stringify({ include }));
+
+  build-binary:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -16,5 +44,67 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run test-envs.sh
-        run: ./test/test-envs.sh
+      - name: Build release binary
+        run: |
+          cargo build --release
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rcosmos-exporter-bin
+          path: target/release/rcosmos-exporter
+          if-no-files-found: error
+
+  test-env:
+    name: Test ${{ matrix.env_name }}
+    runs-on: ubuntu-latest
+    needs: [generate-matrix, build-binary]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rcosmos-exporter-bin
+          path: target/release
+
+      - name: Make binary executable
+        run: chmod +x target/release/rcosmos-exporter
+
+      - name: Show matrix entry
+        run: |
+          echo "Testing env: ${{ matrix.env_file }} (name: ${{ matrix.env_name }})"
+
+      - name: Run test-envs.sh for single env
+        env:
+          # Give each job its own ClickHouse port namespace and project name if desired
+          CLICKHOUSE_URL: http://localhost:18123
+          CLICKHOUSE_DATABASE: default
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: mysecurepassword123
+          NODE_NAME: rcosmos-exporter-test
+          PREBUILT: "1"
+        run: |
+          chmod +x ./test/test-envs.sh
+          ./test/test-envs.sh "${{ matrix.env_file }}"
+
+  ci-passed:
+    name: All Tests Passed
+    runs-on: ubuntu-latest
+    needs: [generate-matrix, build-binary, test-env]
+    if: always()
+    steps:
+      - name: Check all test jobs passed
+        run: |
+          if [ "${{ needs.test-env.result }}" != "success" ]; then
+            echo "❌ One or more test jobs failed"
+            exit 1
+          fi
+          echo "✅ All tests passed!"

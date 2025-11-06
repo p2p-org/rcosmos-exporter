@@ -1,6 +1,6 @@
 general:
-  network: mezo-mainnet
-  chain_id: cometbft
+  network: coredao-mainnet
+  chain_id: coredao-mainnet
   mode: network
   metrics:
     address: 0.0.0.0
@@ -8,16 +8,16 @@ general:
     path: /metrics
   alerting:
     validators:
-      - CFD8B486E38C66CE633B2A225DF78EF46AA4CEBB
+      - 0x86835128b29fef52fc61299ebb50d85e03960976
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.mezo.tm.p2p.org/
-        healthEndpoint: /status
+        url: https://rpc.coredao.org/
+        healthEndpoint: /
     lcd:
       - name: p2p
-        url: https://api.mainnet.mezo.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+        url: https://openapi.coredao.org
+        healthEndpoint: /health
 
 node:
   client:
@@ -33,14 +33,14 @@ node:
 network:
   cometbft:
     validators:
-      enabled: true
+      enabled: false
       interval: 30
     block:
-      enabled: true
+      enabled: false
       interval: 30
       window: 500
       tx:
-        enabled: false
+        enabled: true
       uptime:
         persistence: true
 
@@ -67,12 +67,12 @@ network:
       enabled: false
       interval: 30
     upgrade:
-      enabled: true
+      enabled: false
       interval: 30
 
   mezo:
     poa:
-      enabled: true
+      enabled: false
       interval: 30
 
   babylon:
@@ -97,19 +97,19 @@ network:
 
   coredao:
     block:
-      enabled: false
+      enabled: true
       interval: 30
       window: 500
     validator:
-      enabled: false
+      enabled: true
       interval: 30
       api:
-        enabled: false
+        enabled: true
         url:
         api_key:
         cache_duration_seconds: 300
     staking:
-      enabled: false
+      enabled: true
       interval: 30
 
   sei:

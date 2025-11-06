@@ -92,7 +92,7 @@ impl Status {
 
     async fn process_status_metrics(&self, status: &StatusResponse) -> anyhow::Result<()> {
         info!("(CometBFT Node Status) Processing status metrics");
-        let chain_id = &status.result.node_info.network;
+        let chain_id = &self.app_context.chain_id;
         let network = &self.app_context.config.general.network;
         let client = &self.app_context.config.node.client;
         COMETBFT_NODE_ID

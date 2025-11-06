@@ -1,7 +1,7 @@
 general:
   network: namada-mainnet
-  mode: network
   chain_id: cometbft
+  mode: network
   metrics:
     address: 0.0.0.0
     port: 9100
@@ -11,33 +11,42 @@ general:
       - 987158183DBF316FC7B84398F86BAADEAD96BE00
   nodes:
     rpc:
-      - name: tudude
-        url: https://rpc.namada.tududes.com
+      - name: p2p-01
+        url: https://rpc1.mainnet.namada.tm.p2p.world/
+        healthEndpoint: /health
+      - name: p2p-02
+        url: https://rpc1.mainnet.namada.tm.p2p.org/
+        healthEndpoint: /health
+      - name: itrocket
+        url: https://namada-mainnet-rpc.itrocket.net/
         healthEndpoint: /health
     lcd:
-      - name: tudude
+      - name: p2p
+        url: https://api-namada-mainnet-indexer.tm.p2p.org/
+        healthEndpoint: /health
+      - name: tududes
         url: https://indexer.namada.tududes.com
         healthEndpoint: /health
 
 node:
-  client: p2p
+  client:
+  tendermint:
+    nodeInfo:
+      enabled: true
+      interval: 30
   cometbft:
     status:
       enabled: true
-      interval: 30
-  tendermint:
-    nodeInfo:
-      enabled: false
       interval: 30
 
 network:
   cometbft:
     validators:
       enabled: true
-      interval: 10
+      interval: 30
     block:
       enabled: true
-      interval: 10
+      interval: 30
       window: 500
       tx:
         enabled: false
@@ -58,12 +67,17 @@ network:
     staking:
       enabled: false
       interval: 30
+      validators: true
+      delegations: true
+      commissions: true
+      pool: true
+      params: true
     slashing:
       enabled: false
       interval: 30
     upgrade:
       enabled: false
-      interval: 60
+      interval: 30
 
   mezo:
     poa:
@@ -98,14 +112,24 @@ network:
     validator:
       enabled: false
       interval: 30
+      api:
+        enabled: false
+        url:
+        api_key:
+        cache_duration_seconds: 300
     staking:
       enabled: false
       interval: 30
 
   sei:
-    validators: # Sei validators metrics, calls /validators RPC endpoint with Sei-specific parsing.
+    validators:
       enabled: false
       interval: 10
-    block: # Sei block metrics, calls /tx_search RPC endpoint with Sei-specific parsing.
+    block:
       enabled: false
       interval: 10
+      window: 500
+      tx:
+        enabled: false
+      uptime:
+        persistence: false

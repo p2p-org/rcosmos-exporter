@@ -137,6 +137,25 @@ where
     }
 }
 
+/// Deserializer that accepts both string and number types, converting to Option<u64>
+fn option_u64_from_string_or_null<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match opt {
+        Some(serde_json::Value::Number(n)) => n
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| serde::de::Error::custom("Invalid number for u64 field")),
+        Some(serde_json::Value::String(s)) => {
+            if s.is_empty() { Ok(None) } else { s.parse::<u64>().map(Some).map_err(serde::de::Error::custom) }
+        }
+        Some(serde_json::Value::Null) | None => Ok(None),
+        _ => Ok(None),
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Validator {
     pub address: String,
@@ -159,8 +178,8 @@ pub struct ValidatorPubKey {
 #[derive(Debug, Deserialize, Clone)]
 pub struct RestValidator {
     pub address: String,
-    #[serde(rename = "votingPower")]
-    pub voting_power: Option<String>,
+    #[serde(rename = "votingPower", deserialize_with = "option_u64_from_string_or_null")]
+    pub voting_power: Option<u64>,
     #[serde(rename = "maxCommission")]
     pub max_commission: Option<String>,
     pub commission: Option<String>,

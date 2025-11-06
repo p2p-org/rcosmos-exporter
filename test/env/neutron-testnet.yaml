@@ -1,5 +1,5 @@
 general:
-  network: mezo-mainnet
+  network: neutron-testnet
   chain_id: cometbft
   mode: network
   metrics:
@@ -8,16 +8,22 @@ general:
     path: /metrics
   alerting:
     validators:
-      - CFD8B486E38C66CE633B2A225DF78EF46AA4CEBB
+      - A85EAF8A3A295AE0521DD37920BCBFBEB60FAF88
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.mezo.tm.p2p.org/
+        url: https://rpc.testnet.neutron.tm.p2p.world/
+        healthEndpoint: /status
+      - name: polkachu
+        url: https://neutron-testnet-rpc.polkachu.com
         healthEndpoint: /status
     lcd:
       - name: p2p
-        url: https://api.mainnet.mezo.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+        url: https://api.testnet.neutron.tm.p2p.world/
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: polkachu
+        url: https://neutron-testnet-api.polkachu.com
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
 node:
   client:
@@ -56,7 +62,7 @@ network:
       enabled: false
       interval: 30
     staking:
-      enabled: false
+      enabled: true
       interval: 30
       validators: true
       delegations: true
@@ -64,7 +70,7 @@ network:
       pool: true
       params: true
     slashing:
-      enabled: false
+      enabled: true
       interval: 30
     upgrade:
       enabled: true
@@ -72,7 +78,7 @@ network:
 
   mezo:
     poa:
-      enabled: true
+      enabled: false
       interval: 30
 
   babylon:

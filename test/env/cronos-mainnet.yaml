@@ -1,6 +1,6 @@
 general:
-  network: mezo-mainnet
-  chain_id: cometbft
+  network: cronos-mainnet
+  chain_id: crypto-org-chain-mainnet-1
   mode: network
   metrics:
     address: 0.0.0.0
@@ -8,16 +8,19 @@ general:
     path: /metrics
   alerting:
     validators:
-      - CFD8B486E38C66CE633B2A225DF78EF46AA4CEBB
+      - 604F119E8CF76512DC004615051C7ABEB6E05ABF
   nodes:
     rpc:
-      - name: p2p
-        url: https://rpc.mainnet.mezo.tm.p2p.org/
-        healthEndpoint: /status
+      - name: publicnode
+        url: https://cronos-pos-rpc.publicnode.com
+        healthEndpoint: /health
+      - name: cronos-official
+        url: https://rpc.mainnet.cronos-pos.org
+        healthEndpoint: /health
     lcd:
-      - name: p2p
-        url: https://api.mainnet.mezo.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+      - name: publicnode
+        url: https://cronos-pos-rest.publicnode.com
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
 node:
   client:
@@ -40,7 +43,7 @@ network:
       interval: 30
       window: 500
       tx:
-        enabled: false
+        enabled: true
       uptime:
         persistence: true
 
@@ -50,13 +53,13 @@ network:
       enabled: false
       interval: 30
     distribution:
-      enabled: false
+      enabled: true
       interval: 30
     gov:
-      enabled: false
+      enabled: true
       interval: 30
     staking:
-      enabled: false
+      enabled: true
       interval: 30
       validators: true
       delegations: true
@@ -64,7 +67,7 @@ network:
       pool: true
       params: true
     slashing:
-      enabled: false
+      enabled: true
       interval: 30
     upgrade:
       enabled: true
@@ -72,7 +75,7 @@ network:
 
   mezo:
     poa:
-      enabled: true
+      enabled: false
       interval: 30
 
   babylon:
