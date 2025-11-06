@@ -94,3 +94,17 @@ jobs:
         run: |
           chmod +x ./test/test-envs.sh
           ./test/test-envs.sh "${{ matrix.env_file }}"
+
+  ci-passed:
+    name: All Tests Passed
+    runs-on: ubuntu-latest
+    needs: [generate-matrix, build-binary, test-env]
+    if: always()
+    steps:
+      - name: Check all test jobs passed
+        run: |
+          if [ "${{ needs.test-env.result }}" != "success" ]; then
+            echo "❌ One or more test jobs failed"
+            exit 1
+          fi
+          echo "✅ All tests passed!"

@@ -1,5 +1,5 @@
 general:
-  network: mezo-mainnet
+  network: axelar-mainnet
   chain_id: cometbft
   mode: network
   metrics:
@@ -8,16 +8,34 @@ general:
     path: /metrics
   alerting:
     validators:
-      - CFD8B486E38C66CE633B2A225DF78EF46AA4CEBB
+      - D009EE36103976E15012FBCE18625EFC9048EFB5
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.mezo.tm.p2p.org/
+        url: https://axelar-mainnet-archive.tm.p2p.org
+        healthEndpoint: /status
+      - name: qubelabs
+        url: https://axelar-rpc.qubelabs.io
+        healthEndpoint: /status
+      - name: allnodes
+        url: https://axelar-rpc.publicnode.com:443
+        healthEndpoint: /status
+      - name: 1rpc
+        url: https://1rpc.io/axelar-rpc
         healthEndpoint: /status
     lcd:
       - name: p2p
-        url: https://api.mainnet.mezo.tm.p2p.org
-        healthEndpoint: /cosmos/base/node/v1beta1/status
+        url: https://api-axelar-mainnet-archive.tm.p2p.org
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: qubelabs
+        url: https://axelar-lcd.qubelabs.io
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: allnodes
+        url: https://axelar-rest.publicnode.com
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: 1rpc
+        url: https://1rpc.io/axelar-lcd
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
 node:
   client:
@@ -40,7 +58,7 @@ network:
       interval: 30
       window: 500
       tx:
-        enabled: false
+        enabled: true
       uptime:
         persistence: true
 
@@ -50,13 +68,13 @@ network:
       enabled: false
       interval: 30
     distribution:
-      enabled: false
+      enabled: true
       interval: 30
     gov:
       enabled: false
       interval: 30
     staking:
-      enabled: false
+      enabled: true
       interval: 30
       validators: true
       delegations: true
@@ -64,7 +82,7 @@ network:
       pool: true
       params: true
     slashing:
-      enabled: false
+      enabled: true
       interval: 30
     upgrade:
       enabled: true
@@ -72,7 +90,7 @@ network:
 
   mezo:
     poa:
-      enabled: true
+      enabled: false
       interval: 30
 
   babylon:

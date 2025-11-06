@@ -1,5 +1,5 @@
 general:
-  network: mezo-mainnet
+  network: lombard-testnet
   chain_id: cometbft
   mode: network
   metrics:
@@ -8,15 +8,15 @@ general:
     path: /metrics
   alerting:
     validators:
-      - CFD8B486E38C66CE633B2A225DF78EF46AA4CEBB
+      - EA2D986A4DE36C0A65A52E764271F45206713654
   nodes:
     rpc:
       - name: p2p
-        url: https://rpc.mainnet.mezo.tm.p2p.org/
+        url: https://rpc.lombard-testnet.tm.p2p.org/
         healthEndpoint: /status
     lcd:
       - name: p2p
-        url: https://api.mainnet.mezo.tm.p2p.org
+        url: https://api.lombard-testnet.tm.p2p.org/
         healthEndpoint: /cosmos/base/node/v1beta1/status
 
 node:
@@ -40,7 +40,7 @@ network:
       interval: 30
       window: 500
       tx:
-        enabled: false
+        enabled: true
       uptime:
         persistence: true
 
@@ -50,13 +50,13 @@ network:
       enabled: false
       interval: 30
     distribution:
-      enabled: false
+      enabled: true
       interval: 30
     gov:
       enabled: false
       interval: 30
     staking:
-      enabled: false
+      enabled: true
       interval: 30
       validators: true
       delegations: true
@@ -64,7 +64,7 @@ network:
       pool: true
       params: true
     slashing:
-      enabled: false
+      enabled: true
       interval: 30
     upgrade:
       enabled: true
@@ -72,7 +72,7 @@ network:
 
   mezo:
     poa:
-      enabled: true
+      enabled: false
       interval: 30
 
   babylon:
@@ -82,8 +82,9 @@ network:
 
   lombard:
     ledger:
-      addresses: []
-      enabled: false
+      addresses:
+        - lomvaloper17plvqh4erhgdux0wswgl46f8y52ac2k434n8dr
+      enabled: true
       interval: 30
 
   namada:
