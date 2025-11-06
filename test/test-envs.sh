@@ -68,10 +68,26 @@ for env_file in "${files_to_test[@]}"; do
       if docker compose ls &>/dev/null; then
         echo "🚀 Running migrations with docker compose (first time)..."
         docker compose -f docker-compose.test.yaml --project-name rcosmos-exporter-test up -d
-        sleep 10
-        docker logs $(docker compose --project-name rcosmos-exporter-test ps -q clickhouse-migrate) || true
-        # brief settle time
-        sleep 20
+        # Wait for migration container to finish
+        mig_cid=$(docker compose --project-name rcosmos-exporter-test ps -q clickhouse-migrate)
+        if [ -z "$mig_cid" ]; then
+          echo "❌ Migration container not found"
+          exit 1
+        fi
+        echo "⏳ Waiting for migrations to complete..."
+        for i in {1..120}; do
+          status=$(docker inspect -f '{{.State.Status}}' "$mig_cid" || true)
+          if [ "$status" = "exited" ]; then
+            exit_code=$(docker inspect -f '{{.State.ExitCode}}' "$mig_cid" || echo 1)
+            if [ "$exit_code" != "0" ]; then
+              echo "❌ Migrations failed (exit $exit_code). Logs:" && docker logs "$mig_cid" || true
+              exit 1
+            fi
+            echo "✅ Migrations completed"
+            break
+          fi
+          sleep 2
+        done
         clickhouse_started=1
       else
         echo "❌ docker compose not found! Please install Docker Compose."
@@ -140,7 +156,7 @@ for env_file in "${files_to_test[@]}"; do
       fi
     else
       echo "❌ $env_file - metrics endpoint FAILED"
-      failed_tests+=("$env_file")
+    	failed_tests+=("$env_file")
     fi
 
     rm -f "$metrics_output_file"
