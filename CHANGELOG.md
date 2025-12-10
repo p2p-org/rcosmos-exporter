@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.0...v2.9.1) (2025-12-10)
+
+
+### Bug Fixes
+
+* configurable rpc timeouts and improved retries ([#111](https://github.com/p2p-org/rcosmos-exporter/issues/111)) ([d518505](https://github.com/p2p-org/rcosmos-exporter/commit/d518505329ccd2f2465b4d3c6a8fbb2be16e32fa))
+
 ## [2.9.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.8.0...v2.9.0) (2025-12-10)
 
 
