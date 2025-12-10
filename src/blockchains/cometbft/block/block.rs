@@ -263,13 +263,55 @@ impl Block {
                         }
                     }
                 } else {
-                    // Non-tx mode: fetch sequentially (no benefit from concurrent fetching)
-                    let fetch_height = height_to_process + block_buffer.len();
-                    let block = self
-                        .get_block(BlockHeight::Height(fetch_height))
-                        .await
-                        .context(format!("Could not obtain block {}", fetch_height))?;
-                    block_buffer.insert(fetch_height, (block, None));
+                    // Non-tx mode: can still fetch concurrently if batch > 1
+                    let fetch_heights: Vec<usize> = (0..fetch_count)
+                        .map(|i| height_to_process + block_buffer.len() + i)
+                        .collect();
+
+                    let fetch_futures: Vec<_> = fetch_heights
+                        .iter()
+                        .map(|&height| {
+                            let rpc_clone = rpc.clone();
+                            async move {
+                                let result = Self::fetch_block_data(&rpc_clone, tx_enabled, height).await;
+                                (height, result)
+                            }
+                        })
+                        .collect();
+
+                    // Execute all fetches concurrently
+                    let results = future::join_all(fetch_futures).await;
+
+                    // Add successful fetches to buffer
+                    for (height, result) in results {
+                        match result {
+                            Ok((block, txs_info)) => {
+                                // Validate height matches
+                                let block_height = block
+                                    .header
+                                    .height
+                                    .parse::<usize>()
+                                    .context("Could not parse block height")?;
+
+                                if block_height == height {
+                                    block_buffer.insert(height, (block, txs_info));
+                                } else {
+                                    tracing::warn!(
+                                        "(CometBFT Block) Block height mismatch in buffer: expected {}, got {}",
+                                        height,
+                                        block_height
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "(CometBFT Block) Concurrent fetch failed for height {}: {}",
+                                    height,
+                                    e
+                                );
+                            }
+                        }
+                    }
                 }
             }
 
@@ -552,12 +594,14 @@ impl Block {
         tx_enabled: bool,
         height: usize,
     ) -> anyhow::Result<(ChainBlock, Option<Vec<Tx>>)> {
-        if tx_enabled {
-            let rpc = rpc.clone();
-            let block_path = Path::from(format!("/block?height={}", height));
-            let tx_path = Path::from(format!("tx_search?query=\"tx.height={}\"", height));
+        let rpc = rpc.clone();
+        let block_path = Path::from(format!("/block?height={}", height));
 
-            info!("(CometBFT Block) Obtaining block with height: {}", height);
+        info!("(CometBFT Block) Obtaining block with height: {}", height);
+
+        if tx_enabled {
+            // Fetch both block and tx data concurrently
+            let tx_path = Path::from(format!("tx_search?query=\"tx.height={}\"", height));
 
             // Execute both requests concurrently for maximum performance
             let (block_result, tx_result) = tokio::join!(
@@ -586,10 +630,14 @@ impl Block {
 
             Ok((block, txs_info))
         } else {
-            // For non-tx mode, we need to use the existing get_block method
-            // This is a limitation - we can't pipeline without tx.enabled
-            // But this is fine since tx.enabled is the slow case that needs optimization
-            bail!("fetch_block_data without tx.enabled not yet implemented - use get_block directly")
+            // Non-tx mode: only fetch block data
+            let res = rpc.get(block_path).await?;
+            let block = from_str::<BlockResponse>(&res)
+                .context("Could not deserialize block response")?
+                .result
+                .block;
+
+            Ok((block, None))
         }
     }
 
