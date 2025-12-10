@@ -161,6 +161,19 @@ for env_file in "${files_to_test[@]}"; do
 
     rm -f "$metrics_output_file"
 
+    # Run metric validation if Python is available and cometbft block module is enabled
+    if command -v python3 &> /dev/null && grep -qs "cometbft:" "$env_file" && grep -qs "block:" "$env_file" && grep -qs "enabled:\s*true" "$env_file"; then
+      echo "🔍 Running metric validation..."
+      if python3 "$(dirname "$0")/validate_metrics.py" "$env_file" --num-blocks 3 --wait-time 30 2>&1; then
+        echo "✅ $env_file - metric validation passed"
+      else
+        echo "⚠️  $env_file - metric validation had issues (non-fatal)"
+        # Don't fail the test, just warn
+      fi
+    else
+      echo "⏭️  Skipping metric validation (Python not available or cometbft block module not enabled)"
+    fi
+
     kill $app_pid 2>/dev/null || true
     sleep 3
     if kill -0 $app_pid 2>/dev/null; then

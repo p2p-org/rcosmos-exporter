@@ -82,6 +82,15 @@ jobs:
         run: |
           echo "Testing env: ${{ matrix.env_file }} (name: ${{ matrix.env_name }})"
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install pyyaml
+
       - name: Run test-envs.sh for single env
         env:
           # Give each job its own ClickHouse port namespace and project name if desired

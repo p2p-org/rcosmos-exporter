@@ -57,6 +57,7 @@ network:
       enabled: true
       interval: 30
       window: 500
+      batch: 5
       tx:
         enabled: false
       uptime:

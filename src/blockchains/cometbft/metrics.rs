@@ -79,6 +79,14 @@ lazy_static! {
         &["chain_id", "network"]
     )
     .unwrap();
+    pub static ref COMETBFT_BLOCK_GAP: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_block_gap",
+            "Number of blocks the exporter is behind the chain tip (latest_block_height - current_block_height)"
+        ),
+        &["chain_id", "network"]
+    )
+    .unwrap();
     pub static ref COMETBFT_VALIDATOR_MISSED_BLOCKS: CounterVec = CounterVec::new(
         Opts::new(
             "rcosmos_cometbft_validator_missed_blocks",
@@ -305,6 +313,9 @@ pub fn cometbft_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_CURRENT_BLOCK_TIME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_BLOCK_GAP.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_MISSED_BLOCKS.clone()))

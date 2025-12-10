@@ -20,6 +20,13 @@ general:
       - name: allnodes
         url: https://neutron-rpc.publicnode.com:443
         healthEndpoint: /status
+      - name: foundation
+        url: 	https://rpc-lb.neutron.org
+        healthEndpoint: /status
+      - name: cosmos-directory
+        url: https://rpc.cosmos.directory/neutron
+        healthEndpoint: /status
+
     lcd:
       - name: p2p
         url: https://api-neutron-mainnet-1-full.tm.p2p.org
@@ -29,6 +36,12 @@ general:
         healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
       - name: allnodes
         url: https://neutron-rest.publicnode.com
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: foundation
+        url: 	https://rest-lb.neutron.org
+        healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+      - name: cosmos-directory
+        url: https://rest.cosmos.directory/neutron
         healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
 node:
