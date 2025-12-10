@@ -87,10 +87,12 @@ async fn main() {
         .map(|n| (n.name.clone(), n.url.clone(), n.health_endpoint.clone()))
         .collect();
 
+    // Use configurable timeout from general config (defaults to 30s, can be overridden per network)
+    let rpc_timeout = std::time::Duration::from_secs(config.general.rpc_timeout_seconds);
     let rpc_pool =
-        NodePool::new(rpc_nodes, None, config.general.network.clone()).map(|np| Arc::new(np));
+        NodePool::new(rpc_nodes, None, config.general.network.clone(), Some(rpc_timeout)).map(|np| Arc::new(np));
     let lcd_pool =
-        NodePool::new(lcd_nodes, None, config.general.network.clone()).map(|np| Arc::new(np));
+        NodePool::new(lcd_nodes, None, config.general.network.clone(), Some(rpc_timeout)).map(|np| Arc::new(np));
 
     // Start health checks for node pools in separate threads
     if let Some(ref rpc) = rpc_pool {

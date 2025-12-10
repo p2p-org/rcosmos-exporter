@@ -2,6 +2,7 @@ general:
   network: celestia-testnet
   chain_id: cometbft
   mode: network
+  rpc_timeout_seconds: 90
   metrics:
     address: 0.0.0.0
     port: 9100
@@ -57,7 +58,7 @@ network:
       enabled: true
       interval: 30
       window: 500
-      batch: 5
+      concurrency: 10
       tx:
         enabled: false
       uptime:

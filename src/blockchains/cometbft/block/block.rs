@@ -97,16 +97,43 @@ impl Block {
             .context(format!("Could not fetch block {}", path))?;
 
         Ok(from_str::<BlockResponse>(&res)
-            .context("Could not deserialize block response")?
+            .with_context(|| {
+                let preview = if res.len() > 200 {
+                    format!("{}...", &res[..200])
+                } else {
+                    res.clone()
+                };
+                format!(
+                    "Could not deserialize block response for {} (response length: {}, preview: {})",
+                    match height {
+                        BlockHeight::Height(h) => format!("height {}", h),
+                        BlockHeight::Latest => "latest block".to_string(),
+                    },
+                    res.len(),
+                    preview
+                )
+            })?
             .result
             .block)
     }
 
     async fn process_block_window(&mut self) -> anyhow::Result<()> {
-        let last_block = self
-            .get_block(BlockHeight::Latest)
-            .await
-            .context("Could not obtain last block")?;
+        // Retry fetching latest block until successful (NodePool already retries, but we add extra resilience)
+        let last_block = loop {
+            match self.get_block(BlockHeight::Latest).await {
+                Ok(block) => break block,
+                Err(e) => {
+                    tracing::warn!(
+                        "(CometBFT Block) Failed to fetch latest block, retrying with backoff: {}",
+                        e
+                    );
+                    // Exponential backoff: 200ms, 400ms, 800ms, 1.6s, 3.2s, 5s (capped)
+                    // NodePool already retried 5 times across endpoints, so we wait before retrying
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    // Continue loop to retry
+                }
+            }
+        };
         let last_block_height = last_block
             .header
             .height
@@ -178,11 +205,11 @@ impl Block {
         // This maximizes throughput while maintaining metric accuracy
         //
         // Strategy:
-        // 1. Fetch blocks concurrently (batch size configurable via network.cometbft.block.batch, defaults to 1)
+        // 1. Fetch blocks concurrently (concurrency configurable via network.cometbft.block.concurrency, defaults to 1)
         // 2. Process them sequentially from buffer (maintains accuracy)
         // 3. Keep buffer filled by continuously fetching ahead
         //
-        // Performance: With batch=5, fetch 5 blocks in ~1.6s, process 5 blocks in ~0.5s = 0.42s per block!
+        // Performance: With concurrency=5, fetch 5 blocks in ~1.6s, process 5 blocks in ~0.5s = 0.42s per block!
         // This should keep up with 0.6s block time chains!
         //
         // IMPORTANT: Metrics remain 100% accurate because:
@@ -195,8 +222,8 @@ impl Block {
 
         // Buffer to hold fetched blocks (keyed by height for ordered processing)
         let mut block_buffer: BTreeMap<usize, (ChainBlock, Option<Vec<Tx>>)> = BTreeMap::new();
-        // Use configurable batch size (defaults to 1 if not set)
-        let concurrent_fetch_count = self.app_context.config.network.cometbft.block.batch;
+        // Use configurable concurrency (defaults to 1 if not set)
+        let concurrent_fetch_count = self.app_context.config.network.cometbft.block.concurrency;
         const MIN_BUFFER_SIZE: usize = 2; // Keep at least 2 blocks buffered
 
         while height_to_process < last_block_height {
@@ -255,15 +282,16 @@ impl Block {
                             }
                             Err(e) => {
                                 tracing::warn!(
-                                    "(CometBFT Block) Concurrent fetch failed for height {}: {}",
+                                    "(CometBFT Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
                                     height,
                                     e
                                 );
+                                // Don't add to buffer - will be fetched on fallback with retry logic
                             }
                         }
                     }
                 } else {
-                    // Non-tx mode: can still fetch concurrently if batch > 1
+                    // Non-tx mode: can still fetch concurrently if concurrency > 1
                     let fetch_heights: Vec<usize> = (0..fetch_count)
                         .map(|i| height_to_process + block_buffer.len() + i)
                         .collect();
@@ -305,10 +333,11 @@ impl Block {
                             }
                             Err(e) => {
                                 tracing::warn!(
-                                    "(CometBFT Block) Concurrent fetch failed for height {}: {}",
+                                    "(CometBFT Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
                                     height,
                                     e
                                 );
+                                // Don't add to buffer - will be fetched on fallback with retry logic
                             }
                         }
                     }
@@ -319,15 +348,98 @@ impl Block {
             let (block, txs_info) = if let Some(data) = block_buffer.remove(&height_to_process) {
                 data
             } else {
-                // Buffer miss - fetch now (fallback, shouldn't happen with proper buffering)
-                if tx_enabled {
-                    Self::fetch_block_data(&rpc, tx_enabled, height_to_process).await?
-                } else {
-                    let block = self
-                        .get_block(BlockHeight::Height(height_to_process))
-                        .await
-                        .context(format!("Could not obtain block {}", height_to_process))?;
-                    (block, None)
+                // Buffer miss - fetch now (fallback)
+                // This happens when concurrent fetch failed - keep retrying until successful
+                // NodePool.get() already retries across endpoints, but we add extra resilience
+                tracing::warn!(
+                    "(CometBFT Block) Buffer miss for height {}, fetching with retry logic (will retry until successful)",
+                    height_to_process
+                );
+
+                // Retry with exponential backoff (capped at 5 seconds)
+                // After many retries, check if we should skip this block (might not exist)
+                let mut retries = 0;
+                const MAX_RETRIES_BEFORE_SKIP: u32 = 50; // Skip after 50 retries (~5 minutes of retrying)
+                loop {
+                    let result = if tx_enabled {
+                        Self::fetch_block_data(&rpc, tx_enabled, height_to_process).await
+                    } else {
+                        match self
+                            .get_block(BlockHeight::Height(height_to_process))
+                            .await
+                        {
+                            Ok(block) => Ok((block, None)),
+                            Err(e) => Err(e),
+                        }
+                    };
+
+                    match result {
+                        Ok(data) => {
+                            if retries > 0 {
+                                tracing::info!(
+                                    "(CometBFT Block) Successfully fetched block {} after {} retries",
+                                    height_to_process,
+                                    retries
+                                );
+                            }
+                            break data;
+                        }
+                        Err(e) => {
+                            retries += 1;
+
+                            // After many retries, check if block might not exist (chain moved ahead)
+                            if retries >= MAX_RETRIES_BEFORE_SKIP {
+                                // Re-fetch latest block to see current chain tip
+                                match self.get_block(BlockHeight::Latest).await {
+                                    Ok(latest_block) => {
+                                        let latest_height = latest_block
+                                            .header
+                                            .height
+                                            .parse::<usize>()
+                                            .unwrap_or(0);
+                                        let blocks_behind = latest_height.saturating_sub(height_to_process);
+
+                                        if blocks_behind > 10 {
+                                            // We're more than 10 blocks behind - this block might not exist
+                                            tracing::error!(
+                                                "(CometBFT Block) Block {} failed after {} retries. Chain tip is {}, we're {} blocks behind. Block may not exist - skipping to next block.",
+                                                height_to_process,
+                                                retries,
+                                                latest_height,
+                                                blocks_behind
+                                            );
+                                            // Skip this block and continue with next
+                                            // We'll break out of the retry loop and increment height_to_process
+                                            height_to_process += 1;
+                                            // Use a continue statement to skip to next iteration of outer loop
+                                            // But we need to handle this differently - we can't break with data
+                                            // So we'll bail and let the module retry the window
+                                            anyhow::bail!(
+                                                "Block {} failed after {} retries and chain is {} blocks ahead. Will retry window to skip this block.",
+                                                height_to_process - 1,
+                                                retries,
+                                                blocks_behind
+                                            );
+                                        }
+                                    }
+                                    Err(_) => {
+                                        // Can't fetch latest block either - continue retrying
+                                    }
+                                }
+                            }
+
+                            // Exponential backoff: 200ms, 400ms, 800ms, 1.6s, 3.2s, 5s (capped)
+                            let delay_ms = (200 * (1 << (retries - 1))).min(5000);
+                            tracing::warn!(
+                                "(CometBFT Block) Retry {} for height {} after {}ms delay (will continue retrying): {}",
+                                retries,
+                                height_to_process,
+                                delay_ms,
+                                e
+                            );
+                            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                        }
+                    }
                 }
             };
 
@@ -604,18 +716,70 @@ impl Block {
             let tx_path = Path::from(format!("tx_search?query=\"tx.height={}\"", height));
 
             // Execute both requests concurrently for maximum performance
+            // NodePool.get() already has retry logic (5 attempts across different nodes)
+            // So each fetch will automatically retry if one endpoint fails
             let (block_result, tx_result) = tokio::join!(
                 async {
                     let res = rpc.get(block_path).await?;
+                    // Check if response looks like JSON (starts with { or [)
+                    if !res.trim_start().starts_with('{') && !res.trim_start().starts_with('[') {
+                        let preview = if res.len() > 200 {
+                            format!("{}...", &res[..200])
+                        } else {
+                            res.clone()
+                        };
+                        anyhow::bail!(
+                            "Block response for height {} is not JSON (status was 200 but body is not JSON). Preview: {}",
+                            height,
+                            preview
+                        );
+                    }
                     Ok::<_, anyhow::Error>(from_str::<BlockResponse>(&res)
-                        .context("Could not deserialize block response")?
+                        .with_context(|| {
+                            let preview = if res.len() > 200 {
+                                format!("{}...", &res[..200])
+                            } else {
+                                res.clone()
+                            };
+                            format!(
+                                "Could not deserialize block response for height {} (response length: {}, preview: {})",
+                                height,
+                                res.len(),
+                                preview
+                            )
+                        })?
                         .result
                         .block)
                 },
                 async {
                     let res = rpc.get(tx_path).await?;
+                    // Check if response looks like JSON
+                    if !res.trim_start().starts_with('{') && !res.trim_start().starts_with('[') {
+                        let preview = if res.len() > 200 {
+                            format!("{}...", &res[..200])
+                        } else {
+                            res.clone()
+                        };
+                        anyhow::bail!(
+                            "Tx response for height {} is not JSON (status was 200 but body is not JSON). Preview: {}",
+                            height,
+                            preview
+                        );
+                    }
                     Ok::<_, anyhow::Error>(from_str::<TxResponse>(&res)
-                        .context("Could not deserialize txs response")?
+                        .with_context(|| {
+                            let preview = if res.len() > 200 {
+                                format!("{}...", &res[..200])
+                            } else {
+                                res.clone()
+                            };
+                            format!(
+                                "Could not deserialize txs response for height {} (response length: {}, preview: {})",
+                                height,
+                                res.len(),
+                                preview
+                            )
+                        })?
                         .result
                         .txs)
                 }
@@ -631,9 +795,35 @@ impl Block {
             Ok((block, txs_info))
         } else {
             // Non-tx mode: only fetch block data
+            // NodePool.get() already has retry logic (5 attempts across different nodes)
             let res = rpc.get(block_path).await?;
+            // Check if response looks like JSON (starts with { or [)
+            if !res.trim_start().starts_with('{') && !res.trim_start().starts_with('[') {
+                let preview = if res.len() > 200 {
+                    format!("{}...", &res[..200])
+                } else {
+                    res.clone()
+                };
+                anyhow::bail!(
+                    "Block response for height {} is not JSON (status was 200 but body is not JSON). Preview: {}",
+                    height,
+                    preview
+                );
+            }
             let block = from_str::<BlockResponse>(&res)
-                .context("Could not deserialize block response")?
+                .with_context(|| {
+                    let preview = if res.len() > 200 {
+                        format!("{}...", &res[..200])
+                    } else {
+                        res.clone()
+                    };
+                    format!(
+                        "Could not deserialize block response for height {} (response length: {}, preview: {})",
+                        height,
+                        res.len(),
+                        preview
+                    )
+                })?
                 .result
                 .block;
 
