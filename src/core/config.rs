@@ -114,10 +114,16 @@ pub struct CometBFTBlockConfig {
     pub interval: u64,
     #[serde(default = "default_window_500")]
     pub window: u64,
+    #[serde(default = "default_batch_1")]
+    pub batch: usize,
     #[serde(default)]
     pub tx: CometBFTBlockTxConfig,
     #[serde(default)]
     pub uptime: CometBFTBlockUptimeConfig,
+}
+
+fn default_batch_1() -> usize {
+    1
 }
 
 impl Default for CometBFTBlockConfig {
@@ -126,6 +132,7 @@ impl Default for CometBFTBlockConfig {
             enabled: false,
             interval: 10,
             window: 500,
+            batch: 1,
             tx: CometBFTBlockTxConfig::default(),
             uptime: CometBFTBlockUptimeConfig::default(),
         }

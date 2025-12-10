@@ -75,25 +75,6 @@ impl Block {
         }
     }
 
-    async fn get_block_txs(&mut self, height: usize) -> anyhow::Result<Vec<Tx>> {
-        let res = self
-            .app_context
-            .rpc
-            .as_ref()
-            .unwrap()
-            .get(Path::from(format!(
-                "tx_search?query=\"tx.height={}\"",
-                height
-            )))
-            .await
-            .context(format!("Could not fetch txs for height {}", height))?;
-
-        Ok(from_str::<TxResponse>(&res)
-            .context("Could not deserialize txs response")?
-            .result
-            .txs)
-    }
-
     async fn get_block(&mut self, height: BlockHeight) -> anyhow::Result<ChainBlock> {
         let path = match height {
             BlockHeight::Height(h) => {
@@ -197,11 +178,11 @@ impl Block {
         // This maximizes throughput while maintaining metric accuracy
         //
         // Strategy:
-        // 1. Fetch blocks N, N+1, N+2, N+3, N+4 concurrently (5 at a time)
+        // 1. Fetch blocks concurrently (batch size configurable via network.cometbft.block.batch, defaults to 1)
         // 2. Process them sequentially from buffer (maintains accuracy)
         // 3. Keep buffer filled by continuously fetching ahead
         //
-        // Performance: Fetch 5 blocks in ~1.6s, process 5 blocks in ~0.5s = 0.42s per block!
+        // Performance: With batch=5, fetch 5 blocks in ~1.6s, process 5 blocks in ~0.5s = 0.42s per block!
         // This should keep up with 0.6s block time chains!
         //
         // IMPORTANT: Metrics remain 100% accurate because:
@@ -214,7 +195,8 @@ impl Block {
 
         // Buffer to hold fetched blocks (keyed by height for ordered processing)
         let mut block_buffer: BTreeMap<usize, (ChainBlock, Option<Vec<Tx>>)> = BTreeMap::new();
-        const CONCURRENT_FETCH_COUNT: usize = 5; // Fetch 5 blocks concurrently
+        // Use configurable batch size (defaults to 1 if not set)
+        let concurrent_fetch_count = self.app_context.config.network.cometbft.block.batch;
         const MIN_BUFFER_SIZE: usize = 2; // Keep at least 2 blocks buffered
 
         while height_to_process < last_block_height {
@@ -224,7 +206,7 @@ impl Block {
             {
                 // Determine how many blocks to fetch
                 let remaining = last_block_height - (height_to_process + block_buffer.len());
-                let fetch_count = CONCURRENT_FETCH_COUNT.min(remaining);
+                let fetch_count = concurrent_fetch_count.min(remaining);
 
                 if fetch_count == 0 {
                     break;
@@ -678,33 +660,44 @@ impl Block {
                 / block.data.txs.len() as f64;
 
             if self.app_context.config.network.cometbft.block.tx.enabled {
-                let txs_info = txs_info
-                    .context(format!("Could not obtain txs info from block {}", height))?;
+                if let Some(txs_info) = txs_info {
+                    let mut gas_wanted = Vec::new();
+                    let mut gas_used = Vec::new();
 
-                let mut gas_wanted = Vec::new();
-                let mut gas_used = Vec::new();
+                    for tx in txs_info {
+                        gas_wanted.push(
+                            tx.tx_result
+                                .gas_wanted
+                                .parse::<usize>()
+                                .context("Could not parse tx gas wanted")?,
+                        );
+                        gas_used.push(
+                            tx.tx_result
+                                .gas_used
+                                .parse::<usize>()
+                                .context("Could not parse tx gas used")?,
+                        );
+                    }
 
-                for tx in txs_info {
-                    gas_wanted.push(
-                        tx.tx_result
-                            .gas_wanted
-                            .parse::<usize>()
-                            .context("Could not parse tx gas used")?,
-                    );
-                    gas_used.push(
-                        tx.tx_result
-                            .gas_used
-                            .parse::<usize>()
-                            .context("Could not parse tx gas used")?,
+                    block_gas_wanted = gas_wanted.iter().sum::<usize>() as f64;
+                    block_gas_used = gas_used.iter().sum::<usize>() as f64;
+                    if !gas_wanted.is_empty() {
+                        block_avg_tx_gas_wanted =
+                            gas_wanted.iter().sum::<usize>() as f64 / gas_wanted.len() as f64;
+                    }
+                    if !gas_used.is_empty() {
+                        block_avg_tx_gas_used =
+                            gas_used.iter().sum::<usize>() as f64 / gas_used.len() as f64;
+                    }
+                } else {
+                    // tx_search failed or returned no results, but block has transactions
+                    // This can happen if tx indexing is disabled or tx_search fails
+                    tracing::warn!(
+                        "(CometBFT Block) Block {} has {} transactions but tx_search returned no data",
+                        height,
+                        block.data.txs.len()
                     );
                 }
-
-                block_gas_wanted = gas_wanted.iter().sum::<usize>() as f64;
-                block_gas_used = gas_used.iter().sum::<usize>() as f64;
-                block_avg_tx_gas_wanted =
-                    gas_wanted.iter().sum::<usize>() as f64 / gas_wanted.len() as f64;
-                block_avg_tx_gas_used =
-                    gas_used.iter().sum::<usize>() as f64 / gas_used.len() as f64;
             }
         }
 
