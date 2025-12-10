@@ -95,6 +95,7 @@ impl NodePool {
         urls: Vec<(String, String, String)>,
         health_check_interval: Option<Duration>,
         network: String,
+        timeout: Option<Duration>,
     ) -> Option<Self> {
         if urls.is_empty() {
             return None;
@@ -104,9 +105,13 @@ impl NodePool {
             .map(|(name, url, health_url)| Node::new(name, url, health_url, network.clone()))
             .collect();
 
+        // Timeout is now configurable via general.rpc_timeout_seconds in config.yaml
+        // Default: 30 seconds (good for most chains)
+        // Celestia: 90 seconds (for 60-70 MB blocks that take 35-40 seconds to download)
+        let request_timeout = timeout.unwrap_or(Duration::from_secs(30));
         let client = ClientBuilder::new()
-            .timeout(Duration::from_secs(10)) // Set the default timeout
-            .connect_timeout(Duration::from_secs(5)) // Set the connection timeout
+            .timeout(request_timeout)
+            .connect_timeout(Duration::from_secs(10)) // Increased connection timeout
             .build()
             .unwrap();
 

@@ -40,7 +40,7 @@ network:
       enabled: true
       interval: 30
       window: 500
-      batch: 5
+      concurrency: 5
       tx:
         enabled: true
       uptime:
