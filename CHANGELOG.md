@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.8.0...v2.9.0) (2025-12-10)
+
+
+### Features
+
+* concurrent block scraping ([#108](https://github.com/p2p-org/rcosmos-exporter/issues/108)) ([87ccc11](https://github.com/p2p-org/rcosmos-exporter/commit/87ccc11eaa061085c36562d2a52eaf13bb59f806))
+
 ## [2.8.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.7.1...v2.8.0) (2025-11-05)
 
 
