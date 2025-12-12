@@ -372,17 +372,26 @@ impl Block {
             } else {
                 // Buffer miss - fetch now (fallback)
                 // This happens when concurrent fetch failed - keep retrying until successful
-                // NodePool.get() already retries across endpoints, but we add extra resilience
+                // Note: Each retry calls NodePool.get() which itself retries 5 times across endpoints (random selection).
+                // NodePool rotates through healthy endpoints randomly on each call, ensuring we try all available endpoints.
+                // We keep retrying indefinitely - the module will retry the window after the interval if needed.
+                let current_gap = last_block_height.saturating_sub(height_to_process - 1);
                 tracing::warn!(
-                    "(CometBFT Block) Buffer miss for height {}, fetching with retry logic (will retry until successful)",
-                    height_to_process
+                    "(CometBFT Block) Buffer miss for height {} (concurrent fetch failed), fetching with retry logic. Window progress: {} blocks processed, {} remaining (gap: {})",
+                    height_to_process,
+                    height_to_process - (last_block_height - current_gap),
+                    last_block_height - height_to_process,
+                    current_gap
                 );
 
                 // Retry with exponential backoff (capped at 5 seconds)
-                // After many retries, check if we should skip this block (might not exist)
+                // Keep retrying all endpoints until successful or timeout
+                // NodePool.get() already rotates through all endpoints (5 attempts per call)
+                // After many retries, check if block might not exist (chain moved ahead)
                 let mut retries = 0;
-                const MAX_RETRIES_BEFORE_SKIP: u32 = 50; // Skip after 50 retries (~5 minutes of retrying)
-                const MAX_ABSOLUTE_RETRIES: u32 = 200; // Absolute maximum retries to prevent infinite loops (~16 minutes)
+                const MAX_RETRIES_BEFORE_SKIP: u32 = 50; // Check if block exists after 50 retries (~5 minutes of retrying)
+                const MAX_TOTAL_RETRIES: u32 = 100; // Maximum retries before bailing (allows module to retry window after interval)
+                // Note: Each retry calls NodePool.get() which does 5 attempts across endpoints, so this is 100*5=500 total attempts
                 const HEALTH_CHECK_INTERVAL_MS: u64 = 10000; // Wait for health checks to recover (10 seconds)
                 loop {
                     let result = if tx_enabled {
@@ -411,17 +420,30 @@ impl Block {
                         Err(e) => {
                             retries += 1;
 
-                            // Check for absolute maximum retries to prevent infinite loops
-                            if retries >= MAX_ABSOLUTE_RETRIES {
+                            // Check for maximum retries - bail to let module retry window after interval
+                            // This prevents infinite loops while still trying all endpoints extensively
+                            if retries >= MAX_TOTAL_RETRIES {
                                 tracing::error!(
-                                    "(CometBFT Block) Block {} failed after {} retries (absolute maximum). This may indicate a persistent network issue or all RPC nodes are unhealthy. Bailing to retry window.",
+                                    "(CometBFT Block) Block {} failed after {} retries (maximum). All endpoints exhausted. Module will retry window after interval. Last error: {}",
+                                    height_to_process,
+                                    retries,
+                                    e
+                                );
+                                anyhow::bail!(
+                                    "Block {} failed after {} maximum retries. All endpoints exhausted. Module will retry window after interval.",
                                     height_to_process,
                                     retries
                                 );
-                                anyhow::bail!(
-                                    "Block {} failed after {} absolute maximum retries. This may indicate persistent network issues or all RPC nodes are unhealthy.",
+                            }
+
+                            // Log progress every 10 retries to show we're still trying
+                            if retries % 10 == 0 {
+                                tracing::warn!(
+                                    "(CometBFT Block) Still retrying block {} (retry {}/{}) - Last error: {}",
                                     height_to_process,
-                                    retries
+                                    retries,
+                                    MAX_TOTAL_RETRIES,
+                                    e
                                 );
                             }
 
@@ -446,23 +468,12 @@ impl Block {
 
                                         if blocks_behind > 10 {
                                             // We're more than 10 blocks behind - this block might not exist
-                                            tracing::error!(
-                                                "(CometBFT Block) Block {} failed after {} retries. Chain tip is {}, we're {} blocks behind. Block may not exist - skipping to next block.",
+                                            // But we'll keep retrying anyway - the module will handle it after the interval
+                                            tracing::warn!(
+                                                "(CometBFT Block) Block {} failed after {} retries. Chain tip is {}, we're {} blocks behind. Block may not exist, but continuing to retry.",
                                                 height_to_process,
                                                 retries,
                                                 latest_height,
-                                                blocks_behind
-                                            );
-                                            // Skip this block and continue with next
-                                            // We'll break out of the retry loop and increment height_to_process
-                                            height_to_process += 1;
-                                            // Use a continue statement to skip to next iteration of outer loop
-                                            // But we need to handle this differently - we can't break with data
-                                            // So we'll bail and let the module retry the window
-                                            anyhow::bail!(
-                                                "Block {} failed after {} retries and chain is {} blocks ahead. Will retry window to skip this block.",
-                                                height_to_process - 1,
-                                                retries,
                                                 blocks_behind
                                             );
                                         }
@@ -477,11 +488,10 @@ impl Block {
                             let delay_ms = if is_no_healthy_nodes {
                                 // All nodes are unhealthy - wait for health check interval to recover
                                 tracing::warn!(
-                                    "(CometBFT Block) All RPC nodes are unhealthy for height {}. Waiting {}ms for health checks to recover (retry {}/{})",
+                                    "(CometBFT Block) All RPC nodes are unhealthy for height {}. Waiting {}ms for health checks to recover (retry {})",
                                     height_to_process,
                                     HEALTH_CHECK_INTERVAL_MS,
-                                    retries,
-                                    MAX_ABSOLUTE_RETRIES
+                                    retries
                                 );
                                 HEALTH_CHECK_INTERVAL_MS
                             } else {
@@ -535,17 +545,33 @@ impl Block {
                         &self.app_context.config.general.network,
                     ])
                     .set(current_gap as i64);
+                tracing::debug!(
+                    "(CometBFT Block) Processed {} blocks, {} remaining (gap: {})",
+                    height_to_process - (last_block_height - current_gap),
+                    current_gap,
+                    current_gap
+                );
             }
         }
 
         // Update gap metric at the end to reflect final state
         let final_gap = last_block_height.saturating_sub(height_to_process - 1);
+        let blocks_processed = height_to_process - (last_block_height - final_gap);
         COMETBFT_BLOCK_GAP
             .with_label_values(&[
                 &self.app_context.chain_id,
                 &self.app_context.config.general.network,
             ])
             .set(final_gap as i64);
+
+        // Log completion of block window processing
+        tracing::info!(
+            "(CometBFT Block) Completed processing block window: processed {} blocks (from {} to {}), current gap: {}",
+            blocks_processed,
+            height_to_process - blocks_processed,
+            height_to_process - 1,
+            final_gap
+        );
 
         if self
             .app_context
@@ -811,7 +837,53 @@ impl Block {
                         .block)
                 },
                 async {
-                    let res = rpc.get(tx_path).await?;
+                    // Tx fetch: quick retry (2-3 attempts) to try different endpoints before giving up
+                    // This allows us to get txs if available while not blocking block processing for long
+                    const TX_FETCH_MAX_RETRIES: u32 = 3; // Quick retries (3 attempts total = 1 initial + 2 retries)
+                    let mut tx_retries = 0;
+                    let res = loop {
+                        match rpc.get(tx_path.clone()).await {
+                            Ok(r) => break Ok::<String, anyhow::Error>(r),
+                            Err(e) => {
+                                tx_retries += 1;
+
+                                // Check if it's an indexing disabled error (common case - don't retry)
+                                let error_msg = e.to_string();
+                                let is_indexing_disabled = error_msg.contains("indexing is disabled")
+                                    || error_msg.contains("transaction indexing");
+
+                                if is_indexing_disabled {
+                                    // Indexing disabled - don't retry, just warn and continue
+                                    tracing::warn!(
+                                        "(CometBFT Block) tx_search for height {} failed: transaction indexing is disabled on endpoint (continuing without txs)",
+                                        height
+                                    );
+                                    return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
+                                }
+
+                                if tx_retries >= TX_FETCH_MAX_RETRIES {
+                                    // Max retries reached - warn and continue without txs
+                                    tracing::warn!(
+                                        "(CometBFT Block) tx_search failed for height {} after {} retries: {} (continuing without txs)",
+                                        height,
+                                        tx_retries,
+                                        e
+                                    );
+                                    return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
+                                }
+
+                                // Quick retry with short delay (100ms) - don't block block processing
+                                tracing::debug!(
+                                    "(CometBFT Block) tx_search retry {}/{} for height {}: {}",
+                                    tx_retries,
+                                    TX_FETCH_MAX_RETRIES,
+                                    height,
+                                    e
+                                );
+                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                            }
+                        }
+                    }?;
                     // Check if response looks like JSON
                     if !res.trim_start().starts_with('{') && !res.trim_start().starts_with('[') {
                         let preview = if res.len() > 200 {
@@ -819,37 +891,73 @@ impl Block {
                         } else {
                             res.clone()
                         };
-                        anyhow::bail!(
-                            "Tx response for height {} is not JSON (status was 200 but body is not JSON). Preview: {}",
+                        tracing::warn!(
+                            "(CometBFT Block) tx_search response for height {} is not JSON (status 200 but body not JSON). Preview: {} (continuing without txs)",
                             height,
                             preview
                         );
+                        return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
                     }
-                    Ok::<_, anyhow::Error>(from_str::<TxResponse>(&res)
-                        .with_context(|| {
+                    // Check for error JSON (indexing disabled, etc.) before parsing
+                    if res.contains("\"error\"") {
+                        if res.contains("indexing is disabled") || res.contains("transaction indexing") {
+                            tracing::warn!(
+                                "(CometBFT Block) tx_search for height {} returned error JSON: transaction indexing is disabled (continuing without txs)",
+                                height
+                            );
+                            return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
+                        }
+                        // Other error - log and continue
+                        let preview = if res.len() > 200 {
+                            format!("{}...", &res[..200])
+                        } else {
+                            res.clone()
+                        };
+                        tracing::warn!(
+                            "(CometBFT Block) tx_search for height {} returned error JSON. Preview: {} (continuing without txs)",
+                            height,
+                            preview
+                        );
+                        return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
+                    }
+
+                    let txs = match from_str::<TxResponse>(&res) {
+                        Ok(resp) => resp.result.txs,
+                        Err(e) => {
                             let preview = if res.len() > 200 {
                                 format!("{}...", &res[..200])
                             } else {
                                 res.clone()
                             };
-                            format!(
-                                "Could not deserialize txs response for height {} (response length: {}, preview: {})",
+                            tracing::warn!(
+                                "(CometBFT Block) tx_search parse failed for height {}: {} (response length: {}, preview: {}) (continuing without txs)",
                                 height,
+                                e,
                                 res.len(),
                                 preview
-                            )
-                        })?
-                        .result
-                        .txs)
+                            );
+                            return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
+                        }
+                    };
+                    Ok::<Option<Vec<Tx>>, anyhow::Error>(Some(txs))
                 }
             );
 
             let block = block_result
                 .context(format!("Could not obtain block {}", height))?;
 
-            // tx_result might fail if there are no txs, which is fine
-            // We only require tx data if the block actually has transactions
-            let txs_info = tx_result.ok();
+            // tx_result: if error or non-JSON, we get None and proceed
+            let txs_info = match tx_result {
+                Ok(txs_opt) => txs_opt,
+                Err(e) => {
+                    tracing::warn!(
+                        "(CometBFT Block) tx_search returned error for height {}: {} (continuing without txs)",
+                        height,
+                        e
+                    );
+                    None
+                }
+            };
 
             Ok((block, txs_info))
         } else {
