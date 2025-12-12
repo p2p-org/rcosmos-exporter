@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.5](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.4...v2.9.5) (2025-12-12)
+
+
+### Bug Fixes
+
+* sei block scraping ([#119](https://github.com/p2p-org/rcosmos-exporter/issues/119)) ([e55e1b7](https://github.com/p2p-org/rcosmos-exporter/commit/e55e1b792fc474f2e18310e8eb2f8872ce4283ca))
+
 ## [2.9.4](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.3...v2.9.4) (2025-12-12)
 
 
