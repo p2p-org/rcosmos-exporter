@@ -380,7 +380,7 @@ impl RunnableModule for Block {
             .app_context
             .config
             .network
-            .cometbft
+            .sei
             .block
             .uptime
             .persistence
