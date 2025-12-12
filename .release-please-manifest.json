@@ -3,5 +3,5 @@
         "release-type": "rust",
         "component": "rcosmos-exporter"
     },
-    ".": "2.9.2"
+    ".": "2.9.3"
 }

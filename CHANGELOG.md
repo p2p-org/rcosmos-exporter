@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.3](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.2...v2.9.3) (2025-12-12)
+
+
+### Bug Fixes
+
+* gracefully handle no tx indexing ([#115](https://github.com/p2p-org/rcosmos-exporter/issues/115)) ([d2fa380](https://github.com/p2p-org/rcosmos-exporter/commit/d2fa380615f4e3d33d090e69cdaf18d24be8ed66))
+
 ## [2.9.2](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.1...v2.9.2) (2025-12-12)
 
 
