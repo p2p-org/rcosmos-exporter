@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.2](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.1...v2.9.2) (2025-12-12)
+
+
+### Bug Fixes
+
+* better error handling and retry logic ([#113](https://github.com/p2p-org/rcosmos-exporter/issues/113)) ([37b7c46](https://github.com/p2p-org/rcosmos-exporter/commit/37b7c46a312318b1e1ed7888835e7742e88ff39e))
+
 ## [2.9.1](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.0...v2.9.1) (2025-12-10)
 
 
