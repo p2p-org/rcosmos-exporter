@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.4](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.3...v2.9.4) (2025-12-12)
+
+
+### Bug Fixes
+
+* add node preference based on tx enabled ([#117](https://github.com/p2p-org/rcosmos-exporter/issues/117)) ([237b7bd](https://github.com/p2p-org/rcosmos-exporter/commit/237b7bd78c4a469b8f2fe1aff189363549193519))
+
 ## [2.9.3](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.2...v2.9.3) (2025-12-12)
 
 
