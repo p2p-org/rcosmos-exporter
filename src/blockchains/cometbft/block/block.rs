@@ -819,6 +819,8 @@ impl Block {
                             preview
                         );
                     }
+                    // Parse block response - if it fails, this is fatal (we need the block)
+                    // Use .context() for error handling like v2.8.0
                     Ok::<_, anyhow::Error>(from_str::<BlockResponse>(&res)
                         .with_context(|| {
                             let preview = if res.len() > 200 {
@@ -837,109 +839,42 @@ impl Block {
                         .block)
                 },
                 async {
-                    // Tx fetch: quick retry (2-3 attempts) to try different endpoints before giving up
-                    // This allows us to get txs if available while not blocking block processing for long
-                    const TX_FETCH_MAX_RETRIES: u32 = 3; // Quick retries (3 attempts total = 1 initial + 2 retries)
-                    let mut tx_retries = 0;
-                    let res = loop {
-                        match rpc.get(tx_path.clone()).await {
-                            Ok(r) => break Ok::<String, anyhow::Error>(r),
-                            Err(e) => {
-                                tx_retries += 1;
-
-                                // Check if it's an indexing disabled error (common case - don't retry)
-                                let error_msg = e.to_string();
-                                let is_indexing_disabled = error_msg.contains("indexing is disabled")
-                                    || error_msg.contains("transaction indexing");
-
-                                if is_indexing_disabled {
-                                    // Indexing disabled - don't retry, just warn and continue
+                    // Tx fetch: try once (NodePool already retries 3 times internally with fast fallback)
+                    // NodePool will try preferred nodes first (attempts 0-1), then fall back to all nodes if they fail
+                    // This ensures we get tx data when available, but don't block for long if preferred nodes are down
+                    match rpc.get_with_endpoint_preference(tx_path.clone(), Some("tx_search")).await {
+                        Ok(res) => {
+                            // Try to parse the response - if it fails, continue without txs
+                            match from_str::<TxResponse>(&res) {
+                                Ok(resp) => Ok::<Option<Vec<Tx>>, anyhow::Error>(Some(resp.result.txs)),
+                                Err(e) => {
+                                    // Unable to parse tx response - log and gracefully continue without txs
+                                    let preview = if res.len() > 200 {
+                                        format!("{}...", &res[..200])
+                                    } else {
+                                        res.clone()
+                                    };
                                     tracing::warn!(
-                                        "(CometBFT Block) tx_search for height {} failed: transaction indexing is disabled on endpoint (continuing without txs)",
-                                        height
-                                    );
-                                    return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
-                                }
-
-                                if tx_retries >= TX_FETCH_MAX_RETRIES {
-                                    // Max retries reached - warn and continue without txs
-                                    tracing::warn!(
-                                        "(CometBFT Block) tx_search failed for height {} after {} retries: {} (continuing without txs)",
+                                        "(CometBFT Block) Unable to parse tx response for height {}: {} (response length: {}, preview: {}). Continuing without txs.",
                                         height,
-                                        tx_retries,
-                                        e
+                                        e,
+                                        res.len(),
+                                        preview
                                     );
-                                    return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
+                                    Ok::<Option<Vec<Tx>>, anyhow::Error>(None)
                                 }
-
-                                // Quick retry with short delay (100ms) - don't block block processing
-                                tracing::debug!(
-                                    "(CometBFT Block) tx_search retry {}/{} for height {}: {}",
-                                    tx_retries,
-                                    TX_FETCH_MAX_RETRIES,
-                                    height,
-                                    e
-                                );
-                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                             }
                         }
-                    }?;
-                    // Check if response looks like JSON
-                    if !res.trim_start().starts_with('{') && !res.trim_start().starts_with('[') {
-                        let preview = if res.len() > 200 {
-                            format!("{}...", &res[..200])
-                        } else {
-                            res.clone()
-                        };
-                        tracing::warn!(
-                            "(CometBFT Block) tx_search response for height {} is not JSON (status 200 but body not JSON). Preview: {} (continuing without txs)",
-                            height,
-                            preview
-                        );
-                        return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
-                    }
-                    // Check for error JSON (indexing disabled, etc.) before parsing
-                    if res.contains("\"error\"") {
-                        if res.contains("indexing is disabled") || res.contains("transaction indexing") {
-                            tracing::warn!(
-                                "(CometBFT Block) tx_search for height {} returned error JSON: transaction indexing is disabled (continuing without txs)",
-                                height
-                            );
-                            return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
-                        }
-                        // Other error - log and continue
-                        let preview = if res.len() > 200 {
-                            format!("{}...", &res[..200])
-                        } else {
-                            res.clone()
-                        };
-                        tracing::warn!(
-                            "(CometBFT Block) tx_search for height {} returned error JSON. Preview: {} (continuing without txs)",
-                            height,
-                            preview
-                        );
-                        return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
-                    }
-
-                    let txs = match from_str::<TxResponse>(&res) {
-                        Ok(resp) => resp.result.txs,
                         Err(e) => {
-                            let preview = if res.len() > 200 {
-                                format!("{}...", &res[..200])
-                            } else {
-                                res.clone()
-                            };
+                            // Tx fetch failed (NodePool already retried 3 times with fast fallback) - gracefully continue without txs
                             tracing::warn!(
-                                "(CometBFT Block) tx_search parse failed for height {}: {} (response length: {}, preview: {}) (continuing without txs)",
+                                "(CometBFT Block) Unable to fetch tx data for height {}: {}. Continuing without txs.",
                                 height,
-                                e,
-                                res.len(),
-                                preview
+                                e
                             );
-                            return Ok::<Option<Vec<Tx>>, anyhow::Error>(None);
+                            Ok::<Option<Vec<Tx>>, anyhow::Error>(None)
                         }
-                    };
-                    Ok::<Option<Vec<Tx>>, anyhow::Error>(Some(txs))
+                    }
                 }
             );
 
@@ -977,6 +912,8 @@ impl Block {
                     preview
                 );
             }
+            // Parse block response - if it fails, this is fatal (we need the block)
+            // Use .context() for error handling like v2.8.0
             let block = from_str::<BlockResponse>(&res)
                 .with_context(|| {
                     let preview = if res.len() > 200 {
