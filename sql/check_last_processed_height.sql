@@ -4,5 +4,5 @@ SELECT
     MAX(timestamp) as last_processed_time,
     COUNT(*) as total_signatures
 FROM validators_signatures
-WHERE chain_id = 'atlantic-2'
+WHERE chain_id = 'REPLACE_CHAIN_ID'
 GROUP BY chain_id;

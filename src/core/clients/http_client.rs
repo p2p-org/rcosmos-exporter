@@ -151,12 +151,30 @@ impl NodePool {
                 for (node, &ref is_healthy) in nodes_write.iter_mut().zip(results.iter()) {
                     match is_healthy {
                         Ok(is_healthy) => {
+                            let was_healthy = node.healthy;
                             if *is_healthy {
                                 // If healthy, reset consecutive failures
+                                if !was_healthy {
+                                    // Node recovered - log it
+                                    warn!(
+                                        "(NodePool) Node {} ({}) recovered and is now healthy (was unhealthy for {} consecutive failures)",
+                                        node.name,
+                                        node.url,
+                                        node.consecutive_failures
+                                    );
+                                }
                                 node.healthy = true;
                                 node.consecutive_failures = 0;
                             } else {
                                 // If unhealthy, increment the consecutive failures
+                                if was_healthy {
+                                    // Node just became unhealthy - log it
+                                    warn!(
+                                        "(NodePool) Node {} ({}) marked as UNHEALTHY (health check failed)",
+                                        node.name,
+                                        node.url
+                                    );
+                                }
                                 node.healthy = false;
                                 node.consecutive_failures += 1;
                             }
@@ -175,6 +193,20 @@ impl NodePool {
 
         let nodes = self.nodes.read().await;
         let healthy_nodes: Vec<_> = nodes.iter().filter(|e| e.healthy).collect();
+        let unhealthy_nodes: Vec<_> = nodes.iter().filter(|e| !e.healthy).collect();
+
+        // Log unhealthy nodes if there are any and this is the first attempt
+        if !unhealthy_nodes.is_empty() {
+            let unhealthy_list: Vec<String> = unhealthy_nodes
+                .iter()
+                .map(|n| format!("{} ({}) - {} consecutive failures", n.name, n.url, n.consecutive_failures))
+                .collect();
+            debug!(
+                "(NodePool) {} unhealthy node(s) available: {}",
+                unhealthy_list.len(),
+                unhealthy_list.join(", ")
+            );
+        }
 
         let mut rng = SmallRng::from_os_rng();
 
@@ -226,7 +258,29 @@ impl NodePool {
             sleep(Duration::from_secs(2)).await;
         }
 
-        warn!("(NodePool) No healthy nodes when calling {}", path);
+        // Log detailed information about unhealthy nodes
+        let nodes = self.nodes.read().await;
+        let unhealthy_list: Vec<String> = nodes
+            .iter()
+            .filter(|e| !e.healthy)
+            .map(|n| format!("{} ({}) - {} consecutive failures", n.name, n.url, n.consecutive_failures))
+            .collect();
+
+        if !unhealthy_list.is_empty() {
+            // We have unhealthy nodes - list them
+            warn!(
+                "(NodePool) No healthy nodes when calling {}. Unhealthy nodes: {}",
+                path,
+                unhealthy_list.join(", ")
+            );
+        } else {
+            // All nodes are marked healthy but all retry attempts failed
+            warn!(
+                "(NodePool) No healthy nodes when calling {} (all {} node(s) marked healthy but all retry attempts failed)",
+                path,
+                nodes.len()
+            );
+        }
         Err(NodePoolErrors::NoHealthyNodes(path.to_string()))
     }
 
@@ -250,6 +304,22 @@ impl NodePool {
 
         let nodes = self.nodes.read().await;
         let healthy_nodes: Vec<_> = nodes.iter().filter(|e| e.healthy).collect();
+        let unhealthy_nodes: Vec<_> = nodes.iter().filter(|e| !e.healthy).collect();
+
+        // Log unhealthy nodes if there are any and this is the first attempt
+        if unhealthy_nodes.is_empty() {
+            // All nodes are healthy - nothing to log
+        } else {
+            let unhealthy_list: Vec<String> = unhealthy_nodes
+                .iter()
+                .map(|n| format!("{} ({}) - {} consecutive failures", n.name, n.url, n.consecutive_failures))
+                .collect();
+            debug!(
+                "(NodePool) {} unhealthy node(s) available: {}",
+                unhealthy_list.len(),
+                unhealthy_list.join(", ")
+            );
+        }
 
         let mut rng = SmallRng::from_os_rng();
 
@@ -311,7 +381,29 @@ impl NodePool {
             sleep(Duration::from_secs(2)).await;
         }
 
-        warn!("(NodePool) No healthy nodes when calling {}", path);
+        // Log detailed information about unhealthy nodes
+        let nodes = self.nodes.read().await;
+        let unhealthy_list: Vec<String> = nodes
+            .iter()
+            .filter(|e| !e.healthy)
+            .map(|n| format!("{} ({}) - {} consecutive failures", n.name, n.url, n.consecutive_failures))
+            .collect();
+
+        if !unhealthy_list.is_empty() {
+            // We have unhealthy nodes - list them
+            warn!(
+                "(NodePool) No healthy nodes when calling {}. Unhealthy nodes: {}",
+                path,
+                unhealthy_list.join(", ")
+            );
+        } else {
+            // All nodes are marked healthy but all retry attempts failed
+            warn!(
+                "(NodePool) No healthy nodes when calling {} (all {} node(s) marked healthy but all retry attempts failed)",
+                path,
+                nodes.len()
+            );
+        }
         Err(NodePoolErrors::NoHealthyNodes(path.to_string()))
     }
 }
