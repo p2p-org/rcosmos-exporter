@@ -281,11 +281,22 @@ impl Block {
                                 }
                             }
                             Err(e) => {
-                                tracing::warn!(
-                                    "(CometBFT Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
-                                    height,
-                                    e
-                                );
+                                // Check error chain for "No healthy nodes" (errors may be wrapped with .context())
+                                let is_no_healthy_nodes = e
+                                    .chain()
+                                    .any(|err| err.to_string().contains("No healthy nodes"));
+                                if is_no_healthy_nodes {
+                                    tracing::warn!(
+                                        "(CometBFT Block) Concurrent fetch failed for height {}: All RPC nodes are unhealthy (will retry on fallback)",
+                                        height
+                                    );
+                                } else {
+                                    tracing::warn!(
+                                        "(CometBFT Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
+                                        height,
+                                        e
+                                    );
+                                }
                                 // Don't add to buffer - will be fetched on fallback with retry logic
                             }
                         }
@@ -332,11 +343,22 @@ impl Block {
                                 }
                             }
                             Err(e) => {
-                                tracing::warn!(
-                                    "(CometBFT Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
-                                    height,
-                                    e
-                                );
+                                // Check error chain for "No healthy nodes" (errors may be wrapped with .context())
+                                let is_no_healthy_nodes = e
+                                    .chain()
+                                    .any(|err| err.to_string().contains("No healthy nodes"));
+                                if is_no_healthy_nodes {
+                                    tracing::warn!(
+                                        "(CometBFT Block) Concurrent fetch failed for height {}: All RPC nodes are unhealthy (will retry on fallback)",
+                                        height
+                                    );
+                                } else {
+                                    tracing::warn!(
+                                        "(CometBFT Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
+                                        height,
+                                        e
+                                    );
+                                }
                                 // Don't add to buffer - will be fetched on fallback with retry logic
                             }
                         }
@@ -360,6 +382,8 @@ impl Block {
                 // After many retries, check if we should skip this block (might not exist)
                 let mut retries = 0;
                 const MAX_RETRIES_BEFORE_SKIP: u32 = 50; // Skip after 50 retries (~5 minutes of retrying)
+                const MAX_ABSOLUTE_RETRIES: u32 = 200; // Absolute maximum retries to prevent infinite loops (~16 minutes)
+                const HEALTH_CHECK_INTERVAL_MS: u64 = 10000; // Wait for health checks to recover (10 seconds)
                 loop {
                     let result = if tx_enabled {
                         Self::fetch_block_data(&rpc, tx_enabled, height_to_process).await
@@ -386,6 +410,27 @@ impl Block {
                         }
                         Err(e) => {
                             retries += 1;
+
+                            // Check for absolute maximum retries to prevent infinite loops
+                            if retries >= MAX_ABSOLUTE_RETRIES {
+                                tracing::error!(
+                                    "(CometBFT Block) Block {} failed after {} retries (absolute maximum). This may indicate a persistent network issue or all RPC nodes are unhealthy. Bailing to retry window.",
+                                    height_to_process,
+                                    retries
+                                );
+                                anyhow::bail!(
+                                    "Block {} failed after {} absolute maximum retries. This may indicate persistent network issues or all RPC nodes are unhealthy.",
+                                    height_to_process,
+                                    retries
+                                );
+                            }
+
+                            // Check if error is "No healthy nodes" - this means all RPC nodes are unhealthy
+                            // In this case, wait for health check interval to give nodes time to recover
+                            // Check error chain for "No healthy nodes" (errors may be wrapped with .context())
+                            let is_no_healthy_nodes = e
+                                .chain()
+                                .any(|err| err.to_string().contains("No healthy nodes"));
 
                             // After many retries, check if block might not exist (chain moved ahead)
                             if retries >= MAX_RETRIES_BEFORE_SKIP {
@@ -428,8 +473,22 @@ impl Block {
                                 }
                             }
 
-                            // Exponential backoff: 200ms, 400ms, 800ms, 1.6s, 3.2s, 5s (capped)
-                            let delay_ms = (200 * (1 << (retries - 1))).min(5000);
+                            // Determine delay based on error type
+                            let delay_ms = if is_no_healthy_nodes {
+                                // All nodes are unhealthy - wait for health check interval to recover
+                                tracing::warn!(
+                                    "(CometBFT Block) All RPC nodes are unhealthy for height {}. Waiting {}ms for health checks to recover (retry {}/{})",
+                                    height_to_process,
+                                    HEALTH_CHECK_INTERVAL_MS,
+                                    retries,
+                                    MAX_ABSOLUTE_RETRIES
+                                );
+                                HEALTH_CHECK_INTERVAL_MS
+                            } else {
+                                // Exponential backoff: 200ms, 400ms, 800ms, 1.6s, 3.2s, 5s (capped)
+                                (200 * (1 << (retries - 1))).min(5000)
+                            };
+
                             tracing::warn!(
                                 "(CometBFT Block) Retry {} for height {} after {}ms delay (will continue retrying): {}",
                                 retries,
