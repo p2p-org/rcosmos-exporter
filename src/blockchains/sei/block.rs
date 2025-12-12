@@ -4,7 +4,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine};
 use serde_json::from_str;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::blockchains::sei::metrics::{COMETBFT_BLOCK_TXS, COMETBFT_CURRENT_BLOCK_HEIGHT};
 use crate::blockchains::cometbft::metrics::{
@@ -69,34 +69,78 @@ impl Block {
         Self { app_context, validators: Vec::new(), signature_storage }
     }
 
-    async fn fetch_sei_txs(&self, height: usize) -> anyhow::Result<Vec<crate::blockchains::sei::types::SeiTx>> {
+    async fn fetch_sei_txs(&self, height: usize) -> Option<Vec<crate::blockchains::sei::types::SeiTx>> {
         let path = format!("/tx_search?query=\"tx.height={}\"", height);
         let client = self.app_context.rpc.as_ref().unwrap();
 
-        let res = client
-            .get(Path::from(path))
-            .await
-            .context(format!("Could not fetch txs for height {}", height))?;
-
-        // Handle both shapes: {"result":{"txs":[...]}} and {"txs":[...]}
-        let v: serde_json::Value = serde_json::from_str(&res)
-            .context("Could not deserialize Sei txs response")?;
-        let txs_val_opt = v
-            .get("result")
-            .and_then(|r| r.get("txs"))
-            .or_else(|| v.get("txs"));
-        if let Some(txs_val) = txs_val_opt {
-            let txs: Vec<crate::blockchains::sei::types::SeiTx> = serde_json::from_value(txs_val.clone())
-                .context("Could not decode Sei txs array")?;
-            return Ok(txs);
+        // Tx fetch: use endpoint preference to prioritize nodes with tx_search support
+        // NodePool will try preferred nodes first, then fall back to all nodes if they fail
+        // This ensures we get tx data when available, but don't block for long if preferred nodes are down
+        match client.get_with_endpoint_preference(Path::from(path), Some("tx_search")).await {
+            Ok(res) => {
+                // Try to parse the response - if it fails, continue without txs
+                // Handle both shapes: {"result":{"txs":[...]}} and {"txs":[...]}
+                match serde_json::from_str::<serde_json::Value>(&res) {
+                    Ok(v) => {
+                        let txs_val_opt = v
+                            .get("result")
+                            .and_then(|r| r.get("txs"))
+                            .or_else(|| v.get("txs"));
+                        if let Some(txs_val) = txs_val_opt {
+                            match serde_json::from_value::<Vec<crate::blockchains::sei::types::SeiTx>>(txs_val.clone()) {
+                                Ok(txs) => return Some(txs),
+                                Err(e) => {
+                                    let preview = if res.len() > 200 {
+                                        format!("{}...", &res[..200])
+                                    } else {
+                                        res.clone()
+                                    };
+                                    warn!(
+                                        "(Sei Block) Unable to parse tx response for height {}: {} (response length: {}, preview: {}). Continuing without txs.",
+                                        height,
+                                        e,
+                                        res.len(),
+                                        preview
+                                    );
+                                    return None;
+                                }
+                            }
+                        }
+                        // Fallback to strict struct parsing
+                        if let Ok(resp) = from_str::<SeiTxResponse>(&res) {
+                            return Some(resp.result.txs);
+                        }
+                        // No txs found; treat as empty list rather than erroring
+                        Some(Vec::new())
+                    }
+                    Err(e) => {
+                        // Unable to parse as JSON - log and gracefully continue without txs
+                        let preview = if res.len() > 200 {
+                            format!("{}...", &res[..200])
+                        } else {
+                            res.clone()
+                        };
+                        warn!(
+                            "(Sei Block) Unable to parse tx response for height {}: {} (response length: {}, preview: {}). Continuing without txs.",
+                            height,
+                            e,
+                            res.len(),
+                            preview
+                        );
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                // Tx fetch failed (NodePool already retried with fast fallback) - gracefully continue without txs
+                warn!(
+                    "(Sei Block) Unable to fetch tx data for height {}: {}. Continuing without txs.",
+                    height,
+                    e
+                );
+                None
+            }
         }
-
-        // Fallback to strict struct parsing
-        if let Ok(resp) = from_str::<SeiTxResponse>(&res) {
-            return Ok(resp.result.txs);
-        }
-        // No txs found; treat as empty list rather than erroring
-        Ok(Vec::new())
     }
 
     async fn get_block(&self, height: Option<usize>) -> anyhow::Result<SeiBlock> {
@@ -206,31 +250,30 @@ impl Block {
                 / block.data.txs.len() as f64;
 
             if self.app_context.config.network.sei.block.tx.enabled {
-                let txs_info = self
-                    .fetch_sei_txs(height)
-                    .await
-                    .context(format!("Could not obtain txs info from block {}", height))?;
+                // Fetch tx data - gracefully handle failures (returns None if tx_search fails)
+                if let Some(txs_info) = self.fetch_sei_txs(height).await {
+                    let mut gas_wanted = Vec::new();
+                    let mut gas_used = Vec::new();
 
-                let mut gas_wanted = Vec::new();
-                let mut gas_used = Vec::new();
-
-                for tx in txs_info {
-                    if let Some(result) = tx.tx_result {
-                        if let Some(gw) = result.gas_wanted {
-                            if let Ok(v) = gw.parse::<usize>() { gas_wanted.push(v); }
-                        }
-                        if let Some(gu) = result.gas_used {
-                            if let Ok(v) = gu.parse::<usize>() { gas_used.push(v); }
+                    for tx in txs_info {
+                        if let Some(result) = tx.tx_result {
+                            if let Some(gw) = result.gas_wanted {
+                                if let Ok(v) = gw.parse::<usize>() { gas_wanted.push(v); }
+                            }
+                            if let Some(gu) = result.gas_used {
+                                if let Ok(v) = gu.parse::<usize>() { gas_used.push(v); }
+                            }
                         }
                     }
-                }
 
-                block_gas_wanted = gas_wanted.iter().sum::<usize>() as f64;
-                block_gas_used = gas_used.iter().sum::<usize>() as f64;
-                if !gas_wanted.is_empty() {
-                    block_avg_tx_gas_wanted = gas_wanted.iter().sum::<usize>() as f64 / gas_wanted.len() as f64;
-                    block_avg_tx_gas_used = gas_used.iter().sum::<usize>() as f64 / gas_used.len() as f64;
+                    block_gas_wanted = gas_wanted.iter().sum::<usize>() as f64;
+                    block_gas_used = gas_used.iter().sum::<usize>() as f64;
+                    if !gas_wanted.is_empty() {
+                        block_avg_tx_gas_wanted = gas_wanted.iter().sum::<usize>() as f64 / gas_wanted.len() as f64;
+                        block_avg_tx_gas_used = gas_used.iter().sum::<usize>() as f64 / gas_used.len() as f64;
+                    }
                 }
+                // If fetch_sei_txs returns None, we continue without tx data (already logged in fetch_sei_txs)
             }
         }
 
