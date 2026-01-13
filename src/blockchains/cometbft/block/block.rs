@@ -18,7 +18,7 @@ use crate::blockchains::cometbft::metrics::{
     COMETBFT_VALIDATOR_1D_TOTAL_BLOCKS, COMETBFT_VALIDATOR_1D_UPTIME,
     COMETBFT_VALIDATOR_30D_MISSED_BLOCKS, COMETBFT_VALIDATOR_30D_SIGNED_BLOCKS,
     COMETBFT_VALIDATOR_30D_TOTAL_BLOCKS, COMETBFT_VALIDATOR_30D_UPTIME,
-    COMETBFT_VALIDATOR_7D_MISSED_BLOCKS, COMETBFT_VALIDATOR_7D_SIGNED_BLOCKS,
+    COMETBFT_VALIDATOR_6M_UPTIME, COMETBFT_VALIDATOR_7D_MISSED_BLOCKS, COMETBFT_VALIDATOR_7D_SIGNED_BLOCKS,
     COMETBFT_VALIDATOR_7D_TOTAL_BLOCKS, COMETBFT_VALIDATOR_7D_UPTIME,
     COMETBFT_VALIDATOR_BLOCKWINDOW_UPTIME, COMETBFT_VALIDATOR_MISSED_BLOCKS,
     COMETBFT_VALIDATOR_PROPOSED_BLOCKS,
@@ -746,6 +746,24 @@ impl Block {
                         &fires_alerts,
                     ])
                     .set(uptime.missed_blocks as f64);
+            }
+
+            let uptimes = self
+                .signature_storage
+                .uptimes(UptimeWindow::SixMonths)
+                .await?;
+            info!("(CometBFT Block) Calculating 6 months uptime for validators");
+            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
+            for (_, uptime) in uptimes {
+                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
+                COMETBFT_VALIDATOR_6M_UPTIME
+                    .with_label_values(&[
+                        &uptime.address,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                        &fires_alerts,
+                    ])
+                    .set(uptime.uptime);
             }
         } else {
             let uptimes = self

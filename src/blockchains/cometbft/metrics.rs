@@ -137,6 +137,14 @@ lazy_static! {
         &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
+    pub static ref COMETBFT_VALIDATOR_6M_UPTIME: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_validator_6m_uptime",
+            "Uptime over 6 months"
+        ),
+        &["address", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
     pub static ref COMETBFT_VALIDATOR_1D_SIGNED_BLOCKS: GaugeVec = GaugeVec::new(
         Opts::new(
             "rcosmos_cometbft_validator_1d_signed_blocks",
@@ -337,6 +345,9 @@ pub fn cometbft_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_30D_UPTIME.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_VALIDATOR_6M_UPTIME.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_1D_SIGNED_BLOCKS.clone()))
