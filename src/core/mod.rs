@@ -4,3 +4,4 @@ pub mod clients;
 pub mod config;
 pub mod exporter;
 pub mod metrics;
+pub mod backfill;

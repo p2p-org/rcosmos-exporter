@@ -13,6 +13,7 @@ pub enum UptimeWindow {
     SevenDays,
     FifteenDays,
     ThirtyDays,
+    SixMonths,
 }
 
 impl UptimeWindow {
@@ -22,6 +23,7 @@ impl UptimeWindow {
             UptimeWindow::SevenDays => Some("7"),
             UptimeWindow::FifteenDays => Some("15"),
             UptimeWindow::ThirtyDays => Some("30"),
+            UptimeWindow::SixMonths => Some("180"),
             UptimeWindow::BlockWindow => None,
         }
     }
