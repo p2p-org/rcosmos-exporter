@@ -285,6 +285,36 @@ Metrics are exposed at `/metrics` in Prometheus format.
 - All validator signatures, uptimes, and first-seen data are stored in ClickHouse.
 - You can run custom analytics and long-term queries directly in ClickHouse or via Grafana.
 
+### Running a backfill on Clickhouse
+#### Prerequisites
+- A ClickHouse database with the appropriate schema
+- A configuration file with the necessary parameters
+
+#### Steps
+1. export the necessary environment variables
+   - `CLICKHOUSE_URL`
+   - `CLICKHOUSE_USER`
+   - `CLICKHOUSE_PASSWORD`
+   - `CLICKHOUSE_DATABASE`
+2. run `cargo build`
+3. run `./target/debug/backfill --config <path_to_config_file> --start-height <start_height> --end-height <end_height>`
+
+#### Verifying the backfill progress
+To check the progress of the backfill, you can query the ClickHouse database directly.
+Example command: 
+```bash
+curl -sS "${CLICKHOUSE_URL}/?database=${CLICKHOUSE_DATABASE}&default_format=Pretty" \
+  -u "${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}" \
+  --data-binary "SELECT
+                   chain_id,
+                   min(height) AS min_h,
+                   max(height) AS max_h,
+                   countDistinct(height) AS blocks
+                 FROM validators_signatures
+                 GROUP BY chain_id
+                 ORDER BY blocks DESC"
+```
+
 ---
 
 ## Contributing
