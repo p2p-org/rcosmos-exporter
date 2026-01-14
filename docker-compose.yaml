@@ -17,7 +17,6 @@ services:
       nofile:
         soft: 262144
         hard: 262144
-    
   clickhouse-ui:
     image: ghcr.io/caioricciuti/ch-ui:latest
     restart: always
@@ -29,8 +28,6 @@ services:
       VITE_CLICKHOUSE_USE_ADVANCED: true
     ports:
       - "5521:5521"
-    
-
   clickhouse-migrate:
     image: rust:latest
     profiles: ["ci", "migrate"]
@@ -70,7 +67,7 @@ services:
       - CLICKHOUSE_DATABASE=default
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=mysecurepassword123
-        
+
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -82,7 +79,6 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
     ports:
       - "9090:9090"
-    
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
@@ -97,10 +93,9 @@ services:
       - prometheus
     volumes:
       - ./.docker/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
-      - ./.docker/grafana/dashboards:/var/lib/grafana/dashboards  
+      - ./.docker/grafana/dashboards:/var/lib/grafana/dashboards
       - ./.docker/grafana/dashboard-provisioning.yaml:/etc/grafana/provisioning/dashboards/dashboard.yaml:ro
       - ./.docker/grafana/plugins:/var/lib/grafana/plugins
-    
 
 volumes:
   clickhouse_data:

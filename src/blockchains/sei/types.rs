@@ -73,6 +73,8 @@ pub struct SeiTxResponse {
 #[derive(Debug, Deserialize)]
 pub struct SeiTxResult {
     pub txs: Vec<SeiTx>,
+    #[serde(default)]
+    pub total: Option<String>, // Total count of transactions (for pagination)
 }
 
 #[derive(Debug, Deserialize)]

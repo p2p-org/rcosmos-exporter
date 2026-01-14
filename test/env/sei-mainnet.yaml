@@ -36,6 +36,9 @@
         interval: 30
 
   network:
+    # CometBFT module is disabled for Sei-only testing
+    # Note: Sei uses network.sei.block.* config (see below), not network.cometbft.block.*
+    # Sei and CometBFT are separate modules that can run independently
     cometbft:
       validators:
         enabled: false
@@ -44,6 +47,7 @@
         enabled: false
         interval: 10
         window: 500
+        concurrency: 5  # Unused when enabled: false
         tx:
           enabled: true
         uptime:
@@ -125,7 +129,11 @@
         enabled: true
         interval: 10
         window: 500
+        concurrency: 5
         tx:
           enabled: true
         uptime:
           persistence: true
+          # Controls how many blocks' signatures we buffer before flushing to ClickHouse.
+          # Higher values = fewer, larger inserts (better throughput during backfill).
+          insert_concurrency: 50

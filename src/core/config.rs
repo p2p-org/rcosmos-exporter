@@ -31,6 +31,7 @@ pub struct MetricsConfig {
     pub path: String,
 }
 
+
 /// Node configuration for RPC and LCD endpoints
 #[derive(Debug, Deserialize, Clone)]
 pub struct NodeConfig {
@@ -122,6 +123,10 @@ pub struct CometBFTBlockConfig {
     pub window: u64,
     #[serde(default = "default_concurrency_1")]
     pub concurrency: usize,
+    /// Timeout in seconds for block fetch requests (defaults to general.rpc_timeout_seconds if not set)
+    /// For large blocks (like Celestia), you may want to increase this (e.g., 120-180 seconds)
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
     #[serde(default)]
     pub tx: CometBFTBlockTxConfig,
     #[serde(default)]
@@ -139,6 +144,7 @@ impl Default for CometBFTBlockConfig {
             interval: 10,
             window: 500,
             concurrency: 1,
+            timeout_seconds: None,
             tx: CometBFTBlockTxConfig::default(),
             uptime: CometBFTBlockUptimeConfig::default(),
         }
@@ -161,12 +167,23 @@ impl Default for CometBFTBlockTxConfig {
 pub struct CometBFTBlockUptimeConfig {
     #[serde(default)]
     pub persistence: bool,
+    /// How many blocks to batch together when inserting validator signatures into ClickHouse.
+    /// Higher values improve throughput but increase per-batch latency. Defaults to 15.
+    #[serde(default = "default_insert_concurrency_15")]
+    pub insert_concurrency: usize,
 }
 
 impl Default for CometBFTBlockUptimeConfig {
     fn default() -> Self {
-        Self { persistence: false }
+        Self {
+            persistence: false,
+            insert_concurrency: default_insert_concurrency_15(),
+        }
     }
+}
+
+fn default_insert_concurrency_15() -> usize {
+    15
 }
 
 /// Tendermint module configuration (all fields required)
@@ -625,6 +642,10 @@ pub struct SeiBlockConfig {
     pub interval: u64,
     #[serde(default = "default_window_500")]
     pub window: u64,
+    /// Concurrency for Sei block fetching (matches CometBFT semantics).
+    /// Defaults to 1 to preserve existing behavior when unset.
+    #[serde(default = "default_concurrency_1")]
+    pub concurrency: usize,
     #[serde(default)]
     pub tx: SeiBlockTxConfig,
     #[serde(default)]
@@ -637,6 +658,7 @@ impl Default for SeiBlockConfig {
             enabled: false,
             interval: 10,
             window: 500,
+            concurrency: 1,
             tx: SeiBlockTxConfig::default(),
             uptime: SeiBlockUptimeConfig::default(),
         }
@@ -661,10 +683,17 @@ impl Default for SeiBlockTxConfig {
 pub struct SeiBlockUptimeConfig {
     #[serde(default)]
     pub persistence: bool,
+    /// How many blocks' signatures to buffer before flushing to ClickHouse.
+    /// Matches CometBFT semantics (insert_concurrency), but scoped to Sei.
+    #[serde(default = "default_insert_concurrency_15")]
+    pub insert_concurrency: usize,
 }
 
 impl Default for SeiBlockUptimeConfig {
     fn default() -> Self {
-        Self { persistence: false }
+        Self {
+            persistence: false,
+            insert_concurrency: default_insert_concurrency_15(),
+        }
     }
 }

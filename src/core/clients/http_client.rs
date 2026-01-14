@@ -4,14 +4,83 @@ use rand::seq::IndexedRandom;
 use rand::SeedableRng;
 use reqwest::{Client, ClientBuilder, StatusCode};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::RwLock;
-use tokio::time::sleep;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
+
 
 use super::path::Path;
 use crate::core::metrics::exporter_metrics::EXPORTER_HTTP_REQUESTS;
+use crate::core::utils::{extract_tx_index, ResponseStructure, detect_response_structure};
+
+/// Construct a full URL from a node URL and path, ensuring proper formatting
+/// Gracefully handles trailing slashes in node_url and ensures path starts with /
+/// This is defensive programming - even though Node::new normalizes URLs, we handle edge cases here too
+fn construct_url(node_url: &str, path: &Path) -> String {
+    // Remove trailing slash from node_url if present (defensive - Node::new should have normalized this)
+    let node_url_clean = node_url.trim_end_matches('/');
+    // Path already ensures leading slash via Path::from(), but be defensive
+    let path_str = path.as_str();
+    let path_clean = if path_str.starts_with('/') {
+        path_str.to_string()
+    } else {
+        // This shouldn't happen due to Path::from() normalization, but handle it gracefully
+        format!("/{}", path_str)
+    };
+    format!("{}{}", node_url_clean, path_clean)
+}
+
+/// Format unhealthy nodes list for logging
+fn format_unhealthy_nodes_list(nodes: &[&Node]) -> Vec<String> {
+    nodes
+        .iter()
+        .map(|n| format!("{} ({}) - {} consecutive failures", n.name, n.url, n.consecutive_failures))
+        .collect()
+}
+
+/// Log unhealthy nodes if any exist
+fn log_unhealthy_nodes(nodes: &[&Node]) {
+    if !nodes.is_empty() {
+        let unhealthy_list = format_unhealthy_nodes_list(nodes);
+        debug!(
+            "(NodePool) {} unhealthy node(s) available: {}",
+            unhealthy_list.len(),
+            unhealthy_list.join(", ")
+        );
+    }
+}
+
+/// Check if an HTTP status code represents a transient (retryable) error
+fn is_transient_error(status: StatusCode) -> bool {
+    // 429 (Too Many Requests) - rate limiting, should retry
+    // 500-599 (Server Errors) - transient server issues
+    // 503 (Service Unavailable) - explicitly transient
+    status == StatusCode::TOO_MANY_REQUESTS
+        || (status.as_u16() >= 500 && status.as_u16() < 600)
+}
+
+/// Check if an HTTP status code represents a permanent (non-retryable) error
+fn is_permanent_error(status: StatusCode) -> bool {
+    // 400-499 (except 429) are typically client errors that won't be fixed by retrying
+    status.as_u16() >= 400 && status.as_u16() < 500 && status != StatusCode::TOO_MANY_REQUESTS
+}
+
+/// Extract retry-after delay from response headers (for 429 rate limiting)
+fn extract_retry_after(res: &reqwest::Response) -> Option<Duration> {
+    res.headers()
+        .get("retry-after")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_secs)
+}
+
+/// Circuit breaker threshold: after this many consecutive failures, temporarily exclude node
+const CIRCUIT_BREAKER_THRESHOLD: usize = 5;
+/// Circuit breaker duration: how long to exclude a node after hitting threshold
+const CIRCUIT_BREAKER_DURATION: Duration = Duration::from_secs(60);
+/// When all nodes are unhealthy, wait this long before retrying (self-healing)
+const ALL_NODES_UNHEALTHY_RETRY_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 struct Node {
@@ -24,6 +93,8 @@ struct Node {
     // Track successful endpoint patterns per node (e.g., "tx_search" -> true if node successfully returned data)
     // This allows us to prefer nodes that have successfully handled specific endpoints before
     successful_endpoints: std::collections::HashSet<String>,
+    // Circuit breaker: temporarily exclude node after too many failures (even if health check passes)
+    circuit_breaker_until: Option<std::time::Instant>,
 }
 
 impl Node {
@@ -41,6 +112,7 @@ impl Node {
             consecutive_failures: 0,
             network,
             successful_endpoints: std::collections::HashSet::new(),
+            circuit_breaker_until: None,
         }
     }
 
@@ -85,7 +157,6 @@ pub struct NodePool {
     nodes: Arc<RwLock<Vec<Node>>>,
     client: Client,
     health_check_interval: Duration,
-    http_timeout: Duration, // Store HTTP client timeout for adaptive retry logic
 }
 
 ///
@@ -120,7 +191,6 @@ impl NodePool {
             nodes: Arc::new(RwLock::new(nodes)),
             client,
             health_check_interval: health_check_interval.unwrap_or(Duration::from_secs(10)),
-            http_timeout,
         })
     }
 
@@ -128,6 +198,23 @@ impl NodePool {
         let nodes = Arc::clone(&self.nodes);
         let client = self.client.clone();
         let interval = self.health_check_interval;
+
+        // Start periodic tx_index checks (every 5 health check cycles = ~50s with default 10s interval)
+        // This proactively identifies nodes with tx_search support
+        let nodes_tx_check = Arc::clone(&nodes);
+        let client_tx_check = self.client.clone();
+        tokio::spawn(async move {
+            // Run initial check immediately on startup
+            info!("(NodePool) Running initial tx_index detection check...");
+            Self::check_tx_index_support(&nodes_tx_check, &client_tx_check).await;
+
+            // Then run periodically
+            let mut ticker = tokio::time::interval(interval * 5);
+            loop {
+                ticker.tick().await;
+                Self::check_tx_index_support(&nodes_tx_check, &client_tx_check).await;
+            }
+        });
 
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
@@ -150,12 +237,13 @@ impl NodePool {
                 drop(nodes_read);
                 let mut nodes_write = nodes.write().await;
 
+                let now = Instant::now();
                 for (node, &ref is_healthy) in nodes_write.iter_mut().zip(results.iter()) {
                     match is_healthy {
                         Ok(is_healthy) => {
                             let was_healthy = node.healthy;
                             if *is_healthy {
-                                // If healthy, reset consecutive failures
+                                // If healthy, reset consecutive failures and clear circuit breaker
                                 if !was_healthy {
                                     // Node recovered - log it
                                     warn!(
@@ -167,6 +255,10 @@ impl NodePool {
                                 }
                                 node.healthy = true;
                                 node.consecutive_failures = 0;
+                                // Clear circuit breaker if it's expired or node is healthy
+                                if node.circuit_breaker_until.map(|until| now > until).unwrap_or(false) {
+                                    node.circuit_breaker_until = None;
+                                }
                             } else {
                                 // If unhealthy, increment the consecutive failures
                                 if was_healthy {
@@ -179,6 +271,17 @@ impl NodePool {
                                 }
                                 node.healthy = false;
                                 node.consecutive_failures += 1;
+                                // Activate circuit breaker if threshold reached
+                                if node.consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD {
+                                    node.circuit_breaker_until = Some(now + CIRCUIT_BREAKER_DURATION);
+                                    warn!(
+                                        "(NodePool) Node {} ({}) circuit breaker activated for {}s ({} consecutive health check failures)",
+                                        node.name,
+                                        node.url,
+                                        CIRCUIT_BREAKER_DURATION.as_secs(),
+                                        node.consecutive_failures
+                                    );
+                                }
                             }
                         }
                         Err(e) => {
@@ -188,6 +291,74 @@ impl NodePool {
                 }
             }
         });
+    }
+
+
+    /// Check /status endpoint for tx_index support and update successful_endpoints accordingly
+    /// This proactively identifies nodes with tx_search support without trial and error
+    async fn check_tx_index_support(nodes: &Arc<RwLock<Vec<Node>>>, client: &Client) {
+        let nodes_read = nodes.read().await;
+        let mut tasks = vec![];
+
+        for node in nodes_read.iter() {
+            let client = client.clone();
+            let node_url = node.url.clone();
+            let node_name = node.name.clone();
+
+            tasks.push(tokio::spawn(async move {
+                let status_url = format!("{}/status", node_url);
+                match client.get(&status_url).send().await {
+                    Ok(res) if res.status() == StatusCode::OK => {
+                        match res.json::<serde_json::Value>().await {
+                            Ok(json) => {
+                                // Use definitive detection: identify structure first, then extract tx_index
+                                // This is more reliable than fallback-based approach
+                                if extract_tx_index(&json).is_some() {
+                                    let structure = detect_response_structure(&json);
+                                    info!(
+                                        "(NodePool) Detected {} response structure for node {} (tx_index enabled)",
+                                        match structure {
+                                            ResponseStructure::CometBft => "CometBFT",
+                                            ResponseStructure::Sei => "Sei",
+                                        },
+                                        node_url
+                                    );
+                                    return Some((node_url, node_name));
+                                }
+                            }
+                            Err(e) => {
+                                debug!("(NodePool) Could not parse /status response for {}: {}", node_url, e);
+                            }
+                        }
+                    }
+                    Ok(_) => {
+                        // Non-200 status, skip
+                    }
+                    Err(_) => {
+                        // Request failed, skip
+                    }
+                }
+                None
+            }));
+        }
+
+        drop(nodes_read);
+        let results: Vec<_> = join_all(tasks).await.into_iter().filter_map(|r| r.ok().flatten()).collect();
+
+        if !results.is_empty() {
+            let mut nodes_write = nodes.write().await;
+            for (node_url, node_name) in results {
+                if let Some(node) = nodes_write.iter_mut().find(|n| n.url == node_url) {
+                    if node.successful_endpoints.insert("tx_search".to_string()) {
+                        info!(
+                            "(NodePool) Node {} ({}) has tx_index enabled (detected via /status endpoint)",
+                            node_name,
+                            node_url
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// Get with endpoint preference - prefers nodes that have successfully handled this endpoint pattern before
@@ -202,44 +373,59 @@ impl NodePool {
         debug!("Making call to {} (endpoint preference: {:?})", path, endpoint_key);
 
         let mut rng = SmallRng::from_os_rng();
-        // Adaptive retry count based on HTTP timeout:
-        // - Default (30s): 5 retries = ~10s total (2s delay between retries)
-        // - High timeout (90s): 3 retries = ~6s total (faster fallback to avoid long waits)
-        // - Very high timeout (120s+): 2 retries = ~4s total (very fast fallback)
-        let max_retries = if self.http_timeout.as_secs() >= 90 {
-            3 // High timeout: fewer retries for faster fallback
-        } else if self.http_timeout.as_secs() >= 60 {
-            4 // Medium-high timeout: moderate retries
-        } else {
-            5 // Default timeout (30s): standard retries
-        };
+        // Minimal retries: try 1-2 different nodes, fail fast
+        // This prevents wasting time on slow/failing nodes
+        // If all nodes fail, the caller can retry the entire request
+        const MAX_RETRIES: u32 = 2; // Try 2 different nodes max
 
-        for attempt in 0..max_retries {
+        for attempt in 0..MAX_RETRIES {
             // Get node list and select one (with endpoint preference if applicable)
             let (node_url, node_name, node_network) = {
                 let nodes = self.nodes.read().await;
-                let healthy_nodes: Vec<&Node> = nodes.iter().filter(|e| e.healthy).collect();
+                // Filter nodes: must be healthy AND not in circuit breaker
+                let now = Instant::now();
+                let healthy_nodes: Vec<&Node> = nodes
+                    .iter()
+                    .filter(|e| {
+                        e.healthy
+                            && e.circuit_breaker_until
+                                .map(|until| now > until)
+                                .unwrap_or(true)
+                    })
+                    .collect();
 
                 if healthy_nodes.is_empty() {
                     drop(nodes);
-                    // Shorter delay between retries for faster fallback (1s instead of 2s)
-            sleep(Duration::from_secs(1)).await;
-                    continue;
+                    // No healthy nodes - wait briefly and retry once (self-healing)
+                    // This handles temporary network issues or brief node outages
+                    if attempt == 0 {
+                        debug!(
+                            "(NodePool) No healthy nodes available for {}. Waiting {}s before retry (self-healing attempt)...",
+                            path,
+                            ALL_NODES_UNHEALTHY_RETRY_DELAY.as_secs()
+                        );
+                        tokio::time::sleep(ALL_NODES_UNHEALTHY_RETRY_DELAY).await;
+                        continue; // Retry once after delay
+                    } else {
+                        // Already retried once - return error
+                        return Err(NodePoolErrors::NoHealthyNodes(format!(
+                            "No healthy nodes when calling {} (waited {}s)",
+                            path,
+                            ALL_NODES_UNHEALTHY_RETRY_DELAY.as_secs()
+                        )));
+                    }
                 }
 
                 // If we have an endpoint pattern, prefer nodes that have successfully handled it
-                // But if preferred nodes fail after a few attempts, fall back to all healthy nodes
+                // On first attempt, try preferred nodes; on retry, try all healthy nodes
                 let nodes_to_try: Vec<&Node> = if let Some(ref pattern) = endpoint_key {
                     let preferred: Vec<&Node> = healthy_nodes.iter()
                         .filter(|n| n.successful_endpoints.contains(pattern))
                         .copied()
                         .collect();
 
-                    // Try preferred nodes first, then fall back to all nodes if they fail
-                    // Fallback threshold: try preferred for first 40% of retries, then fall back to all nodes
-                    // This ensures we prefer nodes with tx_search support, but don't get stuck if they're down
-                    let preferred_attempts = (max_retries as f64 * 0.4).ceil() as u32;
-                    if !preferred.is_empty() && attempt < preferred_attempts {
+                    // Try preferred nodes on first attempt, fall back to all nodes on retry
+                    if !preferred.is_empty() && attempt == 0 {
                         preferred
                     } else {
                         // Fall back to all healthy nodes if preferred failed or don't exist
@@ -252,17 +438,7 @@ impl NodePool {
                 // Log unhealthy nodes on first attempt
                 if attempt == 0 {
                     let unhealthy_nodes: Vec<_> = nodes.iter().filter(|e| !e.healthy).collect();
-                    if !unhealthy_nodes.is_empty() {
-                        let unhealthy_list: Vec<String> = unhealthy_nodes
-                            .iter()
-                            .map(|n| format!("{} ({}) - {} consecutive failures", n.name, n.url, n.consecutive_failures))
-                            .collect();
-                        debug!(
-                            "(NodePool) {} unhealthy node(s) available: {}",
-                            unhealthy_list.len(),
-                            unhealthy_list.join(", ")
-                        );
-                    }
+                    log_unhealthy_nodes(&unhealthy_nodes);
                 }
 
                 // Select a node and clone its info before dropping the lock
@@ -270,40 +446,100 @@ impl NodePool {
                     (node.url.clone(), node.name.clone(), node.network.clone())
                 } else {
                     drop(nodes);
-                    // Shorter delay between retries for faster fallback (1s instead of 2s)
-            sleep(Duration::from_secs(1)).await;
-                    continue;
+                    // No nodes to try - return error immediately
+                    return Err(NodePoolErrors::NoHealthyNodes(format!(
+                        "No healthy nodes when calling {}",
+                        path
+                    )));
                 }
             };
 
-            debug_assert!(
-                !node_url.ends_with('/'),
-                "Node URL should not end with a slash"
-            );
-            debug_assert!(
-                path.as_str().starts_with('/'),
-                "Path should start with a slash"
-            );
-            let url = format!("{}{}", node_url, path.as_str());
+            let url = construct_url(&node_url, &path);
 
-            let response = self.client.get(&url).send().await;
+                let response = self.client.get(&url).send().await;
 
-            match response {
-                Ok(res) => {
+                match response {
+                    Ok(res) => {
                     let status = res.status();
                     let status_str = status.as_u16().to_string();
-                    EXPORTER_HTTP_REQUESTS
+                        EXPORTER_HTTP_REQUESTS
                         .with_label_values(&[&node_url, &status_str, &node_network])
-                        .inc();
+                            .inc();
+
+                    // Handle rate limiting (429) with retry-after support
+                    if status == StatusCode::TOO_MANY_REQUESTS {
+                        let retry_after = extract_retry_after(&res).unwrap_or(Duration::from_secs(1));
+                        warn!(
+                            "(NodePool) {} Rate limited (429) for {}. Retry after {}s",
+                            node_name,
+                            url,
+                            retry_after.as_secs()
+                        );
+                        // Don't mark as failure for rate limiting - it's temporary
+                        // Wait for retry-after period, then try next node
+                        tokio::time::sleep(retry_after).await;
+                        continue; // Try next node after rate limit delay
+                    }
+
+                    // Handle transient server errors (5xx) - retry on next node
+                    if is_transient_error(status) {
+                        warn!(
+                            "(NodePool) {} Transient error ({}): {}. Will retry on next node",
+                            node_name,
+                            status.as_u16(),
+                            url
+                        );
+                        // Update node failure count for circuit breaker
+                        let mut nodes_write = self.nodes.write().await;
+                        if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node_url) {
+                            node_mut.consecutive_failures += 1;
+                            // Activate circuit breaker if threshold reached
+                            if node_mut.consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD {
+                                node_mut.circuit_breaker_until = Some(Instant::now() + CIRCUIT_BREAKER_DURATION);
+                                warn!(
+                                    "(NodePool) Node {} ({}) circuit breaker activated for {}s ({} consecutive failures)",
+                                    node_name,
+                                    node_url,
+                                    CIRCUIT_BREAKER_DURATION.as_secs(),
+                                    node_mut.consecutive_failures
+                                );
+                            }
+                        }
+                        drop(nodes_write);
+                        continue; // Try next node
+                    }
+
+                    // Handle permanent errors (4xx except 429) - don't retry this node
+                    if is_permanent_error(status) {
+                        warn!(
+                            "(NodePool) {} Permanent error ({}): {}. Skipping this node",
+                            node_name,
+                            status.as_u16(),
+                            url
+                        );
+                        continue; // Try next node, but don't increment failure count (it's a client error)
+                    }
 
                     let text = res.text().await?;
 
-                    // If we have an endpoint pattern and the call succeeded, mark this node as successful for this endpoint
-                    if let Some(ref pattern) = endpoint_key {
-                        if status == StatusCode::OK {
-                            // Success - mark this node as successfully handling this endpoint pattern
-                            let mut nodes_write = self.nodes.write().await;
-                            if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node_url) {
+                    // Success - reset failure count and mark endpoint as successful
+                    {
+                        let mut nodes_write = self.nodes.write().await;
+                        if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node_url) {
+                            // Reset failure count on success
+                            if node_mut.consecutive_failures > 0 {
+                                debug!(
+                                    "(NodePool) Node {} ({}) recovered from {} consecutive failures",
+                                    node_name,
+                                    node_url,
+                                    node_mut.consecutive_failures
+                                );
+                                node_mut.consecutive_failures = 0;
+                                node_mut.circuit_breaker_until = None; // Clear circuit breaker
+                            }
+
+                            // If we have an endpoint pattern, mark this node as successful for this endpoint
+                            if let Some(ref pattern) = endpoint_key {
                                 if node_mut.successful_endpoints.insert(pattern.clone()) {
                                     debug!(
                                         "(NodePool) Node {} ({}) successfully handled endpoint pattern '{}'",
@@ -313,45 +549,60 @@ impl NodePool {
                                     );
                                 }
                             }
-                            drop(nodes_write);
                         }
                     }
 
                     if status == StatusCode::OK {
                         return Ok(text);
                     } else {
+                        // Unexpected status (shouldn't reach here, but handle gracefully)
                         warn!(
-                            "(NodePool) {} Attempt {} failed: {} - No healthy response",
+                            "(NodePool) {} Unexpected status {}: {}",
                             node_name,
-                            attempt + 1,
+                            status.as_u16(),
                             url
                         );
                     }
-                }
-                Err(_) => {
-                    EXPORTER_HTTP_REQUESTS
+                    }
+                    Err(e) => {
+                        // Network/connection errors are transient - retry on next node
+                        EXPORTER_HTTP_REQUESTS
                         .with_label_values(&[&node_url, "error", &node_network])
-                        .inc();
-                    warn!(
-                        "(NodePool) {} Attempt {} failed: {} - No HTTP response",
+                            .inc();
+                        warn!(
+                            "(NodePool) {} Network error for {}: {}. Will retry on next node",
                         node_name,
-                        attempt + 1,
-                        url
-                    );
+                            url,
+                            e
+                        );
+                        // Update failure count for circuit breaker
+                        let mut nodes_write = self.nodes.write().await;
+                        if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node_url) {
+                            node_mut.consecutive_failures += 1;
+                            if node_mut.consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD {
+                                node_mut.circuit_breaker_until = Some(Instant::now() + CIRCUIT_BREAKER_DURATION);
+                                warn!(
+                                    "(NodePool) Node {} ({}) circuit breaker activated for {}s ({} consecutive failures)",
+                                    node_name,
+                                    node_url,
+                                    CIRCUIT_BREAKER_DURATION.as_secs(),
+                                    node_mut.consecutive_failures
+                                );
+                            }
+                        }
+                        drop(nodes_write);
+                        continue; // Try next node
                 }
             }
 
-            // Shorter delay between retries for faster fallback (1s instead of 2s)
-            sleep(Duration::from_secs(1)).await;
+            // No delay between retries - fail fast to try next node immediately
+            // Only continue loop if we have more retries left
         }
 
         // Final error logging
         let nodes = self.nodes.read().await;
-        let unhealthy_list: Vec<String> = nodes
-            .iter()
-            .filter(|e| !e.healthy)
-            .map(|n| format!("{} ({}) - {} consecutive failures", n.name, n.url, n.consecutive_failures))
-            .collect();
+        let unhealthy_nodes: Vec<_> = nodes.iter().filter(|e| !e.healthy).collect();
+        let unhealthy_list = format_unhealthy_nodes_list(&unhealthy_nodes);
 
         if !unhealthy_list.is_empty() {
             // We have unhealthy nodes - list them
@@ -383,36 +634,72 @@ impl NodePool {
         debug!("Making POST call to {}", path);
 
         let nodes = self.nodes.read().await;
-        let healthy_nodes: Vec<_> = nodes.iter().filter(|e| e.healthy).collect();
+        let now = Instant::now();
+        // Filter nodes: must be healthy AND not in circuit breaker
+        let healthy_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|e| {
+                e.healthy
+                    && e.circuit_breaker_until
+                        .map(|until| now > until)
+                        .unwrap_or(true)
+            })
+            .collect();
         let unhealthy_nodes: Vec<_> = nodes.iter().filter(|e| !e.healthy).collect();
 
-        // Log unhealthy nodes if there are any and this is the first attempt
-        if !unhealthy_nodes.is_empty() {
-            let unhealthy_list: Vec<String> = unhealthy_nodes
-                .iter()
-                .map(|n| format!("{} ({}) - {} consecutive failures", n.name, n.url, n.consecutive_failures))
-                .collect();
-            debug!(
-                "(NodePool) {} unhealthy node(s) available: {}",
-                unhealthy_list.len(),
-                unhealthy_list.join(", ")
+        // Log unhealthy nodes if there are any
+        log_unhealthy_nodes(&unhealthy_nodes);
+
+        // If no healthy nodes, wait briefly and retry (self-healing)
+        if healthy_nodes.is_empty() {
+            drop(nodes);
+                        debug!(
+                "(NodePool) No healthy nodes available for POST {}. Waiting {}s before retry (self-healing attempt)...",
+                path,
+                ALL_NODES_UNHEALTHY_RETRY_DELAY.as_secs()
             );
+            tokio::time::sleep(ALL_NODES_UNHEALTHY_RETRY_DELAY).await;
+            // Re-read nodes after delay
+            let nodes = self.nodes.read().await;
+            let now = Instant::now();
+            let healthy_nodes: Vec<_> = nodes
+                .iter()
+                .filter(|e| {
+                    e.healthy
+                        && e.circuit_breaker_until
+                            .map(|until| now > until)
+                            .unwrap_or(true)
+                })
+                .collect();
+            if healthy_nodes.is_empty() {
+                return Err(NodePoolErrors::NoHealthyNodes(format!(
+                    "No healthy nodes when calling {} (waited {}s)",
+                    path,
+                    ALL_NODES_UNHEALTHY_RETRY_DELAY.as_secs()
+                )));
+            }
         }
 
         let mut rng = SmallRng::from_os_rng();
+        // Use same retry count as get_with_endpoint_preference for consistency
+        const MAX_RETRIES: u32 = 2;
 
-        for attempt in 0..5 {
+        for attempt in 0..MAX_RETRIES {
+            // Re-read healthy nodes each attempt (they may have changed)
+            let nodes = self.nodes.read().await;
+            let now = Instant::now();
+            let healthy_nodes: Vec<_> = nodes
+                .iter()
+                .filter(|e| {
+                    e.healthy
+                        && e.circuit_breaker_until
+                            .map(|until| now > until)
+                            .unwrap_or(true)
+                })
+                .collect();
+
             if let Some(node) = healthy_nodes.choose(&mut rng) {
-                // Defensive: ensure no double slash in URL construction
-                debug_assert!(
-                    !node.url.ends_with('/'),
-                    "Node URL should not end with a slash"
-                );
-                debug_assert!(
-                    path.as_str().starts_with('/'),
-                    "Path should start with a slash"
-                );
-                let url = format!("{}{}", node.url, path.as_str());
+                let url = construct_url(&node.url, &path);
 
                 let response = self
                     .client
@@ -423,46 +710,94 @@ impl NodePool {
 
                 match response {
                     Ok(res) => {
-                        let status_str = res.status().as_u16().to_string();
+                        let status = res.status();
+                        let status_str = status.as_u16().to_string();
                         EXPORTER_HTTP_REQUESTS
                             .with_label_values(&[&node.url, &status_str, &node.network])
                             .inc();
 
-                        if res.status() == StatusCode::OK {
+                        // Handle rate limiting (429)
+                        if status == StatusCode::TOO_MANY_REQUESTS {
+                            let retry_after = extract_retry_after(&res).unwrap_or(Duration::from_secs(1));
+                        warn!(
+                                "(NodePool) {} Rate limited (429) for POST {}. Retry after {}s",
+                                node.name,
+                                url,
+                                retry_after.as_secs()
+                            );
+                            tokio::time::sleep(retry_after).await;
+                            continue;
+                        }
+
+                        // Handle transient errors
+                        if is_transient_error(status) {
+                            warn!(
+                                "(NodePool) {} Transient error ({}) for POST {}: {}",
+                                node.name,
+                                status.as_u16(),
+                                url,
+                                path
+                            );
+                            // Update failure count
+                            let mut nodes_write = self.nodes.write().await;
+                            if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node.url) {
+                                node_mut.consecutive_failures += 1;
+                                if node_mut.consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD {
+                                    node_mut.circuit_breaker_until = Some(Instant::now() + CIRCUIT_BREAKER_DURATION);
+                                }
+                            }
+                            continue;
+                        }
+
+                        if status == StatusCode::OK {
+                            // Success - reset failure count
+                            let mut nodes_write = self.nodes.write().await;
+                            if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node.url) {
+                                if node_mut.consecutive_failures > 0 {
+                                    node_mut.consecutive_failures = 0;
+                                    node_mut.circuit_breaker_until = None;
+                                }
+                            }
                             return Ok(res.text().await?);
                         } else {
-                            warn!(
-                                "(NodePool) {} Attempt {} failed: {} - No healthy response",
+                        warn!(
+                                "(NodePool) {} Attempt {} failed: {} - Status {}",
                                 node.name,
                                 attempt + 1,
-                                url
+                                url,
+                                status.as_u16()
                             );
                         }
                     }
-                    Err(_) => {
+                    Err(e) => {
                         EXPORTER_HTTP_REQUESTS
                             .with_label_values(&[&node.url, "error", &node.network])
                             .inc();
                         warn!(
-                            "(NodePool) {} Attempt {} failed: {} - No HTTP response",
+                            "(NodePool) {} Network error for POST {}: {}",
                             node.name,
-                            attempt + 1,
-                            url
+                            url,
+                            e
                         );
+                        // Update failure count
+                        let mut nodes_write = self.nodes.write().await;
+                        if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node.url) {
+                            node_mut.consecutive_failures += 1;
+                            if node_mut.consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD {
+                                node_mut.circuit_breaker_until = Some(Instant::now() + CIRCUIT_BREAKER_DURATION);
+                            }
+                        }
+                        continue;
                     }
                 }
             }
-            // Shorter delay between retries for faster fallback (1s instead of 2s)
-            sleep(Duration::from_secs(1)).await;
+            // No delay between retries - fail fast to try next node immediately
         }
 
         // Log detailed information about unhealthy nodes
         let nodes = self.nodes.read().await;
-        let unhealthy_list: Vec<String> = nodes
-            .iter()
-            .filter(|e| !e.healthy)
-            .map(|n| format!("{} ({}) - {} consecutive failures", n.name, n.url, n.consecutive_failures))
-            .collect();
+        let unhealthy_nodes: Vec<_> = nodes.iter().filter(|e| !e.healthy).collect();
+        let unhealthy_list = format_unhealthy_nodes_list(&unhealthy_nodes);
 
         if !unhealthy_list.is_empty() {
             // We have unhealthy nodes - list them
