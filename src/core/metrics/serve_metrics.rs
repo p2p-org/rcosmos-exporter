@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use crate::blockchains::axelar::metrics::REGISTRY as axelar_registry;
 use crate::blockchains::babylon::metrics::REGISTRY as babylon_registry;
 use crate::blockchains::cometbft::metrics::REGISTRY as cometbft_registry;
 use crate::blockchains::coredao::metrics::REGISTRY as coredao_registry;
@@ -51,6 +52,7 @@ pub async fn serve_metrics(prometheus_ip: String, prometheus_port: String, path:
                         metric_families.extend(lombard_registry.gather());
                         metric_families.extend(babylon_registry.gather());
                         metric_families.extend(sei_registry.gather());
+                        metric_families.extend(axelar_registry.gather());
                         metric_families.extend(EXPORTER_REGISTRY.gather());
 
                         encoder.encode(&metric_families, &mut buffer).unwrap();

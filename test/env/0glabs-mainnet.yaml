@@ -17,6 +17,9 @@ general:
       - name: p2p-02
         url: https://rpc0.0glabs-mainnet.tm.p2p.org/
         healthEndpoint: /health
+      - name: itrocket
+        url: https://og-mainnet-rpc.itrocket.net/
+        healthEndpoint: /health
     lcd:
       []
 
@@ -42,9 +45,10 @@ network:
       window: 500
       concurrency: 5
       tx:
-        enabled: true
+        enabled: false
       uptime:
         persistence: true
+        insert_concurrency: 50
 
   tendermint:
     bank:

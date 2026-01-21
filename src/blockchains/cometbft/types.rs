@@ -68,6 +68,8 @@ pub struct TxResponse {
 #[derive(Debug, Deserialize)]
 pub struct TxResponseResult {
     pub txs: Vec<Tx>,
+    #[serde(default)]
+    pub total: Option<String>, // Total count of transactions (for pagination)
 }
 
 #[derive(Deserialize, Debug)]

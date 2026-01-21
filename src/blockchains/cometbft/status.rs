@@ -4,6 +4,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use tracing::info;
 
+
 use crate::{
     blockchains::{
         cometbft::metrics::{
@@ -16,34 +17,8 @@ use crate::{
     core::{app_context::AppContext, clients::path::Path, exporter::RunnableModule},
 };
 
-/// Recursively search for a key in nested JSON, regardless of nesting level
-fn find_nested_value<'a>(json: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
-    match json {
-        serde_json::Value::Object(map) => {
-            // Check if this level has the key
-            if let Some(value) = map.get(key) {
-                return Some(value);
-            }
-            // Recursively search in all object values
-            for value in map.values() {
-                if let Some(found) = find_nested_value(value, key) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        serde_json::Value::Array(arr) => {
-            // Search in array elements
-            for value in arr {
-                if let Some(found) = find_nested_value(value, key) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
+// Use shared utility from core::utils instead of local implementation
+use crate::core::utils::find_nested_value;
 
 pub struct Status {
     app_context: std::sync::Arc<AppContext>,

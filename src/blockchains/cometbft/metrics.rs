@@ -87,10 +87,42 @@ lazy_static! {
         &["chain_id", "network"]
     )
     .unwrap();
+    pub static ref COMETBFT_BLOCK_STUCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_block_stuck_height",
+            "Block height the exporter is currently stuck on (0 if not stuck). Indicates the exporter cannot fetch this block after multiple retries."
+        ),
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COMETBFT_BLOCK_STUCK_DURATION_SECONDS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_block_stuck_duration_seconds",
+            "Duration in seconds the exporter has been stuck on the current block (0 if not stuck)"
+        ),
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COMETBFT_BLOCK_STUCK_RETRY_COUNT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_block_stuck_retry_count",
+            "Number of retry attempts made for the currently stuck block (0 if not stuck)"
+        ),
+        &["chain_id", "network"]
+    )
+    .unwrap();
     pub static ref COMETBFT_VALIDATOR_MISSED_BLOCKS: CounterVec = CounterVec::new(
         Opts::new(
             "rcosmos_cometbft_validator_missed_blocks",
             "Number of blocks missed by validator"
+        ),
+        &["address", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COMETBFT_VALIDATOR_TOTAL_BLOCKS: CounterVec = CounterVec::new(
+        Opts::new(
+            "rcosmos_cometbft_validator_total_blocks",
+            "Total number of blocks where validator was in active set (total opportunities to sign)"
         ),
         &["address", "chain_id", "network", "alerts"]
     )
@@ -137,6 +169,14 @@ lazy_static! {
         &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
+    pub static ref COMETBFT_VALIDATOR_6M_UPTIME: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_validator_6m_uptime",
+            "Uptime over 6 months"
+        ),
+        &["address", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
     pub static ref COMETBFT_VALIDATOR_1D_SIGNED_BLOCKS: GaugeVec = GaugeVec::new(
         Opts::new(
             "rcosmos_cometbft_validator_1d_signed_blocks",
@@ -165,6 +205,14 @@ lazy_static! {
         Opts::new(
             "rcosmos_cometbft_validator_30d_signed_blocks",
             "Number of blocks signed by validator in the last 30 days"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COMETBFT_VALIDATOR_6M_SIGNED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_validator_6m_signed_blocks",
+            "Number of blocks signed by validator in the last 6 months"
         ),
         &["address", "chain_id", "network"]
     )
@@ -201,6 +249,14 @@ lazy_static! {
         &["address", "chain_id", "network"]
     )
     .unwrap();
+    pub static ref COMETBFT_VALIDATOR_6M_TOTAL_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_validator_6m_total_blocks",
+            "Number of blocks signed by validator in the last 6 months"
+        ),
+        &["address", "chain_id", "network"]
+    )
+    .unwrap();
     pub static ref COMETBFT_VALIDATOR_1D_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
         Opts::new(
             "rcosmos_cometbft_validator_1d_missed_blocks",
@@ -229,6 +285,14 @@ lazy_static! {
         Opts::new(
             "rcosmos_cometbft_validator_30d_missed_blocks",
             "Number of blocks missed by validator in the last 30 days"
+        ),
+        &["address", "chain_id", "network", "alerts"]
+    )
+    .unwrap();
+    pub static ref COMETBFT_VALIDATOR_6M_MISSED_BLOCKS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_validator_6m_missed_blocks",
+            "Number of blocks missed by validator in the last 6 months"
         ),
         &["address", "chain_id", "network", "alerts"]
     )
@@ -318,7 +382,19 @@ pub fn cometbft_custom_metrics() {
         .register(Box::new(COMETBFT_BLOCK_GAP.clone()))
         .unwrap();
     REGISTRY
+        .register(Box::new(COMETBFT_BLOCK_STUCK_HEIGHT.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_BLOCK_STUCK_DURATION_SECONDS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_BLOCK_STUCK_RETRY_COUNT.clone()))
+        .unwrap();
+    REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_MISSED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_VALIDATOR_TOTAL_BLOCKS.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_PROPOSED_BLOCKS.clone()))
@@ -339,6 +415,9 @@ pub fn cometbft_custom_metrics() {
         .register(Box::new(COMETBFT_VALIDATOR_30D_UPTIME.clone()))
         .unwrap();
     REGISTRY
+        .register(Box::new(COMETBFT_VALIDATOR_6M_UPTIME.clone()))
+        .unwrap();
+    REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_1D_SIGNED_BLOCKS.clone()))
         .unwrap();
     REGISTRY
@@ -349,6 +428,9 @@ pub fn cometbft_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_30D_SIGNED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_VALIDATOR_6M_SIGNED_BLOCKS.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_1D_TOTAL_BLOCKS.clone()))
@@ -363,6 +445,9 @@ pub fn cometbft_custom_metrics() {
         .register(Box::new(COMETBFT_VALIDATOR_30D_TOTAL_BLOCKS.clone()))
         .unwrap();
     REGISTRY
+        .register(Box::new(COMETBFT_VALIDATOR_6M_TOTAL_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_1D_MISSED_BLOCKS.clone()))
         .unwrap();
     REGISTRY
@@ -373,6 +458,9 @@ pub fn cometbft_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_30D_MISSED_BLOCKS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_VALIDATOR_6M_MISSED_BLOCKS.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_NODE_ID.clone()))

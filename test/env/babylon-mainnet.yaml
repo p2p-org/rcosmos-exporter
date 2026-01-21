@@ -61,6 +61,7 @@ network:
         enabled: true
       uptime:
         persistence: true
+        insert_concurrency: 1
 
   tendermint:
     bank:

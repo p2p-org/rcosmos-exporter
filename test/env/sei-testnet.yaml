@@ -126,7 +126,10 @@ network:
       enabled: true
       interval: 10
       window: 500
+      concurrency: 5
       tx:
         enabled: true
       uptime:
-        persistence: true
+          persistence: true
+          # Controls how many blocks' signatures we buffer before flushing to ClickHouse.
+          insert_concurrency: 50

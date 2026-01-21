@@ -31,6 +31,7 @@ pub struct MetricsConfig {
     pub path: String,
 }
 
+
 /// Node configuration for RPC and LCD endpoints
 #[derive(Debug, Deserialize, Clone)]
 pub struct NodeConfig {
@@ -59,6 +60,8 @@ pub struct NetworkConfig {
     pub coredao: CoreDaoConfig,
     #[serde(default)]
     pub sei: SeiConfig,
+    #[serde(default)]
+    pub axelar: AxelarConfig,
     // Add more blockchain configs as needed
 }
 
@@ -122,6 +125,15 @@ pub struct CometBFTBlockConfig {
     pub window: u64,
     #[serde(default = "default_concurrency_1")]
     pub concurrency: usize,
+    /// Timeout in seconds for block fetch requests (defaults to general.rpc_timeout_seconds if not set)
+    /// For large blocks (like Celestia), you may want to increase this (e.g., 120-180 seconds)
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+    /// Threshold (in blocks) for enabling catch-up mode optimizations.
+    /// When gap > catchup_mode_threshold, non-critical metrics are deferred to maximize throughput.
+    /// Defaults to 1000 blocks.
+    #[serde(default = "default_catchup_mode_threshold_1000")]
+    pub catchup_mode_threshold: usize,
     #[serde(default)]
     pub tx: CometBFTBlockTxConfig,
     #[serde(default)]
@@ -132,6 +144,10 @@ fn default_concurrency_1() -> usize {
     1
 }
 
+fn default_catchup_mode_threshold_1000() -> usize {
+    1000
+}
+
 impl Default for CometBFTBlockConfig {
     fn default() -> Self {
         Self {
@@ -139,6 +155,8 @@ impl Default for CometBFTBlockConfig {
             interval: 10,
             window: 500,
             concurrency: 1,
+            timeout_seconds: None,
+            catchup_mode_threshold: default_catchup_mode_threshold_1000(),
             tx: CometBFTBlockTxConfig::default(),
             uptime: CometBFTBlockUptimeConfig::default(),
         }
@@ -161,12 +179,23 @@ impl Default for CometBFTBlockTxConfig {
 pub struct CometBFTBlockUptimeConfig {
     #[serde(default)]
     pub persistence: bool,
+    /// How many blocks to batch together when inserting validator signatures into ClickHouse.
+    /// Higher values improve throughput but increase per-batch latency. Defaults to 15.
+    #[serde(default = "default_insert_concurrency_15")]
+    pub insert_concurrency: usize,
 }
 
 impl Default for CometBFTBlockUptimeConfig {
     fn default() -> Self {
-        Self { persistence: false }
+        Self {
+            persistence: false,
+            insert_concurrency: default_insert_concurrency_15(),
+        }
     }
+}
+
+fn default_insert_concurrency_15() -> usize {
+    15
 }
 
 /// Tendermint module configuration (all fields required)
@@ -625,6 +654,19 @@ pub struct SeiBlockConfig {
     pub interval: u64,
     #[serde(default = "default_window_500")]
     pub window: u64,
+    /// Concurrency for Sei block fetching (matches CometBFT semantics).
+    /// Defaults to 1 to preserve existing behavior when unset.
+    #[serde(default = "default_concurrency_1")]
+    pub concurrency: usize,
+    /// Timeout in seconds for block fetch requests (defaults to general.rpc_timeout_seconds if not set)
+    /// For large blocks (like Celestia), you may want to increase this (e.g., 120-180 seconds)
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+    /// Threshold (in blocks) for enabling catch-up mode optimizations.
+    /// When gap > catchup_mode_threshold, non-critical metrics are deferred to maximize throughput.
+    /// Defaults to 1000 blocks.
+    #[serde(default = "default_catchup_mode_threshold_1000")]
+    pub catchup_mode_threshold: usize,
     #[serde(default)]
     pub tx: SeiBlockTxConfig,
     #[serde(default)]
@@ -637,6 +679,9 @@ impl Default for SeiBlockConfig {
             enabled: false,
             interval: 10,
             window: 500,
+            concurrency: 1,
+            timeout_seconds: None,
+            catchup_mode_threshold: default_catchup_mode_threshold_1000(),
             tx: SeiBlockTxConfig::default(),
             uptime: SeiBlockUptimeConfig::default(),
         }
@@ -661,10 +706,73 @@ impl Default for SeiBlockTxConfig {
 pub struct SeiBlockUptimeConfig {
     #[serde(default)]
     pub persistence: bool,
+    /// How many blocks' signatures to buffer before flushing to ClickHouse.
+    /// Matches CometBFT semantics (insert_concurrency), but scoped to Sei.
+    #[serde(default = "default_insert_concurrency_15")]
+    pub insert_concurrency: usize,
 }
 
 impl Default for SeiBlockUptimeConfig {
     fn default() -> Self {
-        Self { persistence: false }
+        Self {
+            persistence: false,
+            insert_concurrency: default_insert_concurrency_15(),
+        }
+    }
+}
+
+/// Axelar module configuration
+#[derive(Debug, Deserialize, Clone)]
+pub struct AxelarConfig {
+    #[serde(default)]
+    pub broadcaster: AxelarBroadcasterConfig,
+}
+
+impl Default for AxelarConfig {
+    fn default() -> Self {
+        Self {
+            broadcaster: AxelarBroadcasterConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AxelarBroadcasterConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_interval_10")]
+    pub interval: u64,
+    #[serde(default = "default_axelarscan_api")]
+    pub axelarscan_api: String,
+    #[serde(default)]
+    pub alerting: AxelarBroadcasterAlertingConfig,
+}
+
+fn default_axelarscan_api() -> String {
+    "https://api.axelarscan.io".to_string()
+}
+
+impl Default for AxelarBroadcasterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval: 10,
+            axelarscan_api: default_axelarscan_api(),
+            alerting: AxelarBroadcasterAlertingConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AxelarBroadcasterAlertingConfig {
+    #[serde(default)]
+    pub addresses: Vec<String>,
+}
+
+impl Default for AxelarBroadcasterAlertingConfig {
+    fn default() -> Self {
+        Self {
+            addresses: Vec::new(),
+        }
     }
 }

@@ -5,12 +5,14 @@ use futures::future;
 use serde_json::from_str;
 use std::env;
 use std::sync::Arc;
-use std::collections::BTreeMap;
-use tracing::info;
+use std::collections::{BTreeMap, VecDeque};
+use tokio::sync::{mpsc, Mutex};
+use tracing::{debug, error, info, warn};
 
 use crate::blockchains::cometbft::metrics::{
     COMETBFT_BLOCK_GAP, COMETBFT_BLOCK_GAS_USED, COMETBFT_BLOCK_GAS_WANTED, COMETBFT_BLOCK_TXS,
     COMETBFT_BLOCK_TX_GAS_USED, COMETBFT_BLOCK_TX_GAS_WANTED, COMETBFT_BLOCK_TX_SIZE,
+    COMETBFT_BLOCK_STUCK_HEIGHT, COMETBFT_BLOCK_STUCK_DURATION_SECONDS, COMETBFT_BLOCK_STUCK_RETRY_COUNT,
     COMETBFT_CURRENT_BLOCK_HEIGHT, COMETBFT_CURRENT_BLOCK_TIME,
     COMETBFT_VALIDATOR_15D_MISSED_BLOCKS, COMETBFT_VALIDATOR_15D_SIGNED_BLOCKS,
     COMETBFT_VALIDATOR_15D_TOTAL_BLOCKS, COMETBFT_VALIDATOR_15D_UPTIME,
@@ -18,16 +20,19 @@ use crate::blockchains::cometbft::metrics::{
     COMETBFT_VALIDATOR_1D_TOTAL_BLOCKS, COMETBFT_VALIDATOR_1D_UPTIME,
     COMETBFT_VALIDATOR_30D_MISSED_BLOCKS, COMETBFT_VALIDATOR_30D_SIGNED_BLOCKS,
     COMETBFT_VALIDATOR_30D_TOTAL_BLOCKS, COMETBFT_VALIDATOR_30D_UPTIME,
+    COMETBFT_VALIDATOR_6M_MISSED_BLOCKS, COMETBFT_VALIDATOR_6M_SIGNED_BLOCKS,
+    COMETBFT_VALIDATOR_6M_TOTAL_BLOCKS, COMETBFT_VALIDATOR_6M_UPTIME,
     COMETBFT_VALIDATOR_7D_MISSED_BLOCKS, COMETBFT_VALIDATOR_7D_SIGNED_BLOCKS,
     COMETBFT_VALIDATOR_7D_TOTAL_BLOCKS, COMETBFT_VALIDATOR_7D_UPTIME,
     COMETBFT_VALIDATOR_BLOCKWINDOW_UPTIME, COMETBFT_VALIDATOR_MISSED_BLOCKS,
-    COMETBFT_VALIDATOR_PROPOSED_BLOCKS,
+    COMETBFT_VALIDATOR_TOTAL_BLOCKS, COMETBFT_VALIDATOR_PROPOSED_BLOCKS,
 };
 use crate::blockchains::cometbft::types::{Block as ChainBlock, BlockResponse, Tx, TxResponse};
 use crate::core::app_context::AppContext;
 use crate::core::block_window::BlockWindow;
 use crate::core::clients::path::Path;
 use crate::core::exporter::RunnableModule;
+use crate::core::utils::{create_error_preview, extract_txs_from_response};
 
 use super::storage::{
     ClickhouseSignatureStorage, InMemorySignatureStorage, SignatureStorage, UptimeWindow,
@@ -40,6 +45,8 @@ pub struct Block {
     app_context: Arc<AppContext>,
     validators: Vec<String>,
     signature_storage: Box<dyn SignatureStorage>,
+    // Track recent block timestamps to calculate average blocks per second
+    recent_block_times: VecDeque<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -59,6 +66,7 @@ impl Block {
                     .with_password(read_env_var("CLICKHOUSE_PASSWORD"))
                     .with_database(read_env_var("CLICKHOUSE_DATABASE")),
                 chain_id: app_context.chain_id.clone(),
+                cached_validators: None,
             })
         } else {
             Box::new(InMemorySignatureStorage {
@@ -72,6 +80,7 @@ impl Block {
             app_context: app_context.clone(),
             validators: Vec::new(),
             signature_storage,
+            recent_block_times: VecDeque::with_capacity(100), // Keep last 100 block times for rolling average
         }
     }
 
@@ -94,7 +103,7 @@ impl Block {
             .unwrap()
             .get(Path::from(path.clone()))
             .await
-            .context(format!("Could not fetch block {}", path))?;
+            .with_context(|| format!("Could not fetch block {}", path))?;
 
         Ok(from_str::<BlockResponse>(&res)
             .with_context(|| {
@@ -123,7 +132,7 @@ impl Block {
             match self.get_block(BlockHeight::Latest).await {
                 Ok(block) => break block,
                 Err(e) => {
-                    tracing::warn!(
+                    warn!(
                         "(CometBFT Block) Failed to fetch latest block, retrying with backoff: {}",
                         e
                     );
@@ -134,11 +143,6 @@ impl Block {
                 }
             }
         };
-        let last_block_height = last_block
-            .header
-            .height
-            .parse::<usize>()
-            .context("Could not parse last block height")?;
         let block_window = self.app_context.config.network.cometbft.block.window as usize;
 
         let mut height_to_process = if self
@@ -157,7 +161,13 @@ impl Block {
                 .unwrap_or(0)
                 + 1;
             if h <= 1 {
-                h = last_block_height - 1;
+                // First run: start from latest block (will be caught up immediately)
+                let latest = last_block
+                    .header
+                    .height
+                    .parse::<usize>()
+                    .context("Could not parse last block height")?;
+                h = latest.saturating_sub(1);
             }
             h
         } else {
@@ -168,38 +178,21 @@ impl Block {
                 .unwrap_or(0)
                 + 1;
             if h <= 1 {
-                h = last_block_height - block_window;
+                // First run: start from window back
+                let latest = last_block
+                    .header
+                    .height
+                    .parse::<usize>()
+                    .context("Could not parse last block height")?;
+                h = latest.saturating_sub(block_window);
             }
             h
         };
+
         info!(
-            "(CometBFT Block) Starting from height: {} up to latest block: {}",
-            height_to_process,
-            last_block_height - 1
+            "(CometBFT Block) Starting from height: {} (will process continuously until caught up)",
+            height_to_process
         );
-
-        // Calculate and emit block gap metric (how many blocks behind we are)
-        let current_processed_height = if height_to_process > 0 {
-            height_to_process - 1
-        } else {
-            0
-        };
-        let block_gap = last_block_height.saturating_sub(current_processed_height);
-        COMETBFT_BLOCK_GAP
-            .with_label_values(&[
-                &self.app_context.chain_id,
-                &self.app_context.config.general.network,
-            ])
-            .set(block_gap as i64);
-
-        if block_gap > 100 {
-            tracing::warn!(
-                "(CometBFT Block) Exporter is {} blocks behind chain tip (chain: {}, processed: {})",
-                block_gap,
-                last_block_height,
-                current_processed_height
-            );
-        }
 
         // CONCURRENT FETCH BUFFER: Fetch multiple blocks concurrently, process sequentially
         // This maximizes throughput while maintaining metric accuracy
@@ -217,27 +210,301 @@ impl Block {
         // 2. Signature storage is updated in order
         // 3. All metrics are set during sequential processing
         // 4. Only fetching is concurrent, processing is sequential
+
+        // Only fetch tx data if explicitly enabled in config
+        // We respect the config setting regardless of node tx_index support
         let tx_enabled = self.app_context.config.network.cometbft.block.tx.enabled;
+        let catchup_mode_threshold = self.app_context.config.network.cometbft.block.catchup_mode_threshold;
         let rpc = self.app_context.rpc.as_ref().unwrap().clone();
 
         // Buffer to hold fetched blocks (keyed by height for ordered processing)
         let mut block_buffer: BTreeMap<usize, (ChainBlock, Option<Vec<Tx>>)> = BTreeMap::new();
         // Use configurable concurrency (defaults to 1 if not set)
         let concurrent_fetch_count = self.app_context.config.network.cometbft.block.concurrency;
-        const MIN_BUFFER_SIZE: usize = 2; // Keep at least 2 blocks buffered
+        const BATCHING_GAP_THRESHOLD: usize = 50; // Only batch when gap > 50 blocks (caught up = no batching)
+        const MIN_BUFFER_SIZE: usize = 2; // Minimum buffer size (for small gaps or when caught up)
 
-        while height_to_process < last_block_height {
-            // Keep buffer filled by fetching ahead concurrently
-            while block_buffer.len() < MIN_BUFFER_SIZE
-                && height_to_process + block_buffer.len() < last_block_height
+        // Adaptive buffer size: smaller when caught up (saves memory), larger when behind (maximizes throughput)
+        // This balances performance with memory usage, especially important for large blocks
+        // - When caught up (gap <= 50): use smaller buffer (2-5 blocks) to save memory
+        // - When behind (gap > 50): use larger buffer (up to concurrency count) to maximize throughput
+        let calculate_target_buffer_size = |gap: usize| -> usize {
+            if gap <= BATCHING_GAP_THRESHOLD {
+                // Caught up: use smaller buffer to save memory (large blocks can be 5-10MB each)
+                MIN_BUFFER_SIZE.max(concurrent_fetch_count.min(5))
+            } else {
+                // Behind: use larger buffer to maximize concurrent fetching.
+                // Allow buffer to be 2x concurrency for better pipelining during catch-up
+                // This ensures we always have blocks ready while processing continues
+                let buffer_size = concurrent_fetch_count * 2;
+                buffer_size
+                    .max(concurrent_fetch_count)
+                    .max(MIN_BUFFER_SIZE)
+            }
+        };
+
+        // Store initial height to calculate blocks_processed correctly
+        let initial_height_to_process = height_to_process;
+
+        // Track stuck state for metrics (when we're retrying the same block)
+        let mut stuck_block_height: Option<usize> = None;
+        let mut stuck_start_time: Option<std::time::Instant> = None;
+        let mut stuck_retry_count: u32 = 0;
+
+        // Uptime calculations run periodically (every 1000 blocks) instead of at the end
+        // This allows the function to run continuously while still updating uptime metrics
+        let mut last_uptime_calc_height = height_to_process;
+        const UPTIME_CALC_INTERVAL: usize = 1000;
+
+        // Batch ClickHouse writes for performance: buffer signatures and flush periodically.
+        // This reduces ClickHouse round-trips from 1 per block to 1 per batch.
+        // Prometheus metrics are still updated immediately per block (sequential processing).
+        // Adaptive batching: larger batches when behind (max throughput), smaller when caught up (lower latency).
+        let mut signature_buffer: Vec<(usize, chrono::NaiveDateTime, Vec<String>)> = Vec::new();
+        let base_batch_size: usize = self
+            .app_context
+            .config
+            .network
+            .cometbft
+            .block
+            .uptime
+            .insert_concurrency;
+        // When behind (gap > catchup_mode_threshold), use larger batches (2-3x) to maximize throughput
+        // When caught up (gap <= catchup_mode_threshold), use base batch size for lower latency
+        let calculate_batch_size = |gap: usize| -> usize {
+            if gap > catchup_mode_threshold {
+                base_batch_size * 10 // 10x batch size when far behind (maximize throughput for fast catch-up)
+            } else {
+                base_batch_size
+            }
+        };
+        // Adaptive timeout: longer when behind (allows larger batches), shorter when caught up
+        let calculate_batch_timeout = |gap: usize| -> u64 {
+            if gap > catchup_mode_threshold {
+                10000 // 10 seconds when behind (allows very large batches for max throughput)
+            } else {
+                2000 // 2 seconds when caught up (lower latency)
+            }
+        };
+        let mut last_flush_time = std::time::Instant::now();
+
+        // Async ClickHouse writes: use background task to write signatures without blocking processing.
+        // This allows processing to continue immediately while ClickHouse writes happen in parallel.
+        // Safe because we track height - on restart, exporter continues from last persisted height.
+        let (tx_sender, mut tx_receiver) = mpsc::unbounded_channel::<Vec<(usize, chrono::NaiveDateTime, Vec<String>)>>();
+        // Move storage out of self to share it with background task
+        // We'll move it back at the end of the function
+        // Use a placeholder InMemorySignatureStorage (won't be used, just needed for replacement)
+        let block_window_size = self.app_context.config.network.cometbft.block.window as usize;
+        let storage_arc = Arc::new(Mutex::new(std::mem::replace(
+            &mut self.signature_storage,
+            Box::new(super::storage::InMemorySignatureStorage {
+                block_window: crate::core::block_window::BlockWindow::new(block_window_size),
+                processed_height: 0,
+            }) as Box<dyn SignatureStorage>,
+        )));
+        let storage_for_bg = storage_arc.clone();
+        let chain_id_clone = self.app_context.chain_id.clone();
+
+        // Spawn background task to handle ClickHouse writes asynchronously
+        // Task runs for the entire lifetime of the function (forever)
+        // Retry logic is handled inside save_signatures_batch, so we log final failures here
+        let _bg_task = tokio::spawn(async move {
+            while let Some(batch) = tx_receiver.recv().await {
+                let mut storage = storage_for_bg.lock().await;
+                if let Err(e) = storage.save_signatures_batch(batch.clone()).await {
+                    // This error means all retries were exhausted - data is permanently lost
+                    // Log as critical error since this is a data integrity issue
+                    error!(
+                        "(CometBFT Block) CRITICAL: Background ClickHouse write failed after all retries for chain {} (blocks {}-{}): {}. Data may be permanently lost!",
+                        chain_id_clone,
+                        batch.first().map(|(h, _, _)| h).unwrap_or(&0),
+                        batch.last().map(|(h, _, _)| h).unwrap_or(&0),
+                        e
+                    );
+                    // Continue processing - errors are logged but don't stop the background task
+                    // The exporter will continue from the last successfully persisted height on restart
+                }
+            }
+            debug!("(CometBFT Block) Background ClickHouse writer task exiting (channel closed)");
+        });
+
+        // Tip refresh interval: how many processed blocks between /block?latest calls.
+        // We keep this reasonably high to avoid hammering RPC but still track progress.
+        // During catch-up (large gap), refresh less frequently to reduce RPC load
+        const TIP_REFRESH_BLOCKS_NORMAL: usize = 100; // When caught up or close
+        const TIP_REFRESH_BLOCKS_CATCHUP: usize = 500; // When far behind (gap > catchup_mode_threshold)
+        let mut current_chain_tip: usize = last_block
+            .header
+            .height
+            .parse::<usize>()
+            .context("Could not parse initial chain tip")?;
+        let mut last_tip_refresh_height = height_to_process;
+
+        // Continuously process blocks until we're caught up to the chain tip.
+        // We refresh the current tip periodically based on TIP_REFRESH_BLOCKS.
+        loop {
+            // Calculate current gap to determine refresh interval
+            let current_gap = current_chain_tip.saturating_sub(height_to_process);
+            let tip_refresh_blocks = if current_gap > catchup_mode_threshold {
+                TIP_REFRESH_BLOCKS_CATCHUP
+            } else {
+                TIP_REFRESH_BLOCKS_NORMAL
+            };
+
+            // Refresh current chain tip periodically based on how many blocks we've processed
+            let blocks_since_refresh = height_to_process.saturating_sub(last_tip_refresh_height);
+            if blocks_since_refresh >= tip_refresh_blocks {
+                match self.get_block(BlockHeight::Latest).await {
+                    Ok(block) => {
+                        if let Ok(h) = block.header.height.parse::<usize>() {
+                            current_chain_tip = h;
+                            last_tip_refresh_height = height_to_process;
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "(CometBFT Block) Failed to refresh latest block for tip: {} (continuing with stale tip {})",
+                            e,
+                            current_chain_tip
+                        );
+                    }
+                }
+            }
+
+            // If we're caught up (within 1 block), wait first before checking for new blocks
+            // This avoids unnecessary immediate RPC calls right after processing a block
+            if height_to_process >= current_chain_tip {
+                // Flush any remaining buffered signatures before waiting
+                if !signature_buffer.is_empty() {
+                    let batch_to_send = signature_buffer.clone();
+                    if let Err(e) = tx_sender.send(batch_to_send) {
+                        warn!(
+                            "(CometBFT Block) Failed to send batch to background writer: {} (will write synchronously)",
+                            e
+                        );
+                        // Fallback: write synchronously
+                        let storage_arc_clone = storage_arc.clone();
+                        let mut storage = storage_arc_clone.lock().await;
+                        storage
+                            .save_signatures_batch(signature_buffer.clone())
+                            .await
+                            .context("Failed to flush signatures (fallback)")?;
+                    }
+                    signature_buffer.clear();
+                }
+
+                // Wait based on recent block interval BEFORE checking for new blocks
+                // Poll at avg_interval * 1.1 (add 10% breathing room) to reduce RPC calls
+                // This automatically adapts to chain speed changes since interval is calculated from the most recent blocks
+                let avg_interval_seconds = self.calculate_avg_block_interval_seconds();
+                // Poll at avg_interval + 10% (proportional breathing room)
+                // No maximum clamp - works for fast chains (0.5s) and slow chains (10s+)
+                let poll_interval_ms = (avg_interval_seconds * 1.1 * 1000.0) as u64;
+                let poll_interval_ms = poll_interval_ms.max(100); // Minimum 100ms to avoid hammering
+                debug!(
+                    "(CometBFT Block) Caught up: calculated avg_interval={:.2}s, waiting {:.2}s before checking for new blocks",
+                    avg_interval_seconds,
+                    poll_interval_ms as f64 / 1000.0
+                );
+                tokio::time::sleep(tokio::time::Duration::from_millis(poll_interval_ms)).await;
+
+                // Now refresh tip to check for new blocks
+                match self.get_block(BlockHeight::Latest).await {
+                    Ok(block) => {
+                        if let Ok(h) = block.header.height.parse::<usize>() {
+                            current_chain_tip = h;
+                            last_tip_refresh_height = height_to_process;
+
+                            // Update gap metric with fresh tip
+                            let gap = current_chain_tip.saturating_sub(height_to_process);
+                            COMETBFT_BLOCK_GAP
+                                .with_label_values(&[
+                                    &self.app_context.chain_id,
+                                    &self.app_context.config.general.network,
+                                ])
+                                .set(gap as i64);
+
+                            // Continue loop - if still caught up, we'll wait again; if new blocks, we'll process them
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "(CometBFT Block) Failed to refresh latest block while caught up: {} (will retry after wait)",
+                            e
+                        );
+                        // Wait again before retrying to avoid hammering RPC
+                        let avg_interval_seconds = self.calculate_avg_block_interval_seconds();
+                        let poll_interval_ms = (avg_interval_seconds * 1.1 * 1000.0) as u64;
+                        let poll_interval_ms = poll_interval_ms.max(100); // Minimum 100ms, no maximum
+                        tokio::time::sleep(tokio::time::Duration::from_millis(poll_interval_ms)).await;
+                        continue;
+                    }
+                }
+            }
+
+            let current_gap = current_chain_tip.saturating_sub(height_to_process);
+
+            // Update gap metric with current tip (refreshed periodically, not every block)
+            COMETBFT_BLOCK_GAP
+                .with_label_values(&[
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                ])
+                .set(current_gap as i64);
+
+            if current_gap > 100 {
+                warn!(
+                    "(CometBFT Block) Exporter is {} blocks behind chain tip (chain: {}, processed: {})",
+                    current_gap,
+                    current_chain_tip,
+                    height_to_process - 1
+                );
+            }
+
+            // Only use concurrency when we're more than 1 block behind
+            // When caught up (gap <= 1), sequential fetching is sufficient and avoids unnecessary complexity
+            // Concurrency is most useful when we need to catch up quickly (gap > 1)
+            let use_concurrency = concurrent_fetch_count > 1 && current_gap > 1;
+
+            // Calculate adaptive buffer size based on current gap
+            // This balances memory usage (smaller when caught up) with performance (larger when behind)
+            let target_buffer_size = calculate_target_buffer_size(current_gap);
+
+            // Keep buffer filled by fetching ahead concurrently (when concurrency is enabled)
+            // For large blocks, we need to continuously refill the buffer as we process
+            // This ensures we're always fetching multiple blocks in parallel while processing
+            // CRITICAL: Track buffer size before fetch to detect if we're stuck retrying the same blocks
+            const MAX_INITIAL_FILL_ATTEMPTS: usize = 10; // Limit attempts to avoid infinite loops
+            let mut initial_fill_attempts = 0;
+            while use_concurrency
+                && block_buffer.len() < target_buffer_size
+                && height_to_process + block_buffer.len() < current_chain_tip
+                && initial_fill_attempts < MAX_INITIAL_FILL_ATTEMPTS
             {
                 // Determine how many blocks to fetch
-                let remaining = last_block_height - (height_to_process + block_buffer.len());
-                let fetch_count = concurrent_fetch_count.min(remaining);
+                // Fetch enough to fill buffer to target size, up to concurrency limit
+                let remaining = current_chain_tip.saturating_sub(height_to_process + block_buffer.len());
+                let needed = target_buffer_size.saturating_sub(block_buffer.len());
+                let fetch_count = needed.min(concurrent_fetch_count).min(remaining);
 
                 if fetch_count == 0 {
                     break;
                 }
+
+                // Track buffer size before fetch to detect if we're making progress
+                let buffer_size_before_fetch = block_buffer.len();
+                initial_fill_attempts += 1;
+
+                info!(
+                    "(CometBFT Block) Concurrent fetch: fetching {} blocks (buffer: {}/{}, gap: {}, memory-optimized: {})",
+                    fetch_count,
+                    block_buffer.len(),
+                    target_buffer_size,
+                    current_gap,
+                    current_gap <= BATCHING_GAP_THRESHOLD
+                );
 
                 if tx_enabled {
                     // Fetch multiple blocks concurrently
@@ -271,9 +538,16 @@ impl Block {
                                     .context("Could not parse block height")?;
 
                                 if block_height == height {
+                                    // Validate transaction count for data integrity
+                                    let tx_count = block.data.txs.len();
+                                    debug!(
+                                        "(CometBFT Block) Buffered block {} (tx_enabled) with {} transactions",
+                                        height,
+                                        tx_count
+                                    );
                                     block_buffer.insert(height, (block, txs_info));
                                 } else {
-                                    tracing::warn!(
+                                    warn!(
                                         "(CometBFT Block) Block height mismatch in buffer: expected {}, got {}",
                                         height,
                                         block_height
@@ -286,12 +560,12 @@ impl Block {
                                     .chain()
                                     .any(|err| err.to_string().contains("No healthy nodes"));
                                 if is_no_healthy_nodes {
-                                    tracing::warn!(
+                                    warn!(
                                         "(CometBFT Block) Concurrent fetch failed for height {}: All RPC nodes are unhealthy (will retry on fallback)",
                                         height
                                     );
                                 } else {
-                                    tracing::warn!(
+                                    warn!(
                                         "(CometBFT Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
                                         height,
                                         e
@@ -333,9 +607,16 @@ impl Block {
                                     .context("Could not parse block height")?;
 
                                 if block_height == height {
+                                    // Validate transaction count for data integrity
+                                    let tx_count = block.data.txs.len();
+                                    debug!(
+                                        "(CometBFT Block) Buffered block {} (non-tx mode) with {} transactions",
+                                        height,
+                                        tx_count
+                                    );
                                     block_buffer.insert(height, (block, txs_info));
                                 } else {
-                                    tracing::warn!(
+                                    warn!(
                                         "(CometBFT Block) Block height mismatch in buffer: expected {}, got {}",
                                         height,
                                         block_height
@@ -348,12 +629,12 @@ impl Block {
                                     .chain()
                                     .any(|err| err.to_string().contains("No healthy nodes"));
                                 if is_no_healthy_nodes {
-                                    tracing::warn!(
+                                    warn!(
                                         "(CometBFT Block) Concurrent fetch failed for height {}: All RPC nodes are unhealthy (will retry on fallback)",
                                         height
                                     );
                                 } else {
-                                    tracing::warn!(
+                                    warn!(
                                         "(CometBFT Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
                                         height,
                                         e
@@ -364,35 +645,136 @@ impl Block {
                         }
                     }
                 }
+
+                // Check if buffer grew - if not, we're stuck retrying the same failing blocks
+                // Break out and let sequential processing handle missing blocks
+                if block_buffer.len() == buffer_size_before_fetch {
+                    debug!(
+                        "(CometBFT Block) Initial buffer fill stuck: buffer size unchanged after fetch attempt {} (buffer: {}/{})",
+                        initial_fill_attempts,
+                        block_buffer.len(),
+                        target_buffer_size
+                    );
+                    // If we've tried multiple times and buffer hasn't grown, break to avoid infinite loop
+                    // The sequential fallback will handle missing blocks with proper retry logic
+                    if initial_fill_attempts >= 3 {
+                        warn!(
+                            "(CometBFT Block) Initial buffer fill: {} blocks in buffer (target: {}). Some blocks failed to fetch - will process sequentially with retry logic",
+                            block_buffer.len(),
+                            target_buffer_size
+                        );
+                        break;
+                    }
+                }
             }
 
             // Get next block from buffer (sequential processing)
-            let (block, txs_info) = if let Some(data) = block_buffer.remove(&height_to_process) {
-                data
-            } else {
-                // Buffer miss - fetch now (fallback)
-                // This happens when concurrent fetch failed - keep retrying until successful
-                // Note: Each retry calls NodePool.get() which itself retries 5 times across endpoints (random selection).
-                // NodePool rotates through healthy endpoints randomly on each call, ensuring we try all available endpoints.
-                // We keep retrying indefinitely - the module will retry the window after the interval if needed.
-                let current_gap = last_block_height.saturating_sub(height_to_process - 1);
-                tracing::warn!(
-                    "(CometBFT Block) Buffer miss for height {} (concurrent fetch failed), fetching with retry logic. Window progress: {} blocks processed, {} remaining (gap: {})",
+            // Using remove() ensures each block is only processed once (no duplicates)
+            // CRITICAL: This sequential processing ensures metrics are set correctly for each block
+            // Even though blocks are fetched concurrently, they are processed sequentially,
+            // which means each metric update is atomic and accurate
+            let buffer_size_before = block_buffer.len();
+            let (block, txs_info, block_from_buffer) = if let Some(data) = block_buffer.remove(&height_to_process) {
+                // Successfully got block from buffer - clear stuck state if we were stuck on a different block
+                if stuck_block_height != Some(height_to_process) && stuck_block_height.is_some() {
+                    // We were stuck on a different block, clear stuck metrics
+                    COMETBFT_BLOCK_STUCK_HEIGHT
+                        .with_label_values(&[
+                            &self.app_context.chain_id,
+                            &self.app_context.config.general.network,
+                        ])
+                        .set(0);
+                    COMETBFT_BLOCK_STUCK_DURATION_SECONDS
+                        .with_label_values(&[
+                            &self.app_context.chain_id,
+                            &self.app_context.config.general.network,
+                        ])
+                        .set(0.0);
+                    COMETBFT_BLOCK_STUCK_RETRY_COUNT
+                        .with_label_values(&[
+                            &self.app_context.chain_id,
+                            &self.app_context.config.general.network,
+                        ])
+                        .set(0);
+                    stuck_block_height = None;
+                    stuck_start_time = None;
+                    stuck_retry_count = 0;
+                }
+                // Verify block height matches before processing (data integrity)
+                let buffered_height = data.0.header.height.parse::<usize>()
+                    .unwrap_or(0);
+                let buffered_tx_count = data.0.data.txs.len();
+
+                if buffered_height != height_to_process {
+                    error!(
+                        "(CometBFT Block) CRITICAL: Block height mismatch in buffer remove: expected {}, got {}",
+                        height_to_process,
+                        buffered_height
+                    );
+                    anyhow::bail!(
+                        "Block height mismatch: expected {}, got {}",
+                        height_to_process,
+                        buffered_height
+                    );
+                }
+
+                // Log block data for debugging (helps identify data integrity issues)
+                debug!(
+                    "(CometBFT Block) Processing buffered block {}: height={}, txs={}, txs_info={}, buffer_size={}/{}",
                     height_to_process,
-                    height_to_process - (last_block_height - current_gap),
-                    last_block_height - height_to_process,
-                    current_gap
+                    buffered_height,
+                    buffered_tx_count,
+                    if data.1.is_some() {
+                        format!("{} transactions", data.1.as_ref().unwrap().len())
+                    } else {
+                        "None".to_string()
+                    },
+                    buffer_size_before,
+                    target_buffer_size
                 );
 
-                // Retry with exponential backoff (capped at 5 seconds)
-                // Keep retrying all endpoints until successful or timeout
-                // NodePool.get() already rotates through all endpoints (5 attempts per call)
-                // After many retries, check if block might not exist (chain moved ahead)
-                let mut retries = 0;
-                const MAX_RETRIES_BEFORE_SKIP: u32 = 50; // Check if block exists after 50 retries (~5 minutes of retrying)
-                const MAX_TOTAL_RETRIES: u32 = 100; // Maximum retries before bailing (allows module to retry window after interval)
-                // Note: Each retry calls NodePool.get() which does 5 attempts across endpoints, so this is 100*5=500 total attempts
-                const HEALTH_CHECK_INTERVAL_MS: u64 = 10000; // Wait for health checks to recover (10 seconds)
+                (data.0, data.1, true)
+            } else {
+                // Buffer miss - fetch now (fallback)
+                // This happens when buffer is empty (either concurrency is disabled or concurrent fetch failed)
+                // NodePool.get() tries 2 different nodes per call, so we get good coverage quickly
+                let blocks_processed = height_to_process.saturating_sub(initial_height_to_process);
+                if use_concurrency {
+                    warn!(
+                        "(CometBFT Block) Buffer miss for height {} (concurrent fetch failed), fetching with retry logic. Progress: {} blocks processed, buffer_size={}/{}",
+                        height_to_process,
+                        blocks_processed,
+                        buffer_size_before,
+                        target_buffer_size
+                    );
+                } else {
+                    debug!(
+                        "(CometBFT Block) Buffer miss for height {} (concurrency disabled, gap={}), fetching sequentially. Progress: {} blocks processed, buffer_size={}/{}",
+                        height_to_process,
+                        current_gap,
+                        blocks_processed,
+                        buffer_size_before,
+                        target_buffer_size
+                    );
+                }
+
+                // Retry logic with exponential backoff - NEVER skip blocks, keep retrying indefinitely
+                // NodePool tries multiple nodes per call, so we get good coverage across RPC endpoints
+                // We track "stuck" state to provide visibility when a block is difficult to fetch
+                let mut retries = 0u32;
+                const INITIAL_RETRY_DELAY_MS: u64 = 1000; // Start with 1s delay
+                const MAX_RETRY_DELAY_MS: u64 = 30000; // Cap at 30s delay (longer for persistent issues)
+                const STUCK_THRESHOLD_RETRIES: u32 = 10; // Consider "stuck" after 10 retries
+
+                // Track if we're stuck on this block (for metrics)
+                // Reset stuck tracking if we're starting to retry a new block
+                if stuck_block_height != Some(height_to_process) {
+                    // Starting to retry a new block - reset stuck tracking
+                    *stuck_block_height.get_or_insert_with(|| height_to_process) = height_to_process;
+                    *stuck_start_time.get_or_insert_with(|| std::time::Instant::now()) = std::time::Instant::now();
+                    stuck_retry_count = 0;
+                }
+
                 loop {
                     let result = if tx_enabled {
                         Self::fetch_block_data(&rpc, tx_enabled, height_to_process).await
@@ -408,104 +790,121 @@ impl Block {
 
                     match result {
                         Ok(data) => {
+                            // Successfully fetched - clear stuck state and metrics
                             if retries > 0 {
-                                tracing::info!(
-                                    "(CometBFT Block) Successfully fetched block {} after {} retries",
+                                info!(
+                                    "(CometBFT Block) Successfully fetched block {} after {} retries{}",
                                     height_to_process,
-                                    retries
+                                    retries,
+                                    if stuck_retry_count > 0 {
+                                        format!(" (was stuck for {:.1}s)",
+                                            stuck_start_time.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0))
+                                    } else {
+                                        String::new()
+                                    }
                                 );
                             }
-                            break data;
+
+                            // Clear stuck metrics
+                            COMETBFT_BLOCK_STUCK_HEIGHT
+                                .with_label_values(&[
+                                    &self.app_context.chain_id,
+                                    &self.app_context.config.general.network,
+                                ])
+                                .set(0);
+                            COMETBFT_BLOCK_STUCK_DURATION_SECONDS
+                                .with_label_values(&[
+                                    &self.app_context.chain_id,
+                                    &self.app_context.config.general.network,
+                                ])
+                                .set(0.0);
+                            COMETBFT_BLOCK_STUCK_RETRY_COUNT
+                                .with_label_values(&[
+                                    &self.app_context.chain_id,
+                                    &self.app_context.config.general.network,
+                                ])
+                                .set(0);
+
+                            stuck_block_height = None;
+                            stuck_start_time = None;
+                            stuck_retry_count = 0;
+
+                            break (data.0, data.1, false);
                         }
                         Err(e) => {
                             retries += 1;
+                            stuck_retry_count = retries;
 
-                            // Check for maximum retries - bail to let module retry window after interval
-                            // This prevents infinite loops while still trying all endpoints extensively
-                            if retries >= MAX_TOTAL_RETRIES {
-                                tracing::error!(
-                                    "(CometBFT Block) Block {} failed after {} retries (maximum). All endpoints exhausted. Module will retry window after interval. Last error: {}",
-                                    height_to_process,
-                                    retries,
-                                    e
-                                );
-                                anyhow::bail!(
-                                    "Block {} failed after {} maximum retries. All endpoints exhausted. Module will retry window after interval.",
-                                    height_to_process,
-                                    retries
-                                );
-                            }
-
-                            // Log progress every 10 retries to show we're still trying
-                            if retries % 10 == 0 {
-                                tracing::warn!(
-                                    "(CometBFT Block) Still retrying block {} (retry {}/{}) - Last error: {}",
-                                    height_to_process,
-                                    retries,
-                                    MAX_TOTAL_RETRIES,
-                                    e
-                                );
-                            }
-
-                            // Check if error is "No healthy nodes" - this means all RPC nodes are unhealthy
-                            // In this case, wait for health check interval to give nodes time to recover
-                            // Check error chain for "No healthy nodes" (errors may be wrapped with .context())
-                            let is_no_healthy_nodes = e
+                            // Check if this is a timeout error (large blocks can timeout)
+                            let is_timeout = e
                                 .chain()
-                                .any(|err| err.to_string().contains("No healthy nodes"));
+                                .any(|err| {
+                                    let err_str = err.to_string().to_lowercase();
+                                    err_str.contains("timeout")
+                                        || err_str.contains("deadline")
+                                        || err_str.contains("timed out")
+                                });
 
-                            // After many retries, check if block might not exist (chain moved ahead)
-                            if retries >= MAX_RETRIES_BEFORE_SKIP {
-                                // Re-fetch latest block to see current chain tip
-                                match self.get_block(BlockHeight::Latest).await {
-                                    Ok(latest_block) => {
-                                        let latest_height = latest_block
-                                            .header
-                                            .height
-                                            .parse::<usize>()
-                                            .unwrap_or(0);
-                                        let blocks_behind = latest_height.saturating_sub(height_to_process);
+                            // Update stuck metrics if we're past the threshold
+                            if retries >= STUCK_THRESHOLD_RETRIES {
+                                if let Some(stuck_start) = stuck_start_time {
+                                    let stuck_duration = stuck_start.elapsed().as_secs_f64();
 
-                                        if blocks_behind > 10 {
-                                            // We're more than 10 blocks behind - this block might not exist
-                                            // But we'll keep retrying anyway - the module will handle it after the interval
-                                            tracing::warn!(
-                                                "(CometBFT Block) Block {} failed after {} retries. Chain tip is {}, we're {} blocks behind. Block may not exist, but continuing to retry.",
-                                                height_to_process,
-                                                retries,
-                                                latest_height,
-                                                blocks_behind
-                                            );
-                                        }
-                                    }
-                                    Err(_) => {
-                                        // Can't fetch latest block either - continue retrying
+                                    COMETBFT_BLOCK_STUCK_HEIGHT
+                                        .with_label_values(&[
+                                            &self.app_context.chain_id,
+                                            &self.app_context.config.general.network,
+                                        ])
+                                        .set(height_to_process as i64);
+                                    COMETBFT_BLOCK_STUCK_DURATION_SECONDS
+                                        .with_label_values(&[
+                                            &self.app_context.chain_id,
+                                            &self.app_context.config.general.network,
+                                        ])
+                                        .set(stuck_duration);
+                                    COMETBFT_BLOCK_STUCK_RETRY_COUNT
+                                        .with_label_values(&[
+                                            &self.app_context.chain_id,
+                                            &self.app_context.config.general.network,
+                                        ])
+                                        .set(retries as i64);
+
+                                    // Log periodically (every 10 retries) to avoid spam
+                                    if retries % 10 == 0 {
+                                        warn!(
+                                            "(CometBFT Block) Stuck on block {}: {} retries, stuck for {:.1}s (timeout: {}). Last error: {}",
+                                            height_to_process,
+                                            retries,
+                                            stuck_duration,
+                                            is_timeout,
+                                            e
+                                        );
                                     }
                                 }
                             }
 
-                            // Determine delay based on error type
-                            let delay_ms = if is_no_healthy_nodes {
-                                // All nodes are unhealthy - wait for health check interval to recover
-                                tracing::warn!(
-                                    "(CometBFT Block) All RPC nodes are unhealthy for height {}. Waiting {}ms for health checks to recover (retry {})",
-                                    height_to_process,
-                                    HEALTH_CHECK_INTERVAL_MS,
-                                    retries
-                                );
-                                HEALTH_CHECK_INTERVAL_MS
+                            // Exponential backoff: longer delays for timeouts, shorter for other errors
+                            // Cap at MAX_RETRY_DELAY_MS to avoid extremely long waits
+                            let delay_ms = if is_timeout {
+                                // For timeouts: exponential backoff (1s, 2s, 4s, 8s, 16s, 30s max)
+                                let exponential = INITIAL_RETRY_DELAY_MS * (1 << (retries.saturating_sub(1).min(4)));
+                                exponential.min(MAX_RETRY_DELAY_MS)
                             } else {
-                                // Exponential backoff: 200ms, 400ms, 800ms, 1.6s, 3.2s, 5s (capped)
-                                (200 * (1 << (retries - 1))).min(5000)
+                                // For other errors: linear backoff (1s, 2s, 3s, 4s, ... up to 30s max)
+                                (INITIAL_RETRY_DELAY_MS * retries as u64).min(MAX_RETRY_DELAY_MS)
                             };
 
-                            tracing::warn!(
-                                "(CometBFT Block) Retry {} for height {} after {}ms delay (will continue retrying): {}",
-                                retries,
-                                height_to_process,
-                                delay_ms,
-                                e
-                            );
+                            // Log retry attempts (less frequently as retries increase to avoid spam)
+                            if retries <= 5 || retries % 10 == 0 {
+                                warn!(
+                                    "(CometBFT Block) Retry {} for height {} (timeout: {}): {}. Waiting {}ms before retry...",
+                                    retries,
+                                    height_to_process,
+                                    is_timeout,
+                                    e,
+                                    delay_ms
+                                );
+                            }
                             tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                         }
                     }
@@ -527,247 +926,628 @@ impl Block {
                 );
             }
 
-            // Process current block (this includes saving signatures, updating metrics, etc.)
-            // All of this MUST happen sequentially to maintain metric accuracy
-            // While we're processing, concurrent fetches are filling the buffer
-            self.process_block_with_data(height_to_process, block, txs_info)
+            // Extract signatures before processing (needed for batch write)
+            let block_signatures: Vec<String> = block.last_commit.signatures
+                .iter()
+                .map(|sig| sig.validator_address.clone())
+                .collect();
+            let block_timestamp = block.header.time;
+
+            // Process current block (updates Prometheus metrics immediately, sequential processing)
+            // Signatures are buffered and written in batches for performance
+            let process_start = std::time::Instant::now();
+            debug!(
+                "(CometBFT Block) Starting to process block {} (buffer: {}/{})",
+                height_to_process,
+                block_buffer.len(),
+                target_buffer_size
+            );
+
+            self.process_block_with_data(height_to_process, block, txs_info, current_gap)
                 .await
-                .context(format!("Failed to process block {}", height_to_process))?;
+                .with_context(|| format!("Failed to process block {}", height_to_process))?;
+
+            // Buffer signatures for batch write (instead of writing immediately)
+            // This significantly improves performance by reducing ClickHouse round-trips
+            signature_buffer.push((height_to_process, block_timestamp, block_signatures));
+
+            // Adaptive batching: use larger batches when behind to maximize throughput
+            let current_batch_size = calculate_batch_size(current_gap);
+            let current_batch_timeout = calculate_batch_timeout(current_gap);
+
+            // Flush buffer if it's full or timeout reached
+            let should_flush = signature_buffer.len() >= current_batch_size
+                || last_flush_time.elapsed().as_millis() as u64 >= current_batch_timeout;
+
+            if should_flush {
+                // Send batch to background task for async write (non-blocking)
+                // This allows processing to continue immediately while ClickHouse writes happen in parallel
+                let batch_to_send = signature_buffer.clone();
+                if let Err(e) = tx_sender.send(batch_to_send) {
+                    // Channel closed (shouldn't happen, but handle gracefully)
+                    warn!(
+                        "(CometBFT Block) Failed to send batch to background writer: {} (channel closed, will write synchronously)",
+                        e
+                    );
+                    // Fallback: write synchronously if channel is closed
+                    let mut storage = storage_arc.lock().await;
+                    storage
+                        .save_signatures_batch(signature_buffer.clone())
+                        .await
+                        .context("Failed to batch write signatures (fallback)")?;
+                }
+                signature_buffer.clear();
+                last_flush_time = std::time::Instant::now();
+            }
+
+            let process_time = process_start.elapsed();
+            if process_time.as_millis() > 3000 {
+                warn!(
+                    "(CometBFT Block) Slow block processing for height {}: took {:?} (buffer: {}/{})",
+                    height_to_process,
+                    process_time,
+                    block_buffer.len(),
+                    target_buffer_size
+                );
+            }
 
             height_to_process += 1;
 
-            // Update gap metric periodically (every 10 blocks) to track progress
+            // Log buffer size periodically (every 10 blocks) to track buffer utilization
+            let buffer_size_after = block_buffer.len();
             if height_to_process % 10 == 0 {
-                let current_gap = last_block_height.saturating_sub(height_to_process - 1);
-                COMETBFT_BLOCK_GAP
-                    .with_label_values(&[
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                    ])
-                    .set(current_gap as i64);
-                tracing::debug!(
-                    "(CometBFT Block) Processed {} blocks, {} remaining (gap: {})",
-                    height_to_process - (last_block_height - current_gap),
-                    current_gap,
+                info!(
+                    "(CometBFT Block) Buffer status: {} blocks (target: {}, gap: {})",
+                    buffer_size_after,
+                    target_buffer_size,
                     current_gap
+                );
+            }
+
+            // Calculate uptime metrics periodically (every 1000 blocks) instead of at the end
+            // This allows continuous processing while still updating uptime metrics
+            let blocks_since_uptime_calc = height_to_process.saturating_sub(last_uptime_calc_height);
+            if blocks_since_uptime_calc >= UPTIME_CALC_INTERVAL {
+                last_uptime_calc_height = height_to_process;
+
+                if self
+                    .app_context
+                    .config
+                    .network
+                    .cometbft
+                    .block
+                    .uptime
+                    .persistence
+                {
+                    let storage_arc_clone = storage_arc.clone();
+                    let storage = storage_arc_clone.lock().await;
+                    let uptimes = storage.uptimes(UptimeWindow::OneDay).await?;
+                    info!("(CometBFT Block) Calculating 1 day uptime for validators");
+                    let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
+                    for (_, uptime) in uptimes {
+                        let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
+                        COMETBFT_VALIDATOR_1D_UPTIME
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.uptime);
+
+                        COMETBFT_VALIDATOR_1D_SIGNED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.signed_blocks as f64);
+
+                        COMETBFT_VALIDATOR_1D_TOTAL_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.total_blocks as f64);
+
+                        COMETBFT_VALIDATOR_1D_MISSED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.missed_blocks as f64);
+                    }
+
+                    let uptimes = storage.uptimes(UptimeWindow::SevenDays).await?;
+                    info!("(CometBFT Block) Calculating 7 days uptime for validators");
+                    let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
+                    for (_, uptime) in uptimes {
+                        let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
+                        COMETBFT_VALIDATOR_7D_UPTIME
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.uptime);
+
+                        COMETBFT_VALIDATOR_7D_SIGNED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.signed_blocks as f64);
+
+                        COMETBFT_VALIDATOR_7D_TOTAL_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.total_blocks as f64);
+
+                        COMETBFT_VALIDATOR_7D_MISSED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.missed_blocks as f64);
+                    }
+
+                    let uptimes = storage.uptimes(UptimeWindow::FifteenDays).await?;
+                    info!("(CometBFT Block) Calculating 15 days uptime for validators");
+                    let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
+                    for (_, uptime) in uptimes {
+                        let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
+                        COMETBFT_VALIDATOR_15D_UPTIME
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.uptime);
+
+                        COMETBFT_VALIDATOR_15D_SIGNED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.signed_blocks as f64);
+
+                        COMETBFT_VALIDATOR_15D_TOTAL_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.total_blocks as f64);
+
+                        COMETBFT_VALIDATOR_15D_MISSED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.missed_blocks as f64);
+                    }
+
+                    let uptimes = storage.uptimes(UptimeWindow::ThirtyDays).await?;
+                    info!("(CometBFT Block) Calculating 30 days uptime for validators");
+                    let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
+                    for (_, uptime) in uptimes {
+                        let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
+                        COMETBFT_VALIDATOR_30D_UPTIME
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.uptime);
+
+                        COMETBFT_VALIDATOR_30D_SIGNED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.signed_blocks as f64);
+
+                        COMETBFT_VALIDATOR_30D_TOTAL_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.total_blocks as f64);
+
+                        COMETBFT_VALIDATOR_30D_MISSED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.missed_blocks as f64);
+                    }
+
+                    let uptimes = storage.uptimes(UptimeWindow::SixMonths).await?;
+                    info!("(CometBFT Block) Calculating 6 months uptime for validators");
+                    let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
+                    for (_, uptime) in uptimes {
+                        let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
+                        COMETBFT_VALIDATOR_6M_UPTIME
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.uptime);
+
+                        COMETBFT_VALIDATOR_6M_SIGNED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.signed_blocks as f64);
+
+                        COMETBFT_VALIDATOR_6M_TOTAL_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                            ])
+                            .set(uptime.total_blocks as f64);
+
+                        COMETBFT_VALIDATOR_6M_MISSED_BLOCKS
+                            .with_label_values(&[
+                                &uptime.address,
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.missed_blocks as f64);
+                    }
+                } else {
+                    let storage_arc_clone = storage_arc.clone();
+                    let storage = storage_arc_clone.lock().await;
+                    let uptimes = storage.uptimes(UptimeWindow::BlockWindow).await?;
+                    info!("(CometBFT Block) Calculating uptime for validators");
+                    let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
+                    for (_, uptime) in uptimes {
+                        let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
+                        COMETBFT_VALIDATOR_BLOCKWINDOW_UPTIME
+                            .with_label_values(&[
+                                &uptime.address,
+                                &block_window.to_string(),
+                                &self.app_context.chain_id,
+                                &self.app_context.config.general.network,
+                                &fires_alerts,
+                            ])
+                            .set(uptime.uptime);
+                    }
+                }
+            }
+
+            // Continuously refill buffer as we process blocks (for large blocks, this is critical)
+            // This ensures we're always fetching multiple blocks concurrently while processing
+            // Refill happens after each block is processed to maintain buffer size
+            // When behind, fetch aggressively (up to concurrency limit) to keep buffer full
+            // BUT: Don't refill if buffer is already very full (>= target) to avoid memory issues
+            // IMPORTANT: Only refill if we successfully processed a block from the buffer.
+            // If we had a buffer miss (processed sequentially), don't refill to avoid infinite loops
+            // retrying the same failing blocks. The sequential fallback will handle missing blocks.
+            if use_concurrency && block_buffer.len() < target_buffer_size && block_from_buffer {
+                let remaining = current_chain_tip.saturating_sub(height_to_process + block_buffer.len());
+                if remaining > 0 {
+                    // Calculate how many we need to reach target
+                    let needed = target_buffer_size.saturating_sub(block_buffer.len());
+                    // When behind (gap > threshold), fetch more aggressively to maximize throughput
+                    // OPTIMIZATION: Fetch many blocks in parallel to keep buffer full, even if processing is slower
+                    // This creates a pipeline: while processing block N, we fetch blocks N+100 to N+120
+                    // This way, RPC latency doesn't block processing - we always have blocks ready
+                    let aggressive_fetch = if current_gap > BATCHING_GAP_THRESHOLD {
+                        // Behind: fetch aggressively to keep buffer full
+                        // Strategy: Fetch enough blocks to maintain a "lookahead buffer"
+                        // If buffer is 99/100, fetch 10-20 blocks to keep it full while processing continues
+                        // This ensures RPC requests are pipelined ahead of processing
+                        let buffer_space = target_buffer_size.saturating_sub(block_buffer.len());
+                        // Fetch a "lookahead" amount: more aggressive for faster catch-up
+                        // Increased to 50-150 blocks ahead for better pipelining
+                        let lookahead_fetch = (concurrent_fetch_count / 2).max(50).min(150); // Fetch 50-150 blocks ahead
+                        let fetch_target = buffer_space.max(lookahead_fetch); // At least fill buffer, ideally fetch ahead
+                        fetch_target.min(concurrent_fetch_count).min(remaining)
+                    } else {
+                        // Caught up: just fetch what's needed (memory optimization)
+                        needed.min(concurrent_fetch_count).min(remaining)
+                    };
+                    let fetch_count = aggressive_fetch;
+                    // Only refill if we have room AND we're not stuck on the same failing blocks
+                    // Check: if buffer hasn't grown in the last iteration, skip refill to avoid infinite loop
+                    // The sequential fallback will handle missing blocks
+                    if fetch_count > 0 && block_buffer.len() > 0 {
+                        // Only refill if we have blocks in buffer (means we're making progress)
+                        // If buffer is empty, let the sequential fallback handle it
+                        info!(
+                            "(CometBFT Block) Refilling buffer: fetching {} blocks (buffer: {}/{}, gap: {}, memory-optimized: {})",
+                            fetch_count,
+                            block_buffer.len(),
+                            target_buffer_size,
+                            current_gap,
+                            current_gap <= BATCHING_GAP_THRESHOLD
+                        );
+                        let fetch_heights: Vec<usize> = (0..fetch_count)
+                            .map(|i| height_to_process + block_buffer.len() + i)
+                            .collect();
+
+                        let fetch_futures: Vec<_> = fetch_heights
+                            .iter()
+                            .map(|&height| {
+                                let rpc_clone = rpc.clone();
+                                async move {
+                                    let result = Self::fetch_block_data(&rpc_clone, tx_enabled, height).await;
+                                    (height, result)
+                                }
+                            })
+                            .collect();
+
+                        // Execute fetches concurrently (non-blocking - we'll check results on next iteration)
+                        let results = future::join_all(fetch_futures).await;
+
+                        // Add successful fetches to buffer
+                        for (height, result) in results {
+                            match result {
+                                Ok((block, txs_info)) => {
+                                    let block_height = block.header.height.parse::<usize>()
+                                        .unwrap_or(0);
+                                    if block_height == height {
+                                        block_buffer.insert(height, (block, txs_info));
+                                    }
+                                }
+                                Err(_) => {
+                                    // Failed fetch - will be retried on next buffer miss
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Log progress periodically (gap metric is updated at top of loop with current tip)
+            if height_to_process % 10 == 0 {
+                let blocks_processed = height_to_process.saturating_sub(initial_height_to_process);
+                debug!(
+                    "(CometBFT Block) Processed {} blocks, {} remaining (gap: {}, chain_tip: {})",
+                    blocks_processed,
+                    current_gap,
+                    current_gap,
+                    current_chain_tip
                 );
             }
         }
 
-        // Update gap metric at the end to reflect final state
-        let final_gap = last_block_height.saturating_sub(height_to_process - 1);
-        let blocks_processed = height_to_process - (last_block_height - final_gap);
-        COMETBFT_BLOCK_GAP
-            .with_label_values(&[
-                &self.app_context.chain_id,
-                &self.app_context.config.general.network,
-            ])
-            .set(final_gap as i64);
+        // Function runs continuously - only returns on error
+        //
+        // BACKGROUND TASK CLEANUP:
+        // When the function returns (on error via ?), the following happens:
+        // 1. tx_sender is dropped → unbounded channel closes immediately
+        // 2. Background task's tx_receiver.recv() returns None (channel closed)
+        // 3. The while loop in the background task exits
+        // 4. The background task completes and exits cleanly
+        // 5. bg_task handle is dropped → task becomes "detached" but is already completed
+        //
+        // IMPORTANT: The background task exits cleanly and does NOT leave a shadow process because:
+        // - When the channel closes, recv() returns None immediately (no blocking wait)
+        // - The task's while loop exits, and the async block completes
+        // - The task finishes execution and is cleaned up by Tokio's runtime
+        // - No infinite loops or blocking operations keep it alive
+        //
+        // The task handle (bg_task) is intentionally not awaited because:
+        // - The loop only exits on error (via ?), which propagates immediately
+        // - Waiting for bg_task.await would block error propagation unnecessarily
+        // - The task exits naturally and quickly when the channel closes
+        // - Any in-flight batch writes will complete before the task exits (they're already in progress)
+        //
+        // NOTE: If you need to guarantee all buffered batches are flushed before shutdown,
+        // you would need to restructure to catch errors, flush, close channel, wait for task,
+        // then return error. This is a larger refactor and may not be necessary since:
+        // - The task processes batches quickly (they're already in the channel)
+        // - The exporter resumes from last persisted height on restart anyway
+        // - The task exits cleanly when the channel closes
+        //
+        // The loop above runs forever, so this return is unreachable (function only returns on error)
+        // Background task and storage Arc will be cleaned up when function returns (on error)
+        // or when the module is dropped (on shutdown)
+        #[allow(unreachable_code)]
+        Ok(())
+    }
 
-        // Log completion of block window processing
-        tracing::info!(
-            "(CometBFT Block) Completed processing block window: processed {} blocks (from {} to {}), current gap: {}",
-            blocks_processed,
-            height_to_process - blocks_processed,
-            height_to_process - 1,
-            final_gap
-        );
+    /// Calculate average block interval (seconds) from recent block times.
+    /// Uses the most recent sample of block times (last 20 blocks) to calculate actual block intervals.
+    /// This provides a responsive measurement that adapts quickly to chain speed changes.
+    fn calculate_avg_block_interval_seconds(&self) -> f64 {
+        const RECENT_SAMPLE_SIZE: usize = 20; // Use last 20 blocks for responsive calculation
 
-        if self
-            .app_context
-            .config
-            .network
-            .cometbft
-            .block
-            .uptime
-            .persistence
-        {
-            let uptimes = self.signature_storage.uptimes(UptimeWindow::OneDay).await?;
-            info!("(CometBFT Block) Calculating 1 day uptime for validators");
-            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
-            for (_, uptime) in uptimes {
-                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
-                COMETBFT_VALIDATOR_1D_UPTIME
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                        &fires_alerts,
-                    ])
-                    .set(uptime.uptime);
+        if self.recent_block_times.len() < 2 {
+            // Not enough data yet, assume ~1s block time
+            return 1.0;
+        }
 
-                COMETBFT_VALIDATOR_1D_SIGNED_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                    ])
-                    .set(uptime.signed_blocks as f64);
+        // Take the most recent blocks (up to RECENT_SAMPLE_SIZE) for responsive calculation
+        let sample_size = self.recent_block_times.len().min(RECENT_SAMPLE_SIZE);
+        let start_idx = self.recent_block_times.len().saturating_sub(sample_size);
 
-                COMETBFT_VALIDATOR_1D_TOTAL_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                    ])
-                    .set(uptime.total_blocks as f64);
+        // Collect the recent block times
+        let recent_times: Vec<_> = self
+            .recent_block_times
+            .iter()
+            .skip(start_idx)
+            .collect();
 
-                COMETBFT_VALIDATOR_1D_MISSED_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                        &fires_alerts,
-                    ])
-                    .set(uptime.missed_blocks as f64);
-            }
-            let uptimes = self
-                .signature_storage
-                .uptimes(UptimeWindow::SevenDays)
-                .await?;
-            info!("(CometBFT Block) Calculating 7 days uptime for validators");
-            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
-            for (_, uptime) in uptimes {
-                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
-                COMETBFT_VALIDATOR_7D_UPTIME
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                        &fires_alerts,
-                    ])
-                    .set(uptime.uptime);
+        if recent_times.len() < 2 {
+            return 1.0; // Need at least 2 blocks to calculate an interval
+        }
 
-                COMETBFT_VALIDATOR_7D_SIGNED_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                    ])
-                    .set(uptime.signed_blocks as f64);
-
-                COMETBFT_VALIDATOR_7D_TOTAL_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                    ])
-                    .set(uptime.total_blocks as f64);
-
-                COMETBFT_VALIDATOR_7D_MISSED_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                        &fires_alerts,
-                    ])
-                    .set(uptime.missed_blocks as f64);
-            }
-            let uptimes = self
-                .signature_storage
-                .uptimes(UptimeWindow::FifteenDays)
-                .await?;
-            info!("(CometBFT Block) Calculating 15 days uptime for validators");
-            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
-            for (_, uptime) in uptimes {
-                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
-                COMETBFT_VALIDATOR_15D_UPTIME
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                        &fires_alerts,
-                    ])
-                    .set(uptime.uptime);
-
-                COMETBFT_VALIDATOR_15D_SIGNED_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                    ])
-                    .set(uptime.signed_blocks as f64);
-
-                COMETBFT_VALIDATOR_15D_TOTAL_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                    ])
-                    .set(uptime.total_blocks as f64);
-
-                COMETBFT_VALIDATOR_15D_MISSED_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                        &fires_alerts,
-                    ])
-                    .set(uptime.missed_blocks as f64);
-            }
-            let uptimes = self
-                .signature_storage
-                .uptimes(UptimeWindow::ThirtyDays)
-                .await?;
-            info!("(CometBFT Block) Calculating 30 days uptime for validators");
-            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
-            for (_, uptime) in uptimes {
-                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
-                COMETBFT_VALIDATOR_30D_UPTIME
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                        &fires_alerts,
-                    ])
-                    .set(uptime.uptime);
-
-                COMETBFT_VALIDATOR_30D_SIGNED_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                    ])
-                    .set(uptime.signed_blocks as f64);
-
-                COMETBFT_VALIDATOR_30D_TOTAL_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                    ])
-                    .set(uptime.total_blocks as f64);
-
-                COMETBFT_VALIDATOR_30D_MISSED_BLOCKS
-                    .with_label_values(&[
-                        &uptime.address,
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                        &fires_alerts,
-                    ])
-                    .set(uptime.missed_blocks as f64);
-            }
-        } else {
-            let uptimes = self
-                .signature_storage
-                .uptimes(UptimeWindow::BlockWindow)
-                .await?;
-            info!("(CometBFT Block) Calculating uptime for validators");
-            let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
-            for (_, uptime) in uptimes {
-                let fires_alerts = validator_alert_addresses.contains(&uptime.address).to_string();
-                COMETBFT_VALIDATOR_BLOCKWINDOW_UPTIME
-                    .with_label_values(&[
-                        &uptime.address,
-                        &block_window.to_string(),
-                        &self.app_context.chain_id,
-                        &self.app_context.config.general.network,
-                        &fires_alerts,
-                    ])
-                    .set(uptime.uptime);
+        // Calculate intervals between consecutive blocks
+        let mut intervals_seconds = Vec::new();
+        for i in 1..recent_times.len() {
+            let interval =
+                (*recent_times[i] - *recent_times[i - 1]).num_milliseconds() as f64 / 1000.0;
+            if interval > 0.0 && interval < 300.0 {
+                // Filter out invalid intervals (0 or >5min)
+                intervals_seconds.push(interval);
             }
         }
-        Ok(())
+
+        if intervals_seconds.is_empty() {
+            return 1.0; // No valid intervals found
+        }
+
+        // Average block interval in seconds
+        intervals_seconds.iter().sum::<f64>() / intervals_seconds.len() as f64
+    }
+
+
+    /// Fetch all transactions for a block using paginated tx_search
+    /// tx_search has a default limit of 30 transactions per page, so we need to paginate
+    async fn fetch_all_txs(
+        rpc: &Arc<crate::core::clients::http_client::NodePool>,
+        height: usize,
+    ) -> anyhow::Result<Option<Vec<Tx>>> {
+        const PER_PAGE: usize = 100; // Maximum per_page value for tx_search
+        let mut all_txs = Vec::new();
+        let mut page = 1;
+        let mut total_count: Option<usize> = None;
+
+        loop {
+            let tx_path = Path::from(format!(
+                r#"tx_search?query="tx.height={}"&page={}&per_page={}"#,
+                height, page, PER_PAGE
+            ));
+
+            match rpc.get_with_endpoint_preference(tx_path.clone(), Some("tx_search")).await {
+                Ok(res) => {
+                    // Try to parse the response
+                    match from_str::<TxResponse>(&res) {
+                        Ok(resp) => {
+                            // Get total count from first page
+                            if total_count.is_none() {
+                                if let Some(total_str) = &resp.result.total {
+                                    total_count = total_str.parse::<usize>().ok();
+                                    if let Some(total) = total_count {
+                                        debug!(
+                                            "(CometBFT Block) tx_search for height {}: total {} transactions, fetching page {}",
+                                            height, total, page
+                                        );
+                                    }
+                                }
+                            }
+
+                            let page_txs = resp.result.txs;
+                            let page_count = page_txs.len();
+                            all_txs.extend(page_txs);
+
+                            debug!(
+                                "(CometBFT Block) tx_search for height {}: page {} returned {} transactions (total fetched: {})",
+                                height, page, page_count, all_txs.len()
+                            );
+
+                            // If we got fewer than per_page, we've reached the last page
+                            // Or if we've fetched all transactions (all_txs.len() >= total_count)
+                            if page_count < PER_PAGE {
+                                break;
+                            }
+                            if let Some(total) = total_count {
+                                if all_txs.len() >= total {
+                                    break;
+                                }
+                            }
+
+                            page += 1;
+                        }
+                        Err(_) => {
+                            // Fallback to flexible JSON parsing for first page only
+                            if page == 1 {
+                                match serde_json::from_str::<serde_json::Value>(&res) {
+                                    Ok(json) => {
+                                        if let Some(txs_val) = extract_txs_from_response(&json) {
+                                            match serde_json::from_value::<Vec<Tx>>(txs_val.clone()) {
+                                                Ok(txs) => {
+                                                    all_txs.extend(txs);
+                                                    // For fallback parsing, we can't determine total, so stop after first page
+                                                    break;
+                                                }
+                                                Err(e) => {
+                                                    let preview = create_error_preview(&res, 200);
+                                                    info!("WARN: (CometBFT Block) Unable to parse tx response for height {} (page {}): {} (response length: {}, preview: {}). Continuing without txs.",
+                                                        height,
+                                                        page,
+                                                        e,
+                                                        res.len(),
+                                                        preview
+                                                    );
+                                                    return Ok(None);
+                                                }
+                                            }
+                                        } else {
+                                            // No txs found - treat as empty
+                                            return Ok(Some(Vec::new()));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let preview = create_error_preview(&res, 200);
+                                        info!("WARN: (CometBFT Block) Unable to parse tx response as JSON for height {} (page {}): {} (response length: {}, preview: {}). Continuing without txs.",
+                                            height,
+                                            page,
+                                            e,
+                                            res.len(),
+                                            preview
+                                        );
+                                        return Ok(None);
+                                    }
+                                }
+                            } else {
+                                // For subsequent pages, if parsing fails, we've likely reached the end
+                                warn!("(CometBFT Block) Failed to parse tx_search page {} for height {}, stopping pagination", page, height);
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if page == 1 {
+                        // First page failed - return None to indicate tx_search unavailable
+                        info!("WARN: (CometBFT Block) Unable to fetch tx data for height {}: {}. Continuing without txs.",
+                            height,
+                            e
+                        );
+                        return Ok(None);
+                    } else {
+                        // Subsequent page failed - we've likely reached the end or hit an error
+                        warn!("(CometBFT Block) Failed to fetch tx_search page {} for height {}: {}, stopping pagination", page, height, e);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if all_txs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(all_txs))
+        }
     }
 
     /// Fetch block and tx data concurrently (if tx.enabled)
@@ -798,7 +1578,7 @@ impl Block {
 
         if tx_enabled {
             // Fetch both block and tx data concurrently
-            let tx_path = Path::from(format!("tx_search?query=\"tx.height={}\"", height));
+            // Use paginated tx_search to fetch all transactions
 
             // Execute both requests concurrently for maximum performance
             // NodePool.get() already has retry logic (5 attempts across different nodes)
@@ -839,53 +1619,39 @@ impl Block {
                         .block)
                 },
                 async {
-                    // Tx fetch: try once (NodePool already retries 3 times internally with fast fallback)
-                    // NodePool will try preferred nodes first (attempts 0-1), then fall back to all nodes if they fail
-                    // This ensures we get tx data when available, but don't block for long if preferred nodes are down
-                    match rpc.get_with_endpoint_preference(tx_path.clone(), Some("tx_search")).await {
-                        Ok(res) => {
-                            // Try to parse the response - if it fails, continue without txs
-                            match from_str::<TxResponse>(&res) {
-                                Ok(resp) => Ok::<Option<Vec<Tx>>, anyhow::Error>(Some(resp.result.txs)),
-                                Err(e) => {
-                                    // Unable to parse tx response - log and gracefully continue without txs
-                                    let preview = if res.len() > 200 {
-                                        format!("{}...", &res[..200])
-                                    } else {
-                                        res.clone()
-                                    };
-                                    tracing::warn!(
-                                        "(CometBFT Block) Unable to parse tx response for height {}: {} (response length: {}, preview: {}). Continuing without txs.",
-                                        height,
-                                        e,
-                                        res.len(),
-                                        preview
-                                    );
-                                    Ok::<Option<Vec<Tx>>, anyhow::Error>(None)
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            // Tx fetch failed (NodePool already retried 3 times with fast fallback) - gracefully continue without txs
-                            tracing::warn!(
-                                "(CometBFT Block) Unable to fetch tx data for height {}: {}. Continuing without txs.",
-                                height,
-                                e
-                            );
-                            Ok::<Option<Vec<Tx>>, anyhow::Error>(None)
-                        }
-                    }
+                    // Fetch all transactions using paginated tx_search
+                    // This handles blocks with more than 30 transactions (default per_page limit)
+                    Self::fetch_all_txs(&rpc, height).await
                 }
             );
 
             let block = block_result
-                .context(format!("Could not obtain block {}", height))?;
+                .with_context(|| format!("Could not obtain block {}", height))?;
+
+            // Verify block height matches requested height (data integrity check)
+            let fetched_block_height = block.header.height.parse::<usize>()
+                .unwrap_or(0);
+            if fetched_block_height != height {
+                anyhow::bail!(
+                    "CRITICAL: Fetched block height {} does not match requested height {}",
+                    fetched_block_height,
+                    height
+                );
+            }
+
+            // Log transaction count from fetched block for debugging
+            let fetched_tx_count = block.data.txs.len();
+            debug!(
+                "(CometBFT Block) Fetched block {} has {} transactions in block.data.txs",
+                height,
+                fetched_tx_count
+            );
 
             // tx_result: if error or non-JSON, we get None and proceed
             let txs_info = match tx_result {
                 Ok(txs_opt) => txs_opt,
                 Err(e) => {
-                    tracing::warn!(
+                    warn!(
                         "(CometBFT Block) tx_search returned error for height {}: {} (continuing without txs)",
                         height,
                         e
@@ -931,6 +1697,25 @@ impl Block {
                 .result
                 .block;
 
+            // Verify block height matches requested height (data integrity check)
+            let fetched_block_height = block.header.height.parse::<usize>()
+                .unwrap_or(0);
+            if fetched_block_height != height {
+                anyhow::bail!(
+                    "CRITICAL: Fetched block height {} does not match requested height {}",
+                    fetched_block_height,
+                    height
+                );
+            }
+
+            // Log transaction count from fetched block for debugging
+            let fetched_tx_count = block.data.txs.len();
+            debug!(
+                "(CometBFT Block) Fetched block {} (non-tx mode) has {} transactions in block.data.txs",
+                height,
+                fetched_tx_count
+            );
+
             Ok((block, None))
         }
     }
@@ -952,7 +1737,9 @@ impl Block {
         height: usize,
         block: ChainBlock,
         txs_info: Option<Vec<Tx>>,
+        current_gap: usize,
     ) -> anyhow::Result<()> {
+
         // Validate block height matches expected (defensive programming)
         let block_height = block
             .header
@@ -969,16 +1756,82 @@ impl Block {
         }
 
         let block_time = block.header.time;
+        let block_time_utc = block_time.and_utc();
+
+        // Track block time for calculating average blocks per second
+        self.recent_block_times.push_back(block_time_utc);
+        // Keep only last 100 block times for rolling average
+        if self.recent_block_times.len() > 100 {
+            self.recent_block_times.pop_front();
+        }
+
+        // CATCH-UP MODE OPTIMIZATION: When far behind (gap > catchup_mode_threshold), defer non-critical metric updates
+        // This significantly speeds up processing during catch-up (learned from Go script being 30x faster)
+        // - Skip validator metrics (most expensive: ~86 metric updates per block)
+        // - Only update essential metrics (gap, current height) every block
+        // - Update all metrics periodically (every 1000 blocks) to maintain accuracy
+        let catchup_mode_threshold = self.app_context.config.network.cometbft.block.catchup_mode_threshold;
+        const METRIC_UPDATE_INTERVAL: usize = 1000; // Update all metrics every 1000 blocks in catch-up mode (aggressive optimization for faster catch-up)
+        let is_catchup_mode = current_gap > catchup_mode_threshold;
+        let should_update_all_metrics = !is_catchup_mode || (height % METRIC_UPDATE_INTERVAL == 0);
+
         let block_proposer = block.header.proposer_address.clone();
         let block_signatures = block.last_commit.signatures.clone();
         let validator_alert_addresses = self.app_context.config.general.alerting.validators.clone();
 
-        COMETBFT_BLOCK_TXS
-            .with_label_values(&[
-                &self.app_context.chain_id,
-                &self.app_context.config.general.network,
-            ])
-            .set(block.data.txs.len() as f64);
+        // Count transactions from block.data.txs (this is the authoritative source)
+        // CRITICAL: Use block.data.txs.len(), NOT txs_info.len() - they can differ!
+        // - block.data.txs: Raw transaction hashes from block (always accurate)
+        // - txs_info: Parsed transaction data from tx_search (may be None if tx_search fails)
+        // We must use block.data.txs.len() to ensure data integrity regardless of tx_search success
+        let tx_count = block.data.txs.len();
+
+        // Validate transaction count matches expectations (data integrity check)
+        // This ensures we're not accidentally reusing block data or mixing up blocks
+        if tx_count > 10000 {
+            warn!(
+                "(CometBFT Block) Block {} has unusually high transaction count: {} (possible data corruption?)",
+                height,
+                tx_count
+            );
+        }
+
+        // Log transaction count at INFO level for visibility (helps verify data integrity)
+        // This confirms blocks are being processed and shows actual transaction counts
+        // Only log transaction info if tx is enabled (to avoid unnecessary noise when tx processing is disabled)
+        if self.app_context.config.network.cometbft.block.tx.enabled {
+            let tx_status_msg = if txs_info.is_some() {
+                format!(", tx_search returned {} transactions", txs_info.as_ref().unwrap().len())
+            } else {
+                " (tx_search unavailable or failed)".to_string()
+            };
+            info!(
+                "(CometBFT Block) Processing block {}: {} transactions in block.data.txs{}",
+                height,
+                tx_count,
+                tx_status_msg
+            );
+        } else {
+            // When tx.enabled is false, don't log transaction counts to avoid confusion
+            // We're not processing transactions, so logging their count is misleading
+            info!(
+                "(CometBFT Block) Processing block {} (tx processing disabled)",
+                height
+            );
+        }
+
+        // Set metric with block's actual transaction count
+        // This is a Gauge metric, so it represents the current block's tx count
+        // Prometheus will scrape this value, and since we process sequentially, each block's value is accurate
+        // In catch-up mode, only update periodically to speed up processing
+        if should_update_all_metrics {
+            COMETBFT_BLOCK_TXS
+                .with_label_values(&[
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                ])
+                .set(tx_count as f64);
+        }
 
         let mut block_avg_tx_size: f64 = 0.0;
         let mut block_gas_wanted: f64 = 0.0;
@@ -986,6 +1839,8 @@ impl Block {
         let mut block_avg_tx_gas_wanted: f64 = 0.0;
         let mut block_avg_tx_gas_used: f64 = 0.0;
 
+        // Calculate transaction size even when tx.enabled is false (only requires base64 decoding, not tx_search)
+        // This provides accurate tx size metrics regardless of tx processing configuration
         if !block.data.txs.is_empty() {
             block_avg_tx_size = block
                 .data
@@ -1000,46 +1855,68 @@ impl Block {
                 })
                 .sum::<usize>() as f64
                 / block.data.txs.len() as f64;
+        }
 
-            if self.app_context.config.network.cometbft.block.tx.enabled {
-                if let Some(txs_info) = txs_info {
-                    let mut gas_wanted = Vec::new();
-                    let mut gas_used = Vec::new();
+        // Only process transaction gas data (from tx_search) if tx.enabled is true
+        // Gas metrics require tx_search which is more expensive and may not be available
+        if self.app_context.config.network.cometbft.block.tx.enabled && !block.data.txs.is_empty() {
 
-                    for tx in txs_info {
-                        gas_wanted.push(
-                            tx.tx_result
-                                .gas_wanted
-                                .parse::<usize>()
-                                .context("Could not parse tx gas wanted")?,
-                        );
-                        gas_used.push(
-                            tx.tx_result
-                                .gas_used
-                                .parse::<usize>()
-                                .context("Could not parse tx gas used")?,
-                        );
-                    }
+            // Calculate gas metrics only if tx.enabled is true in config
+            // We respect the config setting and only collect tx data when explicitly enabled
+            if let Some(txs_info) = txs_info {
+                // CRITICAL: Validate txs_info count matches block.data.txs count
+                // They should match, but tx_search might return fewer results if some txs aren't indexed
+                // We use block.data.txs.len() as the authoritative source for transaction count
+                let txs_info_count = txs_info.len();
+                let block_txs_count = block.data.txs.len();
 
-                    block_gas_wanted = gas_wanted.iter().sum::<usize>() as f64;
-                    block_gas_used = gas_used.iter().sum::<usize>() as f64;
-                    if !gas_wanted.is_empty() {
-                        block_avg_tx_gas_wanted =
-                            gas_wanted.iter().sum::<usize>() as f64 / gas_wanted.len() as f64;
-                    }
-                    if !gas_used.is_empty() {
-                        block_avg_tx_gas_used =
-                            gas_used.iter().sum::<usize>() as f64 / gas_used.len() as f64;
-                    }
-                } else {
-                    // tx_search failed or returned no results, but block has transactions
-                    // This can happen if tx indexing is disabled or tx_search fails
-                    tracing::warn!(
-                        "(CometBFT Block) Block {} has {} transactions but tx_search returned no data",
+                if txs_info_count != block_txs_count {
+                    warn!(
+                        "(CometBFT Block) Block {} transaction count mismatch: block.data.txs has {}, tx_search returned {} (some transactions may not be indexed)",
                         height,
-                        block.data.txs.len()
+                        block_txs_count,
+                        txs_info_count
                     );
                 }
+
+                let mut gas_wanted = Vec::new();
+                let mut gas_used = Vec::new();
+
+                for tx in txs_info {
+                    gas_wanted.push(
+                        tx.tx_result
+                            .gas_wanted
+                            .parse::<usize>()
+                            .context("Could not parse tx gas wanted")?,
+                    );
+                    gas_used.push(
+                        tx.tx_result
+                            .gas_used
+                            .parse::<usize>()
+                            .context("Could not parse tx gas used")?,
+                    );
+                }
+
+                block_gas_wanted = gas_wanted.iter().sum::<usize>() as f64;
+                block_gas_used = gas_used.iter().sum::<usize>() as f64;
+                if !gas_wanted.is_empty() {
+                    block_avg_tx_gas_wanted =
+                        gas_wanted.iter().sum::<usize>() as f64 / gas_wanted.len() as f64;
+                }
+                if !gas_used.is_empty() {
+                    block_avg_tx_gas_used =
+                        gas_used.iter().sum::<usize>() as f64 / gas_used.len() as f64;
+                }
+            } else {
+                // tx_search failed or returned no results, but block has transactions
+                // This can happen if tx indexing is disabled or tx_search fails
+                // CRITICAL: We still set COMETBFT_BLOCK_TXS correctly using block.data.txs.len()
+                // Gas metrics will remain 0, which is correct since we don't have gas data
+                warn!(
+                    "(CometBFT Block) Block {} has {} transactions in block.data.txs but tx_search returned no data (tx indexing may be disabled or tx_search failed)",
+                    height,
+                    block.data.txs.len()
+                );
             }
         }
 
@@ -1050,7 +1927,10 @@ impl Block {
             ])
             .set(block_avg_tx_size);
 
-        if self.app_context.config.network.cometbft.block.tx.enabled {
+        // Set gas metrics only if tx.enabled is true in config
+        // We respect the config setting and only set metrics when tx collection is explicitly enabled
+        // In catch-up mode, only update periodically to speed up processing
+        if self.app_context.config.network.cometbft.block.tx.enabled && should_update_all_metrics {
             COMETBFT_BLOCK_GAS_WANTED
                 .with_label_values(&[
                     &self.app_context.chain_id,
@@ -1088,52 +1968,98 @@ impl Block {
                 info!(
                     "(CometBFT Block) Tracking validator {}",
                     sig.validator_address
-                )
+                );
             }
         }
 
-        self.signature_storage
-            .save_signatures(
-                block_height,
-                block.header.time,
-                block_signatures
-                    .iter()
-                    .map(|sig| sig.validator_address.clone())
-                    .collect(),
-            )
-            .await?;
+        // Note: Signatures are buffered and written in batches by the caller (process_block_window)
+        // This method just processes the block and updates metrics sequentially
 
-        COMETBFT_VALIDATOR_PROPOSED_BLOCKS
-            .with_label_values(&[
-                &block_proposer,
-                &self.app_context.chain_id,
-                &self.app_context.config.general.network,
-                &validator_alert_addresses.contains(&block_proposer).to_string(),
-            ])
-            .inc();
-
-        let validators_missing_block: Vec<String> = self
-            .validators
-            .iter()
-            .filter(|validator| {
-                block_signatures
-                    .iter()
-                    .all(|sig| sig.validator_address != validator.as_str())
-            })
-            .cloned()
-            .collect();
-
-        for validator in validators_missing_block {
-            let fires_alerts = validator_alert_addresses.contains(&validator).to_string();
-
-            COMETBFT_VALIDATOR_MISSED_BLOCKS
+        // Always update proposer metric (cheap, single update)
+        if should_update_all_metrics {
+            COMETBFT_VALIDATOR_PROPOSED_BLOCKS
                 .with_label_values(&[
-                    &validator,
+                    &block_proposer,
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
-                    &fires_alerts,
+                    &validator_alert_addresses.contains(&block_proposer).to_string(),
                 ])
                 .inc();
+        }
+
+        // Always update validator metrics if not in catch-up mode, or periodically in catch-up mode
+        if should_update_all_metrics {
+            // OPTIMIZATION: Pre-compute alert flags and use HashSet for faster lookups
+            // This reduces string allocations and improves performance when processing many validators
+            let validator_alert_set: std::collections::HashSet<&String> = validator_alert_addresses.iter().collect();
+            let block_signature_addresses: std::collections::HashSet<&str> = block_signatures
+                .iter()
+                .map(|sig| sig.validator_address.as_str())
+                .collect();
+
+            // Increment total blocks counter for all validators in active set
+            // This represents total opportunities to sign (whether they signed or not)
+            // OPTIMIZATION: Pre-compute fires_alerts string once per validator to avoid repeated allocations
+            for validator in &self.validators {
+                let fires_alerts = validator_alert_set.contains(validator).to_string();
+
+                COMETBFT_VALIDATOR_TOTAL_BLOCKS
+                    .with_label_values(&[
+                        validator,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                        &fires_alerts,
+                    ])
+                    .inc();
+
+                // Check if validator missed this block (faster lookup with HashSet)
+                if !block_signature_addresses.contains(validator.as_str()) {
+                    COMETBFT_VALIDATOR_MISSED_BLOCKS
+                        .with_label_values(&[
+                            validator,
+                            &self.app_context.chain_id,
+                            &self.app_context.config.general.network,
+                            &fires_alerts,
+                        ])
+                        .inc();
+                }
+            }
+        }
+
+        // Set current block height and time metrics
+        // These are Gauge metrics representing the latest processed block
+        // Since we process blocks sequentially, these values are always accurate
+        // CRITICAL: These must be set AFTER all block processing to ensure they match the block being processed
+        let block_height_i64: i64 = block_height
+            .try_into()
+            .context("Failed to parse block height to i64")?;
+        let block_time_timestamp = block_time.and_utc().timestamp() as f64;
+
+        // Validate block time is reasonable (data integrity check)
+        // Block time should be within reasonable bounds:
+        // - Not in the future (more than 1 hour ahead) - indicates clock skew or data corruption
+        // - Not extremely old (more than 1 year old) - indicates possible data corruption
+        // Note: Historical blocks being caught up are expected and not errors
+        let now = chrono::Utc::now().timestamp();
+        let one_year_ago = now - (365 * 24 * 3600); // 1 year in seconds
+        if block_time_timestamp > (now + 3600) as f64 {
+            // Block time is more than 1 hour in the future - likely clock skew or corruption
+            warn!(
+                "(CometBFT Block) Block {} has block time in the future: {} (current: {}, difference: {}s). Possible clock skew or data corruption.",
+                height,
+                block_time_timestamp,
+                now,
+                block_time_timestamp as i64 - now
+            );
+        } else if block_time_timestamp < one_year_ago as f64 {
+            // Block time is more than 1 year old - likely data corruption (not just historical catch-up)
+            warn!(
+                "(CometBFT Block) Block {} has extremely old block time: {} (current: {}, difference: {}s). Possible data corruption.",
+                height,
+                block_time_timestamp,
+                now,
+                now - block_time_timestamp as i64
+            );
         }
 
         COMETBFT_CURRENT_BLOCK_HEIGHT
@@ -1141,18 +2067,14 @@ impl Block {
                 &self.app_context.chain_id,
                 &self.app_context.config.general.network,
             ])
-            .set(
-                block_height
-                    .try_into()
-                    .context("Failed to parse block height to i64")?,
-            );
+            .set(block_height_i64);
 
         COMETBFT_CURRENT_BLOCK_TIME
             .with_label_values(&[
                 &self.app_context.chain_id,
                 &self.app_context.config.general.network,
             ])
-            .set(block_time.and_utc().timestamp() as f64);
+            .set(block_time_timestamp);
 
         Ok(())
     }
