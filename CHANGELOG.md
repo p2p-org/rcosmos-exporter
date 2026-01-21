@@ -1,5 +1,21 @@
 # Changelog
 
+## [3.0.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.4...v3.0.0) (2026-01-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* rcosmos exporter v3 ([#122](https://github.com/p2p-org/rcosmos-exporter/issues/122))
+
+### Features
+
+* rcosmos exporter v3 ([#122](https://github.com/p2p-org/rcosmos-exporter/issues/122)) ([6d30854](https://github.com/p2p-org/rcosmos-exporter/commit/6d3085401dc7886f21a7d596fab3581a4a784c18))
+
+
+### Bug Fixes
+
+* sei block scraping ([#119](https://github.com/p2p-org/rcosmos-exporter/issues/119)) ([e55e1b7](https://github.com/p2p-org/rcosmos-exporter/commit/e55e1b792fc474f2e18310e8eb2f8872ce4283ca))
+
 ## [2.9.4](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.3...v2.9.4) (2025-12-12)
 
 
