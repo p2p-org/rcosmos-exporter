@@ -120,9 +120,19 @@ impl Block {
                     // Try to parse the response
                     match from_str::<crate::blockchains::sei::types::SeiTxResponse>(&res) {
                         Ok(resp) => {
+                            // Handle both response formats (with result wrapper or direct)
+                            let (page_txs, total_opt) = match resp {
+                                crate::blockchains::sei::types::SeiTxResponse::WithResult { ref result } => {
+                                    (result.txs.clone(), result.total.as_ref())
+                                }
+                                crate::blockchains::sei::types::SeiTxResponse::Direct { ref txs, ref total } => {
+                                    (txs.clone(), total.as_ref())
+                                }
+                            };
+
                             // Get total count from first page
                             if total_count.is_none() {
-                                if let Some(total_str) = &resp.result.total {
+                                if let Some(total_str) = total_opt {
                                     total_count = total_str.parse::<usize>().ok();
                                     if let Some(total) = total_count {
                                         debug!(
@@ -133,7 +143,6 @@ impl Block {
                                 }
                             }
 
-                            let page_txs = resp.result.txs;
                             let page_count = page_txs.len();
                             all_txs.extend(page_txs);
 

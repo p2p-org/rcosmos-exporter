@@ -65,9 +65,20 @@ pub struct SeiBlockDirect {
 
 // ========== Tx Search ==========
 
+// Sei tx_search can return two formats:
+// 1. With result wrapper: {"result": {"txs": [], "total": "0"}}
+// 2. Direct format: {"txs": [], "total_count": "0"}
 #[derive(Debug, Deserialize)]
-pub struct SeiTxResponse {
-    pub result: SeiTxResult,
+#[serde(untagged)]
+pub enum SeiTxResponse {
+    WithResult {
+        result: SeiTxResult,
+    },
+    Direct {
+        txs: Vec<SeiTx>,
+        #[serde(rename = "total_count")]
+        total: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,12 +88,12 @@ pub struct SeiTxResult {
     pub total: Option<String>, // Total count of transactions (for pagination)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct SeiTx {
     pub tx_result: Option<SeiTxResultFields>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct SeiTxResultFields {
     pub gas_wanted: Option<String>,
     pub gas_used: Option<String>,

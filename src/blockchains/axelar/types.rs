@@ -7,17 +7,6 @@ pub struct EVMPollsResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CreatedAt {
-    pub ms: u64,
-    pub hour: u64,
-    pub day: u64,
-    pub week: u64,
-    pub month: u64,
-    pub quarter: u64,
-    pub year: u64,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Vote {
     pub late: bool,
     pub created_at: u64,
