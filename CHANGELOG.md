@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/p2p-org/rcosmos-exporter/compare/v3.0.0...v3.0.1) (2026-01-21)
+
+
+### Bug Fixes
+
+* sei json schema ([#123](https://github.com/p2p-org/rcosmos-exporter/issues/123)) ([ab5047e](https://github.com/p2p-org/rcosmos-exporter/commit/ab5047eef3cafe13291d443a5fe95ea1b8112f45))
+
 ## [3.0.0](https://github.com/p2p-org/rcosmos-exporter/compare/v2.9.4...v3.0.0) (2026-01-21)
 
 
