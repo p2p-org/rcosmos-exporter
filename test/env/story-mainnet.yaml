@@ -18,6 +18,9 @@ general:
       - name: polkachu
         url: https://story-rpc.polkachu.com
         healthEndpoint: /status
+      - name: j-node
+        url: https://story-rpc.j-node.net
+        healthEndpoint: /status
     lcd:
       []
 
@@ -41,10 +44,13 @@ network:
       enabled: true
       interval: 30
       window: 500
+      concurrency: 50
+      catchup_mode_threshold: 1000  # Enable catch-up optimizations when gap > this many blocks
       tx:
         enabled: false
       uptime:
         persistence: true
+        insert_concurrency: 200
 
   tendermint:
     bank:
@@ -60,11 +66,11 @@ network:
     staking:
       enabled: false
       interval: 30
-      validators: true
-      delegations: true
-      commissions: true
-      pool: true
-      params: true
+      validators: false
+      delegations: false
+      commissions: false
+      pool: false
+      params: false
     slashing:
       enabled: false
       interval: 30

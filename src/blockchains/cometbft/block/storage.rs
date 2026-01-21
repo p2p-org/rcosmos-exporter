@@ -2,10 +2,11 @@ use crate::core::block_window::BlockWindow;
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 use clickhouse::{sql::Identifier, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy)]
 pub enum UptimeWindow {
@@ -181,11 +182,10 @@ impl ClickhouseSignatureStorage {
         }
         Ok(validators)
     }
-}
 
-#[async_trait]
-impl SignatureStorage for ClickhouseSignatureStorage {
-    async fn save_signatures(
+    /// Internal implementation of single block write (without retry logic)
+    /// This is called by save_signatures which handles retries
+    async fn save_signatures_internal(
         &mut self,
         height: usize,
         timestamp: NaiveDateTime,
@@ -194,11 +194,22 @@ impl SignatureStorage for ClickhouseSignatureStorage {
         let start = std::time::Instant::now();
 
         // Cache validators to avoid querying ClickHouse on every block (major performance improvement)
-        // Refresh cache every 100 blocks to pick up new validators
-        const CACHE_REFRESH_INTERVAL: usize = 100;
+        // Refresh cache every 100 blocks normally, but every 500 blocks during catch-up (gap > 1000)
+        // This reduces ClickHouse queries during heavy backfill
+        const CACHE_REFRESH_INTERVAL_NORMAL: usize = 100;
+        const CACHE_REFRESH_INTERVAL_CATCHUP: usize = 500;
+        // Note: We can't access current_gap here, so we use a heuristic: if height is very high (> 1M),
+        // we're likely in catch-up mode. This is a reasonable assumption for most chains.
+        // Alternatively, we could pass gap as a parameter, but that requires more refactoring.
+        // For now, we'll use the more aggressive interval (500) when height > 1M as a proxy for catch-up.
+        let cache_refresh_interval = if height > 1_000_000 {
+            CACHE_REFRESH_INTERVAL_CATCHUP
+        } else {
+            CACHE_REFRESH_INTERVAL_NORMAL
+        };
         let should_refresh_cache = self.cached_validators
             .as_ref()
-            .map(|(_, cached_height)| height.saturating_sub(*cached_height) >= CACHE_REFRESH_INTERVAL)
+            .map(|(_, cached_height)| height.saturating_sub(*cached_height) >= cache_refresh_interval)
             .unwrap_or(true);
 
         if should_refresh_cache {
@@ -295,8 +306,9 @@ impl SignatureStorage for ClickhouseSignatureStorage {
         Ok(())
     }
 
-    /// Override batch method for ClickHouse - much faster than default implementation
-    async fn save_signatures_batch(
+    /// Internal implementation of batch write (without retry logic)
+    /// This is called by save_signatures_batch which handles retries
+    async fn save_signatures_batch_internal(
         &mut self,
         blocks: Vec<(usize, NaiveDateTime, Vec<String>)>,
     ) -> Result<()> {
@@ -422,28 +434,188 @@ impl SignatureStorage for ClickhouseSignatureStorage {
 
         Ok(())
     }
+}
+
+#[async_trait]
+impl SignatureStorage for ClickhouseSignatureStorage {
+    /// Save signatures for a single block with retry logic
+    /// Includes retry logic with exponential backoff to prevent data loss on transient failures
+    async fn save_signatures(
+        &mut self,
+        height: usize,
+        timestamp: NaiveDateTime,
+        signatures: Vec<String>,
+    ) -> anyhow::Result<()> {
+        const MAX_RETRIES: u32 = 5;
+        const INITIAL_RETRY_DELAY_MS: u64 = 100; // Start with 100ms
+        const MAX_RETRY_DELAY_MS: u64 = 10000; // Cap at 10 seconds
+
+        // Retry loop with exponential backoff
+        let mut last_error = None;
+        for attempt in 0..=MAX_RETRIES {
+            match self.save_signatures_internal(height, timestamp, signatures.clone()).await {
+                Ok(()) => {
+                    // Success - log if we had to retry
+                    if attempt > 0 {
+                        warn!(
+                            "(ClickHouse) Single block write succeeded after {} retries for block {}",
+                            attempt, height
+                        );
+                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < MAX_RETRIES {
+                        // Calculate exponential backoff delay
+                        let delay_ms = (INITIAL_RETRY_DELAY_MS * (1u64 << attempt))
+                            .min(MAX_RETRY_DELAY_MS);
+                        let delay = Duration::from_millis(delay_ms);
+
+                        error!(
+                            "(ClickHouse) Single block write failed for block {} (attempt {}/{}): {}. Retrying in {:?}...",
+                            height,
+                            attempt + 1,
+                            MAX_RETRIES + 1,
+                            last_error.as_ref().unwrap(),
+                            delay
+                        );
+
+                        tokio::time::sleep(delay).await;
+                    } else {
+                        // Final attempt failed
+                        error!(
+                            "(ClickHouse) Single block write failed after {} retries for block {}: {}",
+                            MAX_RETRIES + 1,
+                            height,
+                            last_error.as_ref().unwrap()
+                        );
+                    }
+                }
+            }
+        }
+
+        // All retries exhausted - return the last error
+        Err(last_error.unwrap())
+    }
+
+    /// Override batch method for ClickHouse - much faster than default implementation
+    /// Includes retry logic with exponential backoff to prevent data loss on transient failures
+    async fn save_signatures_batch(
+        &mut self,
+        blocks: Vec<(usize, NaiveDateTime, Vec<String>)>,
+    ) -> Result<()> {
+        if blocks.is_empty() {
+            return Ok(());
+        }
+
+        const MAX_RETRIES: u32 = 5;
+        const INITIAL_RETRY_DELAY_MS: u64 = 100; // Start with 100ms
+        const MAX_RETRY_DELAY_MS: u64 = 10000; // Cap at 10 seconds
+
+        let first_height = blocks[0].0;
+        let last_height = blocks[blocks.len() - 1].0;
+
+        // Retry loop with exponential backoff
+        let mut last_error = None;
+        for attempt in 0..=MAX_RETRIES {
+            match self.save_signatures_batch_internal(blocks.clone()).await {
+                Ok(()) => {
+                    // Success - log if we had to retry
+                    if attempt > 0 {
+                        warn!(
+                            "(ClickHouse) Batch write succeeded after {} retries for blocks {}-{}",
+                            attempt, first_height, last_height
+                        );
+                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < MAX_RETRIES {
+                        // Calculate exponential backoff delay
+                        let delay_ms = (INITIAL_RETRY_DELAY_MS * (1u64 << attempt))
+                            .min(MAX_RETRY_DELAY_MS);
+                        let delay = Duration::from_millis(delay_ms);
+
+                        error!(
+                            "(ClickHouse) Batch write failed for blocks {}-{} (attempt {}/{}): {}. Retrying in {:?}...",
+                            first_height,
+                            last_height,
+                            attempt + 1,
+                            MAX_RETRIES + 1,
+                            last_error.as_ref().unwrap(),
+                            delay
+                        );
+
+                        tokio::time::sleep(delay).await;
+                    } else {
+                        // Final attempt failed
+                        error!(
+                            "(ClickHouse) Batch write failed after {} retries for blocks {}-{}: {}",
+                            MAX_RETRIES + 1,
+                            first_height,
+                            last_height,
+                            last_error.as_ref().unwrap()
+                        );
+                    }
+                }
+            }
+        }
+
+        // All retries exhausted - return the last error
+        Err(last_error.unwrap())
+    }
 
     async fn uptimes(&self, window: UptimeWindow) -> Result<HashMap<String, ValidatorUptime>> {
+        // Calculate uptime only for blocks after a validator's first_seen timestamp
+        // This ensures validators created mid-period don't get penalized for blocks before they existed
+        //
+        // Strategy:
+        // 1. Get all uptime buckets for the time window
+        // 2. Get first_seen timestamps for all validators
+        // 3. Filter buckets to only include those after first_seen (or all if first_seen is NULL)
+        // 4. Aggregate filtered buckets to calculate uptime
         let query = format!(
             r#"
             SELECT
-                address,
-                sum(total_blocks) AS total_blocks,
-                sum(missed) AS missed,
-                total_blocks - missed AS signed_blocks,
-                100 * ((total_blocks - missed) / total_blocks) as uptime
+                buckets.address,
+                sum(buckets.total_blocks) AS total_blocks,
+                sum(buckets.missed) AS missed,
+                sum(buckets.total_blocks) - sum(buckets.missed) AS signed_blocks,
+                CASE
+                    WHEN sum(buckets.total_blocks) > 0
+                    THEN 100 * ((sum(buckets.total_blocks) - sum(buckets.missed)) / sum(buckets.total_blocks))
+                    ELSE 0
+                END as uptime
             FROM
             (
                 SELECT
                     chain_id,
                     address,
+                    bucket_start,
                     countMerge(total_blocks) AS total_blocks,
                     sumMerge(missed) AS missed
                 FROM validator_uptime_buckets
                 WHERE bucket_start >= now() - INTERVAL {} DAY AND chain_id = ?
+                GROUP BY chain_id, address, bucket_start
+            ) AS buckets
+            LEFT JOIN
+            (
+                SELECT
+                    chain_id,
+                    address,
+                    minMerge(first_seen) AS first_seen
+                FROM validator_first_seen
+                WHERE chain_id = ?
                 GROUP BY chain_id, address
-            )
-            GROUP BY chain_id, address
+            ) AS first_seen
+            ON buckets.chain_id = first_seen.chain_id AND buckets.address = first_seen.address
+            WHERE
+                -- Only count buckets after the validator's first_seen (or all buckets if first_seen is NULL)
+                -- bucket_start is at hour granularity, so we compare with hour precision
+                (first_seen.first_seen IS NULL OR buckets.bucket_start >= toStartOfHour(first_seen.first_seen))
+            GROUP BY buckets.chain_id, buckets.address
             ORDER BY missed DESC
             "#,
             match window.as_interval() {
@@ -454,6 +626,7 @@ impl SignatureStorage for ClickhouseSignatureStorage {
         let mut cursor = self
             .clickhouse_client
             .query(&query)
+            .bind(self.chain_id.as_str())
             .bind(self.chain_id.as_str())
             .fetch::<Uptime<'_>>()?;
         let mut uptimes = std::collections::HashMap::new();
@@ -471,6 +644,7 @@ impl SignatureStorage for ClickhouseSignatureStorage {
             );
         }
 
+        // Fetch first_seen timestamps for all validators to populate first_time_seen field
         let mut first_seen_map = std::collections::HashMap::new();
         let mut cursor = self
             .clickhouse_client
@@ -488,6 +662,7 @@ impl SignatureStorage for ClickhouseSignatureStorage {
             first_seen_map.insert(filtered_address, row.first_seen);
         }
 
+        // Populate first_time_seen for validators that have uptime data
         for (address, uptime) in uptimes.iter_mut() {
             if let Some(first_seen) = first_seen_map.get(address) {
                 uptime.first_time_seen = Some(*first_seen);

@@ -142,3 +142,12 @@ network:
         enabled: false
       uptime:
         persistence: false
+
+  axelar:
+    broadcaster:
+      enabled: true
+      interval: 1
+      axelarscan_api: https://api.axelarscan.io
+      alerting:
+        addresses:
+          - axelar1dexdcyf67247kz09vh4hu3phfep2yfut6p6zfk

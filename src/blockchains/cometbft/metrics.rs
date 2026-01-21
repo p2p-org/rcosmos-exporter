@@ -87,6 +87,30 @@ lazy_static! {
         &["chain_id", "network"]
     )
     .unwrap();
+    pub static ref COMETBFT_BLOCK_STUCK_HEIGHT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_block_stuck_height",
+            "Block height the exporter is currently stuck on (0 if not stuck). Indicates the exporter cannot fetch this block after multiple retries."
+        ),
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COMETBFT_BLOCK_STUCK_DURATION_SECONDS: GaugeVec = GaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_block_stuck_duration_seconds",
+            "Duration in seconds the exporter has been stuck on the current block (0 if not stuck)"
+        ),
+        &["chain_id", "network"]
+    )
+    .unwrap();
+    pub static ref COMETBFT_BLOCK_STUCK_RETRY_COUNT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "rcosmos_cometbft_block_stuck_retry_count",
+            "Number of retry attempts made for the currently stuck block (0 if not stuck)"
+        ),
+        &["chain_id", "network"]
+    )
+    .unwrap();
     pub static ref COMETBFT_VALIDATOR_MISSED_BLOCKS: CounterVec = CounterVec::new(
         Opts::new(
             "rcosmos_cometbft_validator_missed_blocks",
@@ -356,6 +380,15 @@ pub fn cometbft_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_BLOCK_GAP.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_BLOCK_STUCK_HEIGHT.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_BLOCK_STUCK_DURATION_SECONDS.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(COMETBFT_BLOCK_STUCK_RETRY_COUNT.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(COMETBFT_VALIDATOR_MISSED_BLOCKS.clone()))

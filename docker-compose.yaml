@@ -2,7 +2,7 @@ services:
   clickhouse-server:
     restart: always
     image: altinity/clickhouse-server:24.3.18.10426.altinitystable
-    profiles: ["ci"]
+    # No profile - runs by default since exporter depends on it
     ports:
       - "8123:8123"   # HTTP interface
       - "9000:9000"   # Native TCP interface
@@ -57,6 +57,7 @@ services:
     restart: always
     build: .
     container_name: rcosmos-exporter
+    # No profile - runs by default
     volumes:
       - ./config.yaml:/config.yaml:ro
     ports:
@@ -67,6 +68,65 @@ services:
       - CLICKHOUSE_DATABASE=default
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=mysecurepassword123
+    depends_on:
+      - clickhouse-server
+
+  # exporter-story:
+  #   restart: always
+  #   build: .
+  #   container_name: rcosmos-exporter-story
+  #   profiles: ["all-exporters", "ci"]
+  #   command: ["./rcosmos-exporter", "--config", "/config-story.yaml"]
+  #   volumes:
+  #     - ./test/env/story-mainnet.yaml:/config-story.yaml:ro
+  #   ports:
+  #     - "9100:9100" # story exporter metrics endpoint (host:container)
+  #   environment:
+  #     - NODE_NAME=story-exporter
+  #     - CLICKHOUSE_URL=http://clickhouse-server:8123
+  #     - CLICKHOUSE_DATABASE=default
+  #     - CLICKHOUSE_USER=default
+  #     - CLICKHOUSE_PASSWORD=mysecurepassword123
+  #   depends_on:
+  #     - clickhouse-server
+
+  # exporter-axelar:
+  #   restart: always
+  #   build: .
+  #   container_name: rcosmos-exporter-axelar
+  #   profiles: ["all-exporters", "ci"]
+  #   command: ["./rcosmos-exporter", "--config", "/config-axelar.yaml"]
+  #   volumes:
+  #     - ./test/env/axelar-mainnet.yaml:/config-axelar.yaml:ro
+  #   ports:
+  #     - "9101:9100" # axelar exporter metrics endpoint (host:container)
+  #   environment:
+  #     - NODE_NAME=axelar-exporter
+  #     - CLICKHOUSE_URL=http://clickhouse-server:8123
+  #     - CLICKHOUSE_DATABASE=default
+  #     - CLICKHOUSE_USER=default
+  #     - CLICKHOUSE_PASSWORD=mysecurepassword123
+  #   depends_on:
+  #     - clickhouse-server
+
+  # exporter-axelar-testnet:
+  #   restart: always
+  #   build: .
+  #   container_name: rcosmos-exporter-axelar-testnet
+  #   profiles: ["all-exporters", "ci"]
+  #   command: ["./rcosmos-exporter", "--config", "/config-axelar-testnet.yaml"]
+  #   volumes:
+  #     - ./test/env/axelar-testnet.yaml:/config-axelar-testnet.yaml:ro
+  #   ports:
+  #     - "9102:9100" # axelar testnet exporter metrics endpoint (host:container)
+  #   environment:
+  #     - NODE_NAME=axelar-testnet-exporter
+  #     - CLICKHOUSE_URL=http://clickhouse-server:8123
+  #     - CLICKHOUSE_DATABASE=default
+  #     - CLICKHOUSE_USER=default
+  #     - CLICKHOUSE_PASSWORD=mysecurepassword123
+  #   depends_on:
+  #     - clickhouse-server
 
   prometheus:
     image: prom/prometheus:latest

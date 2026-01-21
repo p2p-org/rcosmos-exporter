@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 
+use crate::blockchains::axelar::metrics::axelar_custom_metrics;
 use crate::blockchains::coredao::metrics::coredao_custom_metrics;
 use crate::blockchains::lombard::metrics::lombard_custom_metrics;
 use crate::blockchains::sei::metrics::sei_custom_metrics;
@@ -99,17 +100,33 @@ async fn main() {
 
     // Use configurable timeout: prefer block-specific timeout if set, otherwise use general timeout
     // This allows large blocks (like Celestia) to have longer timeouts without affecting other modules
-    let rpc_timeout_seconds = config
-        .network
-        .cometbft
-        .block
-        .timeout_seconds
-        .unwrap_or(config.general.rpc_timeout_seconds);
-    if let Some(block_timeout) = config.network.cometbft.block.timeout_seconds {
-        info!("[main] Using block-specific RPC timeout: {}s (general timeout: {}s)", block_timeout, config.general.rpc_timeout_seconds);
-    } else {
-        info!("[main] Using general RPC timeout: {}s", rpc_timeout_seconds);
-    }
+    // Check both CometBFT and Sei block timeouts (they share the same NodePool)
+    let cometbft_timeout = config.network.cometbft.block.timeout_seconds;
+    let sei_timeout = config.network.sei.block.timeout_seconds;
+
+    // Use the maximum timeout if both are set, or whichever is set, or fall back to general timeout
+    let rpc_timeout_seconds = match (cometbft_timeout, sei_timeout) {
+        (Some(c), Some(s)) => {
+            let max_timeout = c.max(s);
+            info!("[main] Using block-specific RPC timeout: {}s (CometBFT: {}s, Sei: {}s, general: {}s)",
+                max_timeout, c, s, config.general.rpc_timeout_seconds);
+            max_timeout
+        }
+        (Some(c), None) => {
+            info!("[main] Using CometBFT block-specific RPC timeout: {}s (general timeout: {}s)",
+                c, config.general.rpc_timeout_seconds);
+            c
+        }
+        (None, Some(s)) => {
+            info!("[main] Using Sei block-specific RPC timeout: {}s (general timeout: {}s)",
+                s, config.general.rpc_timeout_seconds);
+            s
+        }
+        (None, None) => {
+            info!("[main] Using general RPC timeout: {}s", config.general.rpc_timeout_seconds);
+            config.general.rpc_timeout_seconds
+        }
+    };
     let rpc_timeout = std::time::Duration::from_secs(rpc_timeout_seconds);
     info!("[main] Creating RPC node pool...");
     let rpc_pool =
@@ -191,6 +208,7 @@ async fn main() {
     lombard_custom_metrics();
     coredao_custom_metrics();
     sei_custom_metrics();
+    axelar_custom_metrics();
 
     info!("[main] Creating modules for mode: {:?}...", app_context.config.general.mode);
     let modules = match app_context.config.general.mode {

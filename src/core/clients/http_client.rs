@@ -66,19 +66,19 @@ fn is_permanent_error(status: StatusCode) -> bool {
     status.as_u16() >= 400 && status.as_u16() < 500 && status != StatusCode::TOO_MANY_REQUESTS
 }
 
-/// Extract retry-after delay from response headers (for 429 rate limiting)
-fn extract_retry_after(res: &reqwest::Response) -> Option<Duration> {
-    res.headers()
-        .get("retry-after")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok())
-        .map(Duration::from_secs)
-}
 
 /// Circuit breaker threshold: after this many consecutive failures, temporarily exclude node
 const CIRCUIT_BREAKER_THRESHOLD: usize = 5;
 /// Circuit breaker duration: how long to exclude a node after hitting threshold
 const CIRCUIT_BREAKER_DURATION: Duration = Duration::from_secs(60);
+/// Rate limit cooldown: how long to skip a node after it returns 429 (to avoid hammering it)
+/// Shorter than circuit breaker since rate limits are temporary and recover quickly
+const RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(10);
+/// Rate limit cooldown multiplier: increase cooldown for nodes that are repeatedly rate-limited
+/// This prevents hammering nodes that are consistently rate-limiting us
+const RATE_LIMIT_COOLDOWN_MULTIPLIER: u64 = 2;
+/// Maximum rate limit cooldown: cap the cooldown to prevent nodes from being excluded too long
+const MAX_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(120); // 2 minutes max
 /// When all nodes are unhealthy, wait this long before retrying (self-healing)
 const ALL_NODES_UNHEALTHY_RETRY_DELAY: Duration = Duration::from_secs(5);
 
@@ -95,6 +95,10 @@ struct Node {
     successful_endpoints: std::collections::HashSet<String>,
     // Circuit breaker: temporarily exclude node after too many failures (even if health check passes)
     circuit_breaker_until: Option<std::time::Instant>,
+    // Rate limit tracking: temporarily skip node after rate limit (429) to avoid hammering it
+    rate_limit_until: Option<std::time::Instant>,
+    // Track consecutive rate limits to increase cooldown for heavily rate-limited nodes
+    consecutive_rate_limits: usize,
 }
 
 impl Node {
@@ -113,6 +117,8 @@ impl Node {
             network,
             successful_endpoints: std::collections::HashSet::new(),
             circuit_breaker_until: None,
+            rate_limit_until: None,
+            consecutive_rate_limits: 0,
         }
     }
 
@@ -391,6 +397,9 @@ impl NodePool {
                             && e.circuit_breaker_until
                                 .map(|until| now > until)
                                 .unwrap_or(true)
+                            && e.rate_limit_until
+                                .map(|until| now > until)
+                                .unwrap_or(true)
                     })
                     .collect();
 
@@ -439,10 +448,40 @@ impl NodePool {
                 if attempt == 0 {
                     let unhealthy_nodes: Vec<_> = nodes.iter().filter(|e| !e.healthy).collect();
                     log_unhealthy_nodes(&unhealthy_nodes);
+
+                    // Log nodes that are rate-limited or in circuit breaker
+                    let rate_limited: Vec<_> = nodes.iter()
+                        .filter(|e| e.rate_limit_until.map(|until| now <= until).unwrap_or(false))
+                        .collect();
+                    let circuit_breaker: Vec<_> = nodes.iter()
+                        .filter(|e| e.circuit_breaker_until.map(|until| now <= until).unwrap_or(false))
+                        .collect();
+                    if !rate_limited.is_empty() {
+                        debug!(
+                            "(NodePool) Rate-limited nodes (skipped): {}",
+                            rate_limited.iter().map(|n| format!("{} (until {:?})", n.name, n.rate_limit_until)).collect::<Vec<_>>().join(", ")
+                        );
+                    }
+                    if !circuit_breaker.is_empty() {
+                        debug!(
+                            "(NodePool) Circuit breaker active (skipped): {}",
+                            circuit_breaker.iter().map(|n| format!("{} (until {:?})", n.name, n.circuit_breaker_until)).collect::<Vec<_>>().join(", ")
+                        );
+                    }
+                    if !healthy_nodes.is_empty() {
+                        info!(
+                            "(NodePool) Available healthy nodes for {}: {}",
+                            path,
+                            healthy_nodes.iter().map(|n| n.name.as_str()).collect::<Vec<_>>().join(", ")
+                        );
+                    }
                 }
 
                 // Select a node and clone its info before dropping the lock
                 if let Some(node) = nodes_to_try.choose(&mut rng) {
+                    if attempt == 0 {
+                        info!("(NodePool) Selected node {} ({}) for {}", node.name, node.url, path);
+                    }
                     (node.url.clone(), node.name.clone(), node.network.clone())
                 } else {
                     drop(nodes);
@@ -468,17 +507,46 @@ impl NodePool {
 
                     // Handle rate limiting (429) with retry-after support
                     if status == StatusCode::TOO_MANY_REQUESTS {
-                        let retry_after = extract_retry_after(&res).unwrap_or(Duration::from_secs(1));
+                        // Mark node as rate-limited to skip it temporarily (avoid hammering it)
+                        {
+                            let mut nodes_write = self.nodes.write().await;
+                            if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node_url) {
+                                // Increment consecutive rate limit counter
+                                node_mut.consecutive_rate_limits += 1;
+
+                                // Calculate cooldown: exponential backoff for repeatedly rate-limited nodes
+                                // This prevents hammering nodes that are consistently rate-limiting us
+                                let cooldown_seconds = (RATE_LIMIT_COOLDOWN.as_secs() * RATE_LIMIT_COOLDOWN_MULTIPLIER.pow(
+                                    (node_mut.consecutive_rate_limits - 1).min(6) as u32 // Cap at 6 to prevent overflow
+                                )).min(MAX_RATE_LIMIT_COOLDOWN.as_secs());
+                                let cooldown = Duration::from_secs(cooldown_seconds);
+
+                                node_mut.rate_limit_until = Some(Instant::now() + cooldown);
+
+                                if node_mut.consecutive_rate_limits > 3 {
+                                    warn!(
+                                        "(NodePool) {} Rate limited (429) - {} consecutive rate limits. Skipping for {}s (increased cooldown)",
+                                        node_name,
+                                        node_mut.consecutive_rate_limits,
+                                        cooldown.as_secs()
+                                    );
+                                } else {
+                                    debug!(
+                                        "(NodePool) {} Rate limited (429) - skipping for {}s to avoid hammering",
+                                        node_name,
+                                        cooldown.as_secs()
+                                    );
+                                }
+                            }
+                        }
                         warn!(
-                            "(NodePool) {} Rate limited (429) for {}. Retry after {}s",
+                            "(NodePool) {} Rate limited (429) for {}. Skipping node for {}s",
                             node_name,
                             url,
-                            retry_after.as_secs()
+                            RATE_LIMIT_COOLDOWN.as_secs()
                         );
-                        // Don't mark as failure for rate limiting - it's temporary
-                        // Wait for retry-after period, then try next node
-                        tokio::time::sleep(retry_after).await;
-                        continue; // Try next node after rate limit delay
+                        // Don't wait here - immediately try next node (we've marked this one as rate-limited)
+                        continue; // Try next node immediately
                     }
 
                     // Handle transient server errors (5xx) - retry on next node
@@ -536,6 +604,19 @@ impl NodePool {
                                 );
                                 node_mut.consecutive_failures = 0;
                                 node_mut.circuit_breaker_until = None; // Clear circuit breaker
+                            }
+                            // Clear rate limit cooldown on success (node is working again)
+                            if node_mut.rate_limit_until.is_some() {
+                                node_mut.rate_limit_until = None;
+                                if node_mut.consecutive_rate_limits > 0 {
+                                    debug!(
+                                        "(NodePool) Node {} ({}) cleared rate limit cooldown (successful request, had {} consecutive rate limits)",
+                                        node_name,
+                                        node_url,
+                                        node_mut.consecutive_rate_limits
+                                    );
+                                    node_mut.consecutive_rate_limits = 0; // Reset counter on success
+                                }
                             }
 
                             // If we have an endpoint pattern, mark this node as successful for this endpoint
@@ -695,6 +776,9 @@ impl NodePool {
                         && e.circuit_breaker_until
                             .map(|until| now > until)
                             .unwrap_or(true)
+                        && e.rate_limit_until
+                            .map(|until| now > until)
+                            .unwrap_or(true)
                 })
                 .collect();
 
@@ -718,15 +802,44 @@ impl NodePool {
 
                         // Handle rate limiting (429)
                         if status == StatusCode::TOO_MANY_REQUESTS {
-                            let retry_after = extract_retry_after(&res).unwrap_or(Duration::from_secs(1));
-                        warn!(
-                                "(NodePool) {} Rate limited (429) for POST {}. Retry after {}s",
+                            // Mark node as rate-limited to skip it temporarily
+                            {
+                                let mut nodes_write = self.nodes.write().await;
+                                if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node.url) {
+                                    // Increment consecutive rate limit counter
+                                    node_mut.consecutive_rate_limits += 1;
+
+                                    // Calculate cooldown: exponential backoff for repeatedly rate-limited nodes
+                                    let cooldown_seconds = (RATE_LIMIT_COOLDOWN.as_secs() * RATE_LIMIT_COOLDOWN_MULTIPLIER.pow(
+                                        (node_mut.consecutive_rate_limits - 1).min(6) as u32
+                                    )).min(MAX_RATE_LIMIT_COOLDOWN.as_secs());
+                                    let cooldown = Duration::from_secs(cooldown_seconds);
+
+                                    node_mut.rate_limit_until = Some(Instant::now() + cooldown);
+
+                                    if node_mut.consecutive_rate_limits > 3 {
+                                        warn!(
+                                            "(NodePool) {} Rate limited (429) for POST - {} consecutive rate limits. Skipping for {}s (increased cooldown)",
+                                            node.name,
+                                            node_mut.consecutive_rate_limits,
+                                            cooldown.as_secs()
+                                        );
+                                    } else {
+                                        debug!(
+                                            "(NodePool) {} Rate limited (429) for POST - skipping for {}s",
+                                            node.name,
+                                            cooldown.as_secs()
+                                        );
+                                    }
+                                }
+                            }
+                            warn!(
+                                "(NodePool) {} Rate limited (429) for POST {}. Skipping node for {}s",
                                 node.name,
                                 url,
-                                retry_after.as_secs()
+                                RATE_LIMIT_COOLDOWN.as_secs()
                             );
-                            tokio::time::sleep(retry_after).await;
-                            continue;
+                            continue; // Try next node immediately
                         }
 
                         // Handle transient errors
@@ -750,12 +863,25 @@ impl NodePool {
                         }
 
                         if status == StatusCode::OK {
-                            // Success - reset failure count
+                            // Success - reset failure count and rate limit counter
                             let mut nodes_write = self.nodes.write().await;
                             if let Some(node_mut) = nodes_write.iter_mut().find(|n| n.url == node.url) {
                                 if node_mut.consecutive_failures > 0 {
                                     node_mut.consecutive_failures = 0;
                                     node_mut.circuit_breaker_until = None;
+                                }
+                                // Clear rate limit cooldown and reset counter on success
+                                if node_mut.rate_limit_until.is_some() || node_mut.consecutive_rate_limits > 0 {
+                                    node_mut.rate_limit_until = None;
+                                    if node_mut.consecutive_rate_limits > 0 {
+                                        debug!(
+                                            "(NodePool) Node {} ({}) cleared rate limit cooldown (POST success, had {} consecutive rate limits)",
+                                            node.name,
+                                            node.url,
+                                            node_mut.consecutive_rate_limits
+                                        );
+                                        node_mut.consecutive_rate_limits = 0;
+                                    }
                                 }
                             }
                             return Ok(res.text().await?);

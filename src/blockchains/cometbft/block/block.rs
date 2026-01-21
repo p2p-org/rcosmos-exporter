@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 use crate::blockchains::cometbft::metrics::{
     COMETBFT_BLOCK_GAP, COMETBFT_BLOCK_GAS_USED, COMETBFT_BLOCK_GAS_WANTED, COMETBFT_BLOCK_TXS,
     COMETBFT_BLOCK_TX_GAS_USED, COMETBFT_BLOCK_TX_GAS_WANTED, COMETBFT_BLOCK_TX_SIZE,
+    COMETBFT_BLOCK_STUCK_HEIGHT, COMETBFT_BLOCK_STUCK_DURATION_SECONDS, COMETBFT_BLOCK_STUCK_RETRY_COUNT,
     COMETBFT_CURRENT_BLOCK_HEIGHT, COMETBFT_CURRENT_BLOCK_TIME,
     COMETBFT_VALIDATOR_15D_MISSED_BLOCKS, COMETBFT_VALIDATOR_15D_SIGNED_BLOCKS,
     COMETBFT_VALIDATOR_15D_TOTAL_BLOCKS, COMETBFT_VALIDATOR_15D_UPTIME,
@@ -213,6 +214,7 @@ impl Block {
         // Only fetch tx data if explicitly enabled in config
         // We respect the config setting regardless of node tx_index support
         let tx_enabled = self.app_context.config.network.cometbft.block.tx.enabled;
+        let catchup_mode_threshold = self.app_context.config.network.cometbft.block.catchup_mode_threshold;
         let rpc = self.app_context.rpc.as_ref().unwrap().clone();
 
         // Buffer to hold fetched blocks (keyed by height for ordered processing)
@@ -232,14 +234,22 @@ impl Block {
                 MIN_BUFFER_SIZE.max(concurrent_fetch_count.min(5))
             } else {
                 // Behind: use larger buffer to maximize concurrent fetching.
-                // Let the maximum buffer size equal the configured concurrency value,
-                // while still enforcing a minimum buffer size.
-                concurrent_fetch_count.max(MIN_BUFFER_SIZE)
+                // Allow buffer to be 2x concurrency for better pipelining during catch-up
+                // This ensures we always have blocks ready while processing continues
+                let buffer_size = concurrent_fetch_count * 2;
+                buffer_size
+                    .max(concurrent_fetch_count)
+                    .max(MIN_BUFFER_SIZE)
             }
         };
 
         // Store initial height to calculate blocks_processed correctly
         let initial_height_to_process = height_to_process;
+
+        // Track stuck state for metrics (when we're retrying the same block)
+        let mut stuck_block_height: Option<usize> = None;
+        let mut stuck_start_time: Option<std::time::Instant> = None;
+        let mut stuck_retry_count: u32 = 0;
 
         // Uptime calculations run periodically (every 1000 blocks) instead of at the end
         // This allows the function to run continuously while still updating uptime metrics
@@ -259,18 +269,18 @@ impl Block {
             .block
             .uptime
             .insert_concurrency;
-        // When behind (gap > 1000), use larger batches (2-3x) to maximize throughput
-        // When caught up (gap <= 1000), use base batch size for lower latency
+        // When behind (gap > catchup_mode_threshold), use larger batches (2-3x) to maximize throughput
+        // When caught up (gap <= catchup_mode_threshold), use base batch size for lower latency
         let calculate_batch_size = |gap: usize| -> usize {
-            if gap > 1000 {
-                base_batch_size * 3 // Triple batch size when far behind (maximize throughput)
+            if gap > catchup_mode_threshold {
+                base_batch_size * 10 // 10x batch size when far behind (maximize throughput for fast catch-up)
             } else {
                 base_batch_size
             }
         };
         // Adaptive timeout: longer when behind (allows larger batches), shorter when caught up
         let calculate_batch_timeout = |gap: usize| -> u64 {
-            if gap > 1000 {
+            if gap > catchup_mode_threshold {
                 10000 // 10 seconds when behind (allows very large batches for max throughput)
             } else {
                 2000 // 2 seconds when caught up (lower latency)
@@ -298,22 +308,32 @@ impl Block {
 
         // Spawn background task to handle ClickHouse writes asynchronously
         // Task runs for the entire lifetime of the function (forever)
+        // Retry logic is handled inside save_signatures_batch, so we log final failures here
         let _bg_task = tokio::spawn(async move {
             while let Some(batch) = tx_receiver.recv().await {
                 let mut storage = storage_for_bg.lock().await;
-                if let Err(e) = storage.save_signatures_batch(batch).await {
+                if let Err(e) = storage.save_signatures_batch(batch.clone()).await {
+                    // This error means all retries were exhausted - data is permanently lost
+                    // Log as critical error since this is a data integrity issue
                     error!(
-                        "(CometBFT Block) Background ClickHouse write failed for chain {}: {}",
-                        chain_id_clone, e
+                        "(CometBFT Block) CRITICAL: Background ClickHouse write failed after all retries for chain {} (blocks {}-{}): {}. Data may be permanently lost!",
+                        chain_id_clone,
+                        batch.first().map(|(h, _, _)| h).unwrap_or(&0),
+                        batch.last().map(|(h, _, _)| h).unwrap_or(&0),
+                        e
                     );
                     // Continue processing - errors are logged but don't stop the background task
+                    // The exporter will continue from the last successfully persisted height on restart
                 }
             }
+            debug!("(CometBFT Block) Background ClickHouse writer task exiting (channel closed)");
         });
 
         // Tip refresh interval: how many processed blocks between /block?latest calls.
         // We keep this reasonably high to avoid hammering RPC but still track progress.
-        const TIP_REFRESH_BLOCKS: usize = 100;
+        // During catch-up (large gap), refresh less frequently to reduce RPC load
+        const TIP_REFRESH_BLOCKS_NORMAL: usize = 100; // When caught up or close
+        const TIP_REFRESH_BLOCKS_CATCHUP: usize = 500; // When far behind (gap > catchup_mode_threshold)
         let mut current_chain_tip: usize = last_block
             .header
             .height
@@ -324,9 +344,17 @@ impl Block {
         // Continuously process blocks until we're caught up to the chain tip.
         // We refresh the current tip periodically based on TIP_REFRESH_BLOCKS.
         loop {
+            // Calculate current gap to determine refresh interval
+            let current_gap = current_chain_tip.saturating_sub(height_to_process);
+            let tip_refresh_blocks = if current_gap > catchup_mode_threshold {
+                TIP_REFRESH_BLOCKS_CATCHUP
+            } else {
+                TIP_REFRESH_BLOCKS_NORMAL
+            };
+
             // Refresh current chain tip periodically based on how many blocks we've processed
             let blocks_since_refresh = height_to_process.saturating_sub(last_tip_refresh_height);
-            if blocks_since_refresh >= TIP_REFRESH_BLOCKS {
+            if blocks_since_refresh >= tip_refresh_blocks {
                 match self.get_block(BlockHeight::Latest).await {
                     Ok(block) => {
                         if let Ok(h) = block.header.height.parse::<usize>() {
@@ -447,9 +475,13 @@ impl Block {
             // Keep buffer filled by fetching ahead concurrently (when concurrency is enabled)
             // For large blocks, we need to continuously refill the buffer as we process
             // This ensures we're always fetching multiple blocks in parallel while processing
+            // CRITICAL: Track buffer size before fetch to detect if we're stuck retrying the same blocks
+            const MAX_INITIAL_FILL_ATTEMPTS: usize = 10; // Limit attempts to avoid infinite loops
+            let mut initial_fill_attempts = 0;
             while use_concurrency
                 && block_buffer.len() < target_buffer_size
                 && height_to_process + block_buffer.len() < current_chain_tip
+                && initial_fill_attempts < MAX_INITIAL_FILL_ATTEMPTS
             {
                 // Determine how many blocks to fetch
                 // Fetch enough to fill buffer to target size, up to concurrency limit
@@ -460,6 +492,10 @@ impl Block {
                 if fetch_count == 0 {
                     break;
                 }
+
+                // Track buffer size before fetch to detect if we're making progress
+                let buffer_size_before_fetch = block_buffer.len();
+                initial_fill_attempts += 1;
 
                 info!(
                     "(CometBFT Block) Concurrent fetch: fetching {} blocks (buffer: {}/{}, gap: {}, memory-optimized: {})",
@@ -609,6 +645,27 @@ impl Block {
                         }
                     }
                 }
+
+                // Check if buffer grew - if not, we're stuck retrying the same failing blocks
+                // Break out and let sequential processing handle missing blocks
+                if block_buffer.len() == buffer_size_before_fetch {
+                    debug!(
+                        "(CometBFT Block) Initial buffer fill stuck: buffer size unchanged after fetch attempt {} (buffer: {}/{})",
+                        initial_fill_attempts,
+                        block_buffer.len(),
+                        target_buffer_size
+                    );
+                    // If we've tried multiple times and buffer hasn't grown, break to avoid infinite loop
+                    // The sequential fallback will handle missing blocks with proper retry logic
+                    if initial_fill_attempts >= 3 {
+                        warn!(
+                            "(CometBFT Block) Initial buffer fill: {} blocks in buffer (target: {}). Some blocks failed to fetch - will process sequentially with retry logic",
+                            block_buffer.len(),
+                            target_buffer_size
+                        );
+                        break;
+                    }
+                }
             }
 
             // Get next block from buffer (sequential processing)
@@ -617,7 +674,32 @@ impl Block {
             // Even though blocks are fetched concurrently, they are processed sequentially,
             // which means each metric update is atomic and accurate
             let buffer_size_before = block_buffer.len();
-            let (block, txs_info) = if let Some(data) = block_buffer.remove(&height_to_process) {
+            let (block, txs_info, block_from_buffer) = if let Some(data) = block_buffer.remove(&height_to_process) {
+                // Successfully got block from buffer - clear stuck state if we were stuck on a different block
+                if stuck_block_height != Some(height_to_process) && stuck_block_height.is_some() {
+                    // We were stuck on a different block, clear stuck metrics
+                    COMETBFT_BLOCK_STUCK_HEIGHT
+                        .with_label_values(&[
+                            &self.app_context.chain_id,
+                            &self.app_context.config.general.network,
+                        ])
+                        .set(0);
+                    COMETBFT_BLOCK_STUCK_DURATION_SECONDS
+                        .with_label_values(&[
+                            &self.app_context.chain_id,
+                            &self.app_context.config.general.network,
+                        ])
+                        .set(0.0);
+                    COMETBFT_BLOCK_STUCK_RETRY_COUNT
+                        .with_label_values(&[
+                            &self.app_context.chain_id,
+                            &self.app_context.config.general.network,
+                        ])
+                        .set(0);
+                    stuck_block_height = None;
+                    stuck_start_time = None;
+                    stuck_retry_count = 0;
+                }
                 // Verify block height matches before processing (data integrity)
                 let buffered_height = data.0.header.height.parse::<usize>()
                     .unwrap_or(0);
@@ -651,7 +733,7 @@ impl Block {
                     target_buffer_size
                 );
 
-                data
+                (data.0, data.1, true)
             } else {
                 // Buffer miss - fetch now (fallback)
                 // This happens when buffer is empty (either concurrency is disabled or concurrent fetch failed)
@@ -676,14 +758,22 @@ impl Block {
                     );
                 }
 
-                // Retry logic with exponential backoff for timeouts
-                // NodePool tries 2 different nodes per call, so we get good coverage
-                // For timeouts (large blocks), use exponential backoff to avoid overwhelming nodes
-                // If all retries fail, skip this block and continue (module will retry window after interval)
-                let mut retries = 0;
-                const MAX_RETRIES: u32 = 5; // Reduced from 10 - if 5 retries fail, skip and continue
+                // Retry logic with exponential backoff - NEVER skip blocks, keep retrying indefinitely
+                // NodePool tries multiple nodes per call, so we get good coverage across RPC endpoints
+                // We track "stuck" state to provide visibility when a block is difficult to fetch
+                let mut retries = 0u32;
                 const INITIAL_RETRY_DELAY_MS: u64 = 1000; // Start with 1s delay
-                const MAX_RETRY_DELAY_MS: u64 = 10000; // Cap at 10s delay
+                const MAX_RETRY_DELAY_MS: u64 = 30000; // Cap at 30s delay (longer for persistent issues)
+                const STUCK_THRESHOLD_RETRIES: u32 = 10; // Consider "stuck" after 10 retries
+
+                // Track if we're stuck on this block (for metrics)
+                // Reset stuck tracking if we're starting to retry a new block
+                if stuck_block_height != Some(height_to_process) {
+                    // Starting to retry a new block - reset stuck tracking
+                    *stuck_block_height.get_or_insert_with(|| height_to_process) = height_to_process;
+                    *stuck_start_time.get_or_insert_with(|| std::time::Instant::now()) = std::time::Instant::now();
+                    stuck_retry_count = 0;
+                }
 
                 loop {
                     let result = if tx_enabled {
@@ -700,17 +790,50 @@ impl Block {
 
                     match result {
                         Ok(data) => {
+                            // Successfully fetched - clear stuck state and metrics
                             if retries > 0 {
                                 info!(
-                                    "(CometBFT Block) Successfully fetched block {} after {} retries",
+                                    "(CometBFT Block) Successfully fetched block {} after {} retries{}",
                                     height_to_process,
-                                    retries
+                                    retries,
+                                    if stuck_retry_count > 0 {
+                                        format!(" (was stuck for {:.1}s)",
+                                            stuck_start_time.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0))
+                                    } else {
+                                        String::new()
+                                    }
                                 );
                             }
-                            break data;
+
+                            // Clear stuck metrics
+                            COMETBFT_BLOCK_STUCK_HEIGHT
+                                .with_label_values(&[
+                                    &self.app_context.chain_id,
+                                    &self.app_context.config.general.network,
+                                ])
+                                .set(0);
+                            COMETBFT_BLOCK_STUCK_DURATION_SECONDS
+                                .with_label_values(&[
+                                    &self.app_context.chain_id,
+                                    &self.app_context.config.general.network,
+                                ])
+                                .set(0.0);
+                            COMETBFT_BLOCK_STUCK_RETRY_COUNT
+                                .with_label_values(&[
+                                    &self.app_context.chain_id,
+                                    &self.app_context.config.general.network,
+                                ])
+                                .set(0);
+
+                            stuck_block_height = None;
+                            stuck_start_time = None;
+                            stuck_retry_count = 0;
+
+                            break (data.0, data.1, false);
                         }
                         Err(e) => {
                             retries += 1;
+                            stuck_retry_count = retries;
 
                             // Check if this is a timeout error (large blocks can timeout)
                             let is_timeout = e
@@ -722,43 +845,66 @@ impl Block {
                                         || err_str.contains("timed out")
                                 });
 
-                            // After max retries, bail to let module retry window after interval
-                            // This prevents infinite loops while still trying extensively
-                            // The module will retry the window, and hopefully nodes will have recovered
-                            if retries >= MAX_RETRIES {
-                                error!(
-                                    "(CometBFT Block) Block {} failed after {} retries (timeout: {}). Module will retry window after interval. Last error: {}",
-                                    height_to_process,
-                                    retries,
-                                    is_timeout,
-                                    e
-                                );
-                                anyhow::bail!(
-                                    "Block {} failed after {} retries. Module will retry window after interval.",
-                                    height_to_process,
-                                    retries
-                                );
+                            // Update stuck metrics if we're past the threshold
+                            if retries >= STUCK_THRESHOLD_RETRIES {
+                                if let Some(stuck_start) = stuck_start_time {
+                                    let stuck_duration = stuck_start.elapsed().as_secs_f64();
+
+                                    COMETBFT_BLOCK_STUCK_HEIGHT
+                                        .with_label_values(&[
+                                            &self.app_context.chain_id,
+                                            &self.app_context.config.general.network,
+                                        ])
+                                        .set(height_to_process as i64);
+                                    COMETBFT_BLOCK_STUCK_DURATION_SECONDS
+                                        .with_label_values(&[
+                                            &self.app_context.chain_id,
+                                            &self.app_context.config.general.network,
+                                        ])
+                                        .set(stuck_duration);
+                                    COMETBFT_BLOCK_STUCK_RETRY_COUNT
+                                        .with_label_values(&[
+                                            &self.app_context.chain_id,
+                                            &self.app_context.config.general.network,
+                                        ])
+                                        .set(retries as i64);
+
+                                    // Log periodically (every 10 retries) to avoid spam
+                                    if retries % 10 == 0 {
+                                        warn!(
+                                            "(CometBFT Block) Stuck on block {}: {} retries, stuck for {:.1}s (timeout: {}). Last error: {}",
+                                            height_to_process,
+                                            retries,
+                                            stuck_duration,
+                                            is_timeout,
+                                            e
+                                        );
+                                    }
+                                }
                             }
 
                             // Exponential backoff: longer delays for timeouts, shorter for other errors
+                            // Cap at MAX_RETRY_DELAY_MS to avoid extremely long waits
                             let delay_ms = if is_timeout {
-                                // For timeouts: exponential backoff (1s, 2s, 4s, 8s, 10s max)
-                                let exponential = INITIAL_RETRY_DELAY_MS * (1 << (retries - 1));
+                                // For timeouts: exponential backoff (1s, 2s, 4s, 8s, 16s, 30s max)
+                                let exponential = INITIAL_RETRY_DELAY_MS * (1 << (retries.saturating_sub(1).min(4)));
                                 exponential.min(MAX_RETRY_DELAY_MS)
                             } else {
-                                // For other errors: shorter delay (1s, 2s, 3s, 4s, 5s)
-                                INITIAL_RETRY_DELAY_MS * retries as u64
+                                // For other errors: linear backoff (1s, 2s, 3s, 4s, ... up to 30s max)
+                                (INITIAL_RETRY_DELAY_MS * retries as u64).min(MAX_RETRY_DELAY_MS)
                             };
 
-                            warn!(
-                                "(CometBFT Block) Retry {}/{} for height {} (timeout: {}): {}. Waiting {}ms before retry...",
-                                retries,
-                                MAX_RETRIES,
-                                height_to_process,
-                                is_timeout,
-                                e,
-                                delay_ms
-                            );
+                            // Log retry attempts (less frequently as retries increase to avoid spam)
+                            if retries <= 5 || retries % 10 == 0 {
+                                warn!(
+                                    "(CometBFT Block) Retry {} for height {} (timeout: {}): {}. Waiting {}ms before retry...",
+                                    retries,
+                                    height_to_process,
+                                    is_timeout,
+                                    e,
+                                    delay_ms
+                                );
+                            }
                             tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                         }
                     }
@@ -797,7 +943,7 @@ impl Block {
                 target_buffer_size
             );
 
-            self.process_block_with_data(height_to_process, block, txs_info)
+            self.process_block_with_data(height_to_process, block, txs_info, current_gap)
                 .await
                 .with_context(|| format!("Failed to process block {}", height_to_process))?;
 
@@ -1100,25 +1246,40 @@ impl Block {
             // Refill happens after each block is processed to maintain buffer size
             // When behind, fetch aggressively (up to concurrency limit) to keep buffer full
             // BUT: Don't refill if buffer is already very full (>= target) to avoid memory issues
-            if use_concurrency && block_buffer.len() < target_buffer_size {
+            // IMPORTANT: Only refill if we successfully processed a block from the buffer.
+            // If we had a buffer miss (processed sequentially), don't refill to avoid infinite loops
+            // retrying the same failing blocks. The sequential fallback will handle missing blocks.
+            if use_concurrency && block_buffer.len() < target_buffer_size && block_from_buffer {
                 let remaining = current_chain_tip.saturating_sub(height_to_process + block_buffer.len());
                 if remaining > 0 {
                     // Calculate how many we need to reach target
                     let needed = target_buffer_size.saturating_sub(block_buffer.len());
                     // When behind (gap > threshold), fetch more aggressively to maximize throughput
-                    // Fetch up to concurrency limit, not just what's needed
-                    // This ensures we're always fetching multiple blocks in parallel
+                    // OPTIMIZATION: Fetch many blocks in parallel to keep buffer full, even if processing is slower
+                    // This creates a pipeline: while processing block N, we fetch blocks N+100 to N+120
+                    // This way, RPC latency doesn't block processing - we always have blocks ready
                     let aggressive_fetch = if current_gap > BATCHING_GAP_THRESHOLD {
-                        // Behind: fetch up to concurrency limit to maximize throughput
-                        // BUT: Don't fetch more than what fits in the buffer
-                        let max_fetch = target_buffer_size.saturating_sub(block_buffer.len());
-                        max_fetch.min(concurrent_fetch_count).min(remaining)
+                        // Behind: fetch aggressively to keep buffer full
+                        // Strategy: Fetch enough blocks to maintain a "lookahead buffer"
+                        // If buffer is 99/100, fetch 10-20 blocks to keep it full while processing continues
+                        // This ensures RPC requests are pipelined ahead of processing
+                        let buffer_space = target_buffer_size.saturating_sub(block_buffer.len());
+                        // Fetch a "lookahead" amount: more aggressive for faster catch-up
+                        // Increased to 50-150 blocks ahead for better pipelining
+                        let lookahead_fetch = (concurrent_fetch_count / 2).max(50).min(150); // Fetch 50-150 blocks ahead
+                        let fetch_target = buffer_space.max(lookahead_fetch); // At least fill buffer, ideally fetch ahead
+                        fetch_target.min(concurrent_fetch_count).min(remaining)
                     } else {
                         // Caught up: just fetch what's needed (memory optimization)
                         needed.min(concurrent_fetch_count).min(remaining)
                     };
                     let fetch_count = aggressive_fetch;
-                    if fetch_count > 0 {
+                    // Only refill if we have room AND we're not stuck on the same failing blocks
+                    // Check: if buffer hasn't grown in the last iteration, skip refill to avoid infinite loop
+                    // The sequential fallback will handle missing blocks
+                    if fetch_count > 0 && block_buffer.len() > 0 {
+                        // Only refill if we have blocks in buffer (means we're making progress)
+                        // If buffer is empty, let the sequential fallback handle it
                         info!(
                             "(CometBFT Block) Refilling buffer: fetching {} blocks (buffer: {}/{}, gap: {}, memory-optimized: {})",
                             fetch_count,
@@ -1178,10 +1339,37 @@ impl Block {
         }
 
         // Function runs continuously - only returns on error
+        //
+        // BACKGROUND TASK CLEANUP:
+        // When the function returns (on error via ?), the following happens:
+        // 1. tx_sender is dropped → unbounded channel closes immediately
+        // 2. Background task's tx_receiver.recv() returns None (channel closed)
+        // 3. The while loop in the background task exits
+        // 4. The background task completes and exits cleanly
+        // 5. bg_task handle is dropped → task becomes "detached" but is already completed
+        //
+        // IMPORTANT: The background task exits cleanly and does NOT leave a shadow process because:
+        // - When the channel closes, recv() returns None immediately (no blocking wait)
+        // - The task's while loop exits, and the async block completes
+        // - The task finishes execution and is cleaned up by Tokio's runtime
+        // - No infinite loops or blocking operations keep it alive
+        //
+        // The task handle (bg_task) is intentionally not awaited because:
+        // - The loop only exits on error (via ?), which propagates immediately
+        // - Waiting for bg_task.await would block error propagation unnecessarily
+        // - The task exits naturally and quickly when the channel closes
+        // - Any in-flight batch writes will complete before the task exits (they're already in progress)
+        //
+        // NOTE: If you need to guarantee all buffered batches are flushed before shutdown,
+        // you would need to restructure to catch errors, flush, close channel, wait for task,
+        // then return error. This is a larger refactor and may not be necessary since:
+        // - The task processes batches quickly (they're already in the channel)
+        // - The exporter resumes from last persisted height on restart anyway
+        // - The task exits cleanly when the channel closes
+        //
+        // The loop above runs forever, so this return is unreachable (function only returns on error)
         // Background task and storage Arc will be cleaned up when function returns (on error)
         // or when the module is dropped (on shutdown)
-        // Note: Uptime calculations now run periodically within the loop (every 1000 blocks)
-        // The loop above runs forever, so this return is unreachable (function only returns on error)
         #[allow(unreachable_code)]
         Ok(())
     }
@@ -1549,6 +1737,7 @@ impl Block {
         height: usize,
         block: ChainBlock,
         txs_info: Option<Vec<Tx>>,
+        current_gap: usize,
     ) -> anyhow::Result<()> {
 
         // Validate block height matches expected (defensive programming)
@@ -1575,6 +1764,16 @@ impl Block {
         if self.recent_block_times.len() > 100 {
             self.recent_block_times.pop_front();
         }
+
+        // CATCH-UP MODE OPTIMIZATION: When far behind (gap > catchup_mode_threshold), defer non-critical metric updates
+        // This significantly speeds up processing during catch-up (learned from Go script being 30x faster)
+        // - Skip validator metrics (most expensive: ~86 metric updates per block)
+        // - Only update essential metrics (gap, current height) every block
+        // - Update all metrics periodically (every 1000 blocks) to maintain accuracy
+        let catchup_mode_threshold = self.app_context.config.network.cometbft.block.catchup_mode_threshold;
+        const METRIC_UPDATE_INTERVAL: usize = 1000; // Update all metrics every 1000 blocks in catch-up mode (aggressive optimization for faster catch-up)
+        let is_catchup_mode = current_gap > catchup_mode_threshold;
+        let should_update_all_metrics = !is_catchup_mode || (height % METRIC_UPDATE_INTERVAL == 0);
 
         let block_proposer = block.header.proposer_address.clone();
         let block_signatures = block.last_commit.signatures.clone();
@@ -1624,12 +1823,15 @@ impl Block {
         // Set metric with block's actual transaction count
         // This is a Gauge metric, so it represents the current block's tx count
         // Prometheus will scrape this value, and since we process sequentially, each block's value is accurate
-        COMETBFT_BLOCK_TXS
-            .with_label_values(&[
-                &self.app_context.chain_id,
-                &self.app_context.config.general.network,
-            ])
-            .set(tx_count as f64);
+        // In catch-up mode, only update periodically to speed up processing
+        if should_update_all_metrics {
+            COMETBFT_BLOCK_TXS
+                .with_label_values(&[
+                    &self.app_context.chain_id,
+                    &self.app_context.config.general.network,
+                ])
+                .set(tx_count as f64);
+        }
 
         let mut block_avg_tx_size: f64 = 0.0;
         let mut block_gas_wanted: f64 = 0.0;
@@ -1637,9 +1839,9 @@ impl Block {
         let mut block_avg_tx_gas_wanted: f64 = 0.0;
         let mut block_avg_tx_gas_used: f64 = 0.0;
 
-        // Only process transaction data (decode, calculate sizes, gas metrics) if tx.enabled is true
-        // When disabled, we skip all transaction processing to avoid unnecessary work
-        if self.app_context.config.network.cometbft.block.tx.enabled && !block.data.txs.is_empty() {
+        // Calculate transaction size even when tx.enabled is false (only requires base64 decoding, not tx_search)
+        // This provides accurate tx size metrics regardless of tx processing configuration
+        if !block.data.txs.is_empty() {
             block_avg_tx_size = block
                 .data
                 .txs
@@ -1653,6 +1855,11 @@ impl Block {
                 })
                 .sum::<usize>() as f64
                 / block.data.txs.len() as f64;
+        }
+
+        // Only process transaction gas data (from tx_search) if tx.enabled is true
+        // Gas metrics require tx_search which is more expensive and may not be available
+        if self.app_context.config.network.cometbft.block.tx.enabled && !block.data.txs.is_empty() {
 
             // Calculate gas metrics only if tx.enabled is true in config
             // We respect the config setting and only collect tx data when explicitly enabled
@@ -1722,7 +1929,8 @@ impl Block {
 
         // Set gas metrics only if tx.enabled is true in config
         // We respect the config setting and only set metrics when tx collection is explicitly enabled
-        if self.app_context.config.network.cometbft.block.tx.enabled {
+        // In catch-up mode, only update periodically to speed up processing
+        if self.app_context.config.network.cometbft.block.tx.enabled && should_update_all_metrics {
             COMETBFT_BLOCK_GAS_WANTED
                 .with_label_values(&[
                     &self.app_context.chain_id,
@@ -1767,53 +1975,55 @@ impl Block {
         // Note: Signatures are buffered and written in batches by the caller (process_block_window)
         // This method just processes the block and updates metrics sequentially
 
-
-        COMETBFT_VALIDATOR_PROPOSED_BLOCKS
-            .with_label_values(&[
-                &block_proposer,
-                &self.app_context.chain_id,
-                &self.app_context.config.general.network,
-                &validator_alert_addresses.contains(&block_proposer).to_string(),
-            ])
-            .inc();
-
-        // Increment total blocks counter for all validators in active set
-        // This represents total opportunities to sign (whether they signed or not)
-        for validator in &self.validators {
-            let fires_alerts = validator_alert_addresses.contains(validator).to_string();
-
-            COMETBFT_VALIDATOR_TOTAL_BLOCKS
+        // Always update proposer metric (cheap, single update)
+        if should_update_all_metrics {
+            COMETBFT_VALIDATOR_PROPOSED_BLOCKS
                 .with_label_values(&[
-                    validator,
+                    &block_proposer,
                     &self.app_context.chain_id,
                     &self.app_context.config.general.network,
-                    &fires_alerts,
+                    &validator_alert_addresses.contains(&block_proposer).to_string(),
                 ])
                 .inc();
         }
 
-        let validators_missing_block: Vec<String> = self
-            .validators
-            .iter()
-            .filter(|validator| {
-                block_signatures
-                    .iter()
-                    .all(|sig| sig.validator_address != validator.as_str())
-            })
-            .cloned()
-            .collect();
+        // Always update validator metrics if not in catch-up mode, or periodically in catch-up mode
+        if should_update_all_metrics {
+            // OPTIMIZATION: Pre-compute alert flags and use HashSet for faster lookups
+            // This reduces string allocations and improves performance when processing many validators
+            let validator_alert_set: std::collections::HashSet<&String> = validator_alert_addresses.iter().collect();
+            let block_signature_addresses: std::collections::HashSet<&str> = block_signatures
+                .iter()
+                .map(|sig| sig.validator_address.as_str())
+                .collect();
 
-        for validator in validators_missing_block {
-            let fires_alerts = validator_alert_addresses.contains(&validator).to_string();
+            // Increment total blocks counter for all validators in active set
+            // This represents total opportunities to sign (whether they signed or not)
+            // OPTIMIZATION: Pre-compute fires_alerts string once per validator to avoid repeated allocations
+            for validator in &self.validators {
+                let fires_alerts = validator_alert_set.contains(validator).to_string();
 
-            COMETBFT_VALIDATOR_MISSED_BLOCKS
-                .with_label_values(&[
-                    &validator,
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                    &fires_alerts,
-                ])
-                .inc();
+                COMETBFT_VALIDATOR_TOTAL_BLOCKS
+                    .with_label_values(&[
+                        validator,
+                        &self.app_context.chain_id,
+                        &self.app_context.config.general.network,
+                        &fires_alerts,
+                    ])
+                    .inc();
+
+                // Check if validator missed this block (faster lookup with HashSet)
+                if !block_signature_addresses.contains(validator.as_str()) {
+                    COMETBFT_VALIDATOR_MISSED_BLOCKS
+                        .with_label_values(&[
+                            validator,
+                            &self.app_context.chain_id,
+                            &self.app_context.config.general.network,
+                            &fires_alerts,
+                        ])
+                        .inc();
+                }
+            }
         }
 
         // Set current block height and time metrics

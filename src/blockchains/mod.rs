@@ -1,3 +1,4 @@
+pub mod axelar;
 pub mod babylon;
 pub mod cometbft;
 pub mod coredao;

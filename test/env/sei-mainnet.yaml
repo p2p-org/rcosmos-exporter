@@ -16,12 +16,18 @@
         - name: polkachu
           url: https://sei-rpc.polkachu.com/
           healthEndpoint: /health
+        - name: rhino
+          url: https://rpc.sei-apis.com/
+          healthEndpoint: /health
       lcd:
         - name: p2p
           url: https://api.mainnet.sei.tm.p2p.org/
           healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
         - name: polkachu
           url: https://sei-api.polkachu.com/
+          healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
+        - name: rhino
+          url: https://rest.sei-apis.com
           healthEndpoint: /cosmos/base/tendermint/v1beta1/node_info
 
   node:
@@ -129,11 +135,12 @@
         enabled: true
         interval: 10
         window: 500
-        concurrency: 5
+        concurrency: 25
+        catchup_mode_threshold: 1000
         tx:
           enabled: true
         uptime:
           persistence: true
           # Controls how many blocks' signatures we buffer before flushing to ClickHouse.
           # Higher values = fewer, larger inserts (better throughput during backfill).
-          insert_concurrency: 50
+          insert_concurrency: 200

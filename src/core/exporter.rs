@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
+use crate::blockchains::axelar::broadcaster as axelar_broadcaster;
 use crate::blockchains::babylon::bls;
 use crate::blockchains::cometbft::block::block;
 use crate::blockchains::cometbft::status;
@@ -235,6 +236,14 @@ pub fn network_mode_modules(
             .context("❌ Failed to create Sei Block module")?;
         modules.push(module);
         info!("✅ Sei Block module created");
+    }
+
+    // --- Axelar ---
+    if app_context.config.network.axelar.broadcaster.enabled {
+        let module = axelar_broadcaster::factory(app_context.clone())
+            .context("❌ Failed to create Axelar Broadcaster module")?;
+        modules.push(module);
+        info!("✅ Axelar Broadcaster module created");
     }
 
     Ok(modules)
