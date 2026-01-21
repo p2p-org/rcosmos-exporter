@@ -6,7 +6,6 @@
 
 ---
 
-
 ## Table of Contents
 
 - [rcosmos-exporter](#rcosmos-exporter)
@@ -29,10 +28,11 @@
 
 ## Features
 
-- **Multi-Blockchain Support:** Babylon, CoreDAO, Lombard, Mezo, Namada, Noble, and generic Tendermint-based chains.
+- **Multi-Blockchain Support:** Babylon, CoreDAO, Lombard, Mezo, Namada, Noble, Sei, Axelar, and generic Tendermint-based chains.
+- **High-Performance Backfilling:** Optimized for fast-producing chains with adaptive buffering, concurrent fetching, and catch-up mode.
 - **Prometheus Metrics:** Exposes detailed metrics for blocks, validators, proposals, upgrades, and more.
-- **ClickHouse Integration:** Stores historical validator and block data for advanced analytics.
-- **Grafana Dashboards:** Prebuilt dashboards for instant observability.
+- **ClickHouse Integration:** Async writes with retry logic, stores historical validator and block data for advanced analytics.
+- **Grafana Dashboards:** Prebuilt dashboards for instant observability, including Axelar broadcaster voting.
 - **Flexible Modes:** Run in `node` or `network` mode for granular or holistic monitoring.
 - **Automatic Chain ID Discovery:** Seamless chain_id fetching for CometBFT-based chains.
 - **Modern Config:** All configuration via YAML files—no more legacy env var sprawl.
@@ -43,6 +43,7 @@
 ## Quick Start (Docker Compose)
 
 1. **Clone the repository:**
+
    ```sh
    git clone https://github.com/your-org/rcosmos-exporter.git
    cd rcosmos-exporter
@@ -53,9 +54,11 @@
 
 3. **Start stack and run ClickHouse migrations:**
    - Use the Docker Compose `migrate` profile to run all database migrations before starting the stack:
+
    ```sh
    docker-compose --profile migrate up --build
    ```
+
    - This will set up all required tables and views in ClickHouse.
    This launches:
    - `rcosmos-exporter`
@@ -84,6 +87,7 @@ All configuration is now handled via a YAML file. No environment variables are r
   - `CLICKHOUSE_PASSWORD` (e.g. `mysecurepassword123`)
 
   Working example:
+
   ```sh
   export CLICKHOUSE_URL=http://localhost:8123
   export CLICKHOUSE_DATABASE=default
@@ -139,11 +143,15 @@ network:
       enabled: true
       interval: 10
       window: 500
+      concurrency: 25
+      catchup_mode_threshold: 1000
+      timeout_seconds: 30
       tx:
         enabled: true
       uptime:
         persistence: true
-      
+        insert_concurrency: 10
+
   tendermint:
     bank:
       addresses:
@@ -168,23 +176,23 @@ network:
     upgrade:
       enabled: true
       interval: 60
-  
+
   mezo:
     poa:
       enabled: false
       interval: 30
-  
+
   babylon:
     bls:
       enabled: true
       interval: 30
-  
+
   lombard:
     ledger:
       addresses: []
       enabled: false
       interval: 30
-  
+
   namada:
     account:
       addresses: []
@@ -193,7 +201,7 @@ network:
     pos:
       enabled: false
       interval: 30
-  
+
   coredao:
     block:
       enabled: false
@@ -202,30 +210,64 @@ network:
     validator:
       enabled: false
       interval: 30
-      api: 
+      api:
         enabled: false
-        url: "" # Fallback for the lcd URL 
+        url: "" # Fallback for the lcd URL
         api_key: "" # Fallback for the COREDAO_VALIDATOR_API_KEY environment variable
-        cache_duration_seconds: 300 
-    staking: 
+        cache_duration_seconds: 300
+    staking:
       enabled: false
       interval: 30
+
+  sei:
+    validators:
+      enabled: false
+      interval: 10
+    block:
+      enabled: false
+      interval: 10
+      window: 500
+      concurrency: 25
+      catchup_mode_threshold: 1000
+      timeout_seconds: 30
+      tx:
+        enabled: false
+      uptime:
+        persistence: false
+        insert_concurrency: 200
+
+  axelar:
+    broadcaster:
+      enabled: false
+      interval: 1
+      axelarscan_api: https://api.axelarscan.io
+      alerting:
+        addresses:
+          - axelar1dexdcyf67247kz09vh4hu3phfep2yfut6p6zfk
 ```
 
+**Performance Configuration Options:**
 
-**To use another config:**  
+- `concurrency`: Number of concurrent block fetches (default: 25)
+- `catchup_mode_threshold`: Blocks behind chain tip before deferring non-critical metrics (default: 1000)
+- `timeout_seconds`: RPC request timeout (optional, falls back to general.rpc_timeout_seconds)
+- `insert_concurrency`: ClickHouse batch insert concurrency for uptime data
+
+**To use another config:**
+
 ```sh
 cargo run -- --config path/to/your-config.yaml
 ```
+
 or in Docker Compose, mount your config and set the command accordingly.
 
 ---
 
 ## Modes: Node vs Network
 
-- **Node Mode:**  
+- **Node Mode:**
   Monitors a single node, exposes node-specific metrics (e.g., block production, validator status for that node).
-- **Network Mode:**  
+- **Network Mode:**
   Monitors the entire network, aggregates metrics across all nodes, tracks global validator set, proposals, upgrades, etc.
 
 Choose the mode in your YAML config under `general.mode`.
@@ -234,9 +276,9 @@ Choose the mode in your YAML config under `general.mode`.
 
 ## Chain ID Handling
 
-- **Automatic:**  
+- **Automatic:**
   If `chain_id` is set to `"cometbft"` in your config, the exporter will fetch the chain ID from the first available RPC node at startup.
-- **Manual:**  
+- **Manual:**
   Set `chain_id` to the desired value in your config to override auto-discovery.
 
 ---
@@ -259,7 +301,7 @@ Modules are loaded automatically based on your config.
 
 ## Metrics
 
-Metrics are exposed at `/metrics` in Prometheus format.  
+Metrics are exposed at `/metrics` in Prometheus format.
 **Categories include:**
 
 - **Exporter:** Uptime, version, task status, HTTP requests
@@ -283,13 +325,15 @@ Metrics are exposed at `/metrics` in Prometheus format.
 ## Advanced: ClickHouse
 
 - All validator signatures, uptimes, and first-seen data are stored in ClickHouse.
+- Async writes with exponential backoff retry logic ensure data integrity.
 - You can run custom analytics and long-term queries directly in ClickHouse or via Grafana.
+- SQL utilities included for data gap checking and validation.
 
 ---
 
 ## Contributing
 
-Contributions are welcome!  
+Contributions are welcome!
 Please open issues or pull requests for bug fixes, features, or documentation.
 
 ---
