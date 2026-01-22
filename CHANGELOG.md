@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.2](https://github.com/p2p-org/rcosmos-exporter/compare/v3.0.1...v3.0.2) (2026-01-22)
+
+
+### Bug Fixes
+
+* sei catchup speed ([#125](https://github.com/p2p-org/rcosmos-exporter/issues/125)) ([6b3d2b1](https://github.com/p2p-org/rcosmos-exporter/commit/6b3d2b1aae33efc8f9a8868c11578fdab10459df))
+
 ## [3.0.1](https://github.com/p2p-org/rcosmos-exporter/compare/v3.0.0...v3.0.1) (2026-01-21)
 
 
