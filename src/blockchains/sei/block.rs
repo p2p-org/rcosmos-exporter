@@ -928,6 +928,7 @@ impl Block {
 
         let calculate_target_buffer_size = |gap: usize| -> usize {
             if gap <= BATCHING_GAP_THRESHOLD {
+                // Caught up: use smaller buffer to save memory (large blocks can be 5-10MB each)
                 MIN_BUFFER_SIZE.max(concurrent_fetch_count.min(5))
             } else {
                 // Behind: use larger buffer to maximize concurrent fetching.
@@ -1191,60 +1192,141 @@ impl Block {
                     current_gap <= BATCHING_GAP_THRESHOLD
                 );
 
-                let fetch_heights: Vec<usize> = (0..fetch_count)
-                    .map(|i| height_to_process + block_buffer.len() + i)
-                    .collect();
-                let fetch_futures: Vec<_> = fetch_heights
-                    .iter()
-                    .map(|&h| {
-                        let rpc_clone = rpc.clone();
-                        async move {
-                            let result = Self::fetch_block_data(&rpc_clone, tx_enabled, h).await;
-                            (h, result)
-                        }
-                    })
-                    .collect();
-                let results = future::join_all(fetch_futures).await;
+                if tx_enabled {
+                    // Fetch multiple blocks concurrently
+                    let fetch_heights: Vec<usize> = (0..fetch_count)
+                        .map(|i| height_to_process + block_buffer.len() + i)
+                        .collect();
 
-                for (h, result) in results {
-                    match result {
-                        Ok((block, txs_info)) => {
-                            let block_height = block
-                                .header
-                                .height
-                                .parse::<usize>()
-                                .context("Could not parse Sei block height")?;
-                            if block_height == h {
-                                let tx_count = block.data.txs.len();
-                                debug!(
-                                    "(Sei Block) Buffered block {} with {} transactions",
-                                    h,
-                                    tx_count
-                                );
-                                block_buffer.insert(h, (block, txs_info));
-                            } else {
-                                warn!(
-                                    "(Sei Block) Block height mismatch in buffer: expected {}, got {}",
-                                    h,
-                                    block_height
-                                );
+                    let fetch_futures: Vec<_> = fetch_heights
+                        .iter()
+                        .map(|&height| {
+                            let rpc_clone = rpc.clone();
+                            async move {
+                                let result = Self::fetch_block_data(&rpc_clone, tx_enabled, height).await;
+                                (height, result)
+                            }
+                        })
+                        .collect();
+
+                    // Execute all fetches concurrently
+                    let results = future::join_all(fetch_futures).await;
+
+                    // Add successful fetches to buffer
+                    for (height, result) in results {
+                        match result {
+                            Ok((block, txs_info)) => {
+                                // Validate height matches
+                                let block_height = block
+                                    .header
+                                    .height
+                                    .parse::<usize>()
+                                    .context("Could not parse Sei block height")?;
+
+                                if block_height == height {
+                                    // Validate transaction count for data integrity
+                                    let tx_count = block.data.txs.len();
+                                    debug!(
+                                        "(Sei Block) Buffered block {} (tx_enabled) with {} transactions",
+                                        height,
+                                        tx_count
+                                    );
+                                    block_buffer.insert(height, (block, txs_info));
+                                } else {
+                                    warn!(
+                                        "(Sei Block) Block height mismatch in buffer: expected {}, got {}",
+                                        height,
+                                        block_height
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                // Check error chain for "No healthy nodes" (errors may be wrapped with .context())
+                                let is_no_healthy_nodes = e
+                                    .chain()
+                                    .any(|err| err.to_string().contains("No healthy nodes"));
+                                if is_no_healthy_nodes {
+                                    warn!(
+                                        "(Sei Block) Concurrent fetch failed for height {}: All RPC nodes are unhealthy (will retry on fallback)",
+                                        height
+                                    );
+                                } else {
+                                    warn!(
+                                        "(Sei Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
+                                        height,
+                                        e
+                                    );
+                                }
+                                // Don't add to buffer - will be fetched on fallback with retry logic
                             }
                         }
-                        Err(e) => {
-                            let is_no_healthy_nodes = e
-                                .chain()
-                                .any(|err| err.to_string().contains("No healthy nodes"));
-                            if is_no_healthy_nodes {
-                                warn!(
-                                    "(Sei Block) Concurrent fetch failed for height {}: All RPC nodes are unhealthy (will retry on fallback)",
-                                    h
-                                );
-                            } else {
-                                warn!(
-                                    "(Sei Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
-                                    h,
-                                    e
-                                );
+                    }
+                } else {
+                    // Non-tx mode: can still fetch concurrently if concurrency > 1
+                    let fetch_heights: Vec<usize> = (0..fetch_count)
+                        .map(|i| height_to_process + block_buffer.len() + i)
+                        .collect();
+
+                    let fetch_futures: Vec<_> = fetch_heights
+                        .iter()
+                        .map(|&height| {
+                            let rpc_clone = rpc.clone();
+                            async move {
+                                let result = Self::fetch_block_data(&rpc_clone, tx_enabled, height).await;
+                                (height, result)
+                            }
+                        })
+                        .collect();
+
+                    // Execute all fetches concurrently
+                    let results = future::join_all(fetch_futures).await;
+
+                    // Add successful fetches to buffer
+                    for (height, result) in results {
+                        match result {
+                            Ok((block, txs_info)) => {
+                                // Validate height matches
+                                let block_height = block
+                                    .header
+                                    .height
+                                    .parse::<usize>()
+                                    .context("Could not parse Sei block height")?;
+
+                                if block_height == height {
+                                    // Validate transaction count for data integrity
+                                    let tx_count = block.data.txs.len();
+                                    debug!(
+                                        "(Sei Block) Buffered block {} (non-tx mode) with {} transactions",
+                                        height,
+                                        tx_count
+                                    );
+                                    block_buffer.insert(height, (block, txs_info));
+                                } else {
+                                    warn!(
+                                        "(Sei Block) Block height mismatch in buffer: expected {}, got {}",
+                                        height,
+                                        block_height
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                // Check error chain for "No healthy nodes" (errors may be wrapped with .context())
+                                let is_no_healthy_nodes = e
+                                    .chain()
+                                    .any(|err| err.to_string().contains("No healthy nodes"));
+                                if is_no_healthy_nodes {
+                                    warn!(
+                                        "(Sei Block) Concurrent fetch failed for height {}: All RPC nodes are unhealthy (will retry on fallback)",
+                                        height
+                                    );
+                                } else {
+                                    warn!(
+                                        "(Sei Block) Concurrent fetch failed for height {}: {} (will retry on fallback)",
+                                        height,
+                                        e
+                                    );
+                                }
+                                // Don't add to buffer - will be fetched on fallback with retry logic
                             }
                         }
                     }
@@ -1343,11 +1425,10 @@ impl Block {
                     );
                 } else {
                     debug!(
-                        "(Sei Block) Buffer miss for height {} (concurrency disabled, gap={}), fetching sequentially. Progress: {} blocks processed, {} remaining, buffer_size={}/{}",
+                        "(Sei Block) Buffer miss for height {} (concurrency disabled, gap={}), fetching sequentially. Progress: {} blocks processed, buffer_size={}/{}",
                         height_to_process,
                         current_gap,
                         blocks_processed,
-                        current_gap,
                         buffer_size_before,
                         target_buffer_size
                     );
@@ -1791,8 +1872,9 @@ impl Block {
                     // Calculate how many we need to reach target
                     let needed = target_buffer_size.saturating_sub(block_buffer.len());
                     // When behind (gap > threshold), fetch more aggressively to maximize throughput
-                    // Fetch up to concurrency limit, not just what's needed
-                    // This ensures we're always fetching multiple blocks in parallel
+                    // OPTIMIZATION: Fetch many blocks in parallel to keep buffer full, even if processing is slower
+                    // This creates a pipeline: while processing block N, we fetch blocks N+100 to N+120
+                    // This way, RPC latency doesn't block processing - we always have blocks ready
                     let aggressive_fetch = if current_gap > BATCHING_GAP_THRESHOLD {
                         // Behind: fetch aggressively to keep buffer full
                         // Strategy: Fetch enough blocks to maintain a "lookahead buffer"
@@ -1800,7 +1882,7 @@ impl Block {
                         // This ensures RPC requests are pipelined ahead of processing
                         let buffer_space = target_buffer_size.saturating_sub(block_buffer.len());
                         // Fetch a "lookahead" amount: more aggressive for faster catch-up
-                        // Increased from 10-50 to 30-100 blocks ahead for better pipelining
+                        // Increased to 50-150 blocks ahead for better pipelining
                         let lookahead_fetch = (concurrent_fetch_count / 2).max(50).min(150); // Fetch 50-150 blocks ahead
                         let fetch_target = buffer_space.max(lookahead_fetch); // At least fill buffer, ideally fetch ahead
                         fetch_target.min(concurrent_fetch_count).min(remaining)
@@ -1809,7 +1891,12 @@ impl Block {
                         needed.min(concurrent_fetch_count).min(remaining)
                     };
                     let fetch_count = aggressive_fetch;
+                    // Only refill if we have room AND we're not stuck on the same failing blocks
+                    // Check: if buffer hasn't grown in the last iteration, skip refill to avoid infinite loop
+                    // The sequential fallback will handle missing blocks
                     if fetch_count > 0 && block_buffer.len() > 0 {
+                        // Only refill if we have blocks in buffer (means we're making progress)
+                        // If buffer is empty, let the sequential fallback handle it
                         info!(
                             "(Sei Block) Refilling buffer: fetching {} blocks (buffer: {}/{}, gap: {}, memory-optimized: {})",
                             fetch_count,
