@@ -42,16 +42,18 @@ general:
 
 # Node mode configuration
 # You must set the NODE_NAME environment variable to use this mode, in k8s this could be the pod name, it will be used to identify the node in the metrics.
+# NOTE: Intervals should be kept low (5-10s) for fast-producing chains to avoid false positive "blocks behind" alerts.
+# With a 30s interval on a 2bps chain, nodes can lag by up to 60 blocks, triggering alerts unnecessarily.
 node:
   client: p2p
   tendermint:
     nodeInfo: # Tendermint node info metrics, calls /cosmos/base/node/v1beta1/node_info LCD endpoint.
       enabled: true
-      interval: 30
+      interval: 5  # Reduced from 30s to minimize block height lag for accurate "blocks behind" alerts
   cometbft:
-    status: # CometBFT status metrics, calls /status RPC endpoint.
+    status: # CometBFT status metrics, calls /status RPC endpoint. Updates rcosmos_cometbft_node_latest_block_height.
       enabled: true
-      interval: 30
+      interval: 5  # Reduced from 30s to minimize block height lag for accurate "blocks behind" alerts
 
 # Network mode configuration
 network:

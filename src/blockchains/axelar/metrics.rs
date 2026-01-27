@@ -10,7 +10,7 @@ lazy_static! {
             "rcosmos_axelar_evm_votes_yes",
             "Total number of EVM votes (Yes) cast by a validator"
         ),
-        &["validator_address", "chain_id", "network", "alerts", "sender_chain", "recipient_chain"]
+        &["validator_address", "moniker", "chain_id", "network", "alerts", "sender_chain", "recipient_chain"]
     )
     .unwrap();
 
@@ -20,7 +20,7 @@ lazy_static! {
             "rcosmos_axelar_evm_votes_no",
             "Total number of EVM votes (No) cast by a validator"
         ),
-        &["validator_address", "chain_id", "network", "alerts", "sender_chain", "recipient_chain"]
+        &["validator_address", "moniker", "chain_id", "network", "alerts", "sender_chain", "recipient_chain"]
     )
     .unwrap();
 
@@ -30,7 +30,7 @@ lazy_static! {
             "rcosmos_axelar_evm_votes_total",
             "Total number of EVM polls a validator participated in"
         ),
-        &["validator_address", "chain_id", "network", "alerts", "sender_chain", "recipient_chain"]
+        &["validator_address", "moniker", "chain_id", "network", "alerts", "sender_chain", "recipient_chain"]
     )
     .unwrap();
 
@@ -40,7 +40,7 @@ lazy_static! {
             "rcosmos_axelar_evm_votes_late",
             "Number of late EVM votes cast by a validator"
         ),
-        &["validator_address", "chain_id", "network", "alerts", "sender_chain", "recipient_chain"]
+        &["validator_address", "moniker", "chain_id", "network", "alerts", "sender_chain", "recipient_chain"]
     )
     .unwrap();
 
@@ -50,7 +50,7 @@ lazy_static! {
             "rcosmos_axelar_evm_votes_latest_height",
             "Latest poll height at which a validator cast a vote (baseline for tracking progress)"
         ),
-        &["validator_address", "chain_id", "network", "alerts"]
+        &["validator_address", "moniker", "chain_id", "network", "alerts"]
     )
     .unwrap();
 
@@ -71,6 +71,27 @@ lazy_static! {
             "Total number of EVM polls processed"
         ),
         &["chain_id", "network"]
+    )
+    .unwrap();
+
+    /// Number of EVM votes missed by a validator (validator was expected to vote but didn't)
+    pub static ref AXELAR_EVM_VOTES_MISSED: CounterVec = CounterVec::new(
+        Opts::new(
+            "rcosmos_axelar_evm_votes_missed",
+            "Number of EVM votes missed by a validator (validator was in participants list but didn't cast a vote)"
+        ),
+        &["validator_address", "moniker", "chain_id", "network", "alerts", "sender_chain", "recipient_chain"]
+    )
+    .unwrap();
+
+    /// Indicates that a validator's broadcaster_address is missing from the getValidators API response
+    /// Set to 1 if broadcaster_address is missing, 0 otherwise
+    pub static ref AXELAR_EVM_BROADCASTER_ADDRESS_UNKNOWN: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "rcosmos_axelar_evm_broadcaster_address_unknown",
+            "Indicates that a validator's broadcaster_address is missing from the getValidators API response (1 = missing, 0 = present)"
+        ),
+        &["validator_address", "moniker", "chain_id", "network", "alerts"]
     )
     .unwrap();
 }
@@ -96,5 +117,11 @@ pub fn axelar_custom_metrics() {
         .unwrap();
     REGISTRY
         .register(Box::new(AXELAR_EVM_VOTES_LATEST_HEIGHT.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(AXELAR_EVM_VOTES_MISSED.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(AXELAR_EVM_BROADCASTER_ADDRESS_UNKNOWN.clone()))
         .unwrap();
 }
