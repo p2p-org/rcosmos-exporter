@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.3](https://github.com/p2p-org/rcosmos-exporter/compare/v3.0.2...v3.0.3) (2026-01-27)
+
+
+### Bug Fixes
+
+* axelar broadcaster metrics ([#127](https://github.com/p2p-org/rcosmos-exporter/issues/127)) ([735429c](https://github.com/p2p-org/rcosmos-exporter/commit/735429c41b664582fa2708b3fd595cbea865f445))
+
 ## [3.0.2](https://github.com/p2p-org/rcosmos-exporter/compare/v3.0.1...v3.0.2) (2026-01-22)
 
 
