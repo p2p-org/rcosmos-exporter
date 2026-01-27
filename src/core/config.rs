@@ -765,14 +765,27 @@ impl Default for AxelarBroadcasterConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AxelarBroadcasterAlertingConfig {
+    /// List of broadcaster/delegator addresses (axelar1...) to track.
+    /// If you also know the operator address (axelarvaloper1...), you can optionally provide
+    /// a mapping in `validators` for more reliable missed vote detection.
     #[serde(default)]
     pub addresses: Vec<String>,
+
+    /// Optional mapping of broadcaster/delegator addresses (axelar1...) to operator addresses (axelarvaloper1...).
+    /// If provided, this is used directly for missed vote detection. If not provided, we attempt
+    /// to resolve it via the LCD API, but this may fail if the broadcaster hasn't delegated.
+    /// Example:
+    ///   validators:
+    ///     axelar1dexdcyf67247kz09vh4hu3phfep2yfut6p6zfk: axelarvaloper13s44uvtzf578zjze9eqeh0mnemj60pwn83frcp
+    #[serde(default)]
+    pub validators: std::collections::HashMap<String, String>,
 }
 
 impl Default for AxelarBroadcasterAlertingConfig {
     fn default() -> Self {
         Self {
             addresses: Vec::new(),
+            validators: std::collections::HashMap::new(),
         }
     }
 }

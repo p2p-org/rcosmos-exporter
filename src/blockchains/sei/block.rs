@@ -112,11 +112,11 @@ impl Block {
                 height, page, PER_PAGE
             ));
 
-            // Tx fetch: use endpoint preference to prioritize nodes with tx_search support
-            // NodePool will try preferred nodes first, then fall back to all nodes if they fail
-            // This ensures we get tx data when available, but don't block for long if preferred nodes are down
+        // Tx fetch: use endpoint preference to prioritize nodes with tx_search support
+        // NodePool will try preferred nodes first, then fall back to all nodes if they fail
+        // This ensures we get tx data when available, but don't block for long if preferred nodes are down
             match rpc.get_with_endpoint_preference(tx_path.clone(), Some("tx_search")).await {
-                Ok(res) => {
+            Ok(res) => {
                     // Try to parse the response
                     match from_str::<crate::blockchains::sei::types::SeiTxResponse>(&res) {
                         Ok(resp) => {
@@ -170,7 +170,7 @@ impl Block {
                         Err(_) => {
                             // Fallback to flexible JSON parsing for first page only
                             if page == 1 {
-                                match serde_json::from_str::<serde_json::Value>(&res) {
+                match serde_json::from_str::<serde_json::Value>(&res) {
                                     Ok(json) => {
                                         if let Some(txs_val) = extract_txs_from_response(&json) {
                                             match serde_json::from_value::<Vec<crate::blockchains::sei::types::SeiTx>>(
@@ -181,34 +181,34 @@ impl Block {
                                                     // For fallback parsing, we can't determine total, so stop after first page
                                                     break;
                                                 }
-                                                Err(e) => {
+                                Err(e) => {
                                                     let preview = create_error_preview(&res, 200);
-                                                    warn!(
+                                    warn!(
                                                         "(Sei Block) Unable to parse tx response for height {} (page {}): {} (response length: {}, preview: {}). Continuing without txs.",
-                                                        height,
+                                        height,
                                                         page,
-                                                        e,
-                                                        res.len(),
-                                                        preview
-                                                    );
-                                                    return None;
-                                                }
-                                            }
+                                        e,
+                                        res.len(),
+                                        preview
+                                    );
+                                    return None;
+                                }
+                            }
                                         } else {
                                             // No txs found - treat as empty
                                             return Some(Vec::new());
                                         }
-                                    }
-                                    Err(e) => {
+                    }
+                    Err(e) => {
                                         let preview = create_error_preview(&res, 200);
-                                        warn!(
+                        warn!(
                                             "(Sei Block) Unable to parse tx response as JSON for height {} (page {}): {} (response length: {}, preview: {}). Continuing without txs.",
-                                            height,
+                            height,
                                             page,
-                                            e,
-                                            res.len(),
-                                            preview
-                                        );
+                            e,
+                            res.len(),
+                            preview
+                        );
                                         return None;
                                     }
                                 }
@@ -221,17 +221,17 @@ impl Block {
                                 );
                                 break;
                             }
-                        }
                     }
                 }
-                Err(e) => {
+            }
+            Err(e) => {
                     if page == 1 {
                         // First page failed - return None to indicate tx_search unavailable
-                        warn!(
-                            "(Sei Block) Unable to fetch tx data for height {}: {}. Continuing without txs.",
-                            height,
-                            e
-                        );
+                warn!(
+                    "(Sei Block) Unable to fetch tx data for height {}: {}. Continuing without txs.",
+                    height,
+                    e
+                );
                         return None;
                     } else {
                         // Subsequent page failed - we've likely reached the end or hit an error
@@ -404,11 +404,11 @@ impl Block {
 
         // tx count - only update in catch-up mode if should_update_all_metrics
         if should_update_all_metrics {
-            COMETBFT_BLOCK_TXS
-                .with_label_values(&[
-                    &self.app_context.chain_id,
-                    &self.app_context.config.general.network,
-                ])
+        COMETBFT_BLOCK_TXS
+            .with_label_values(&[
+                &self.app_context.chain_id,
+                &self.app_context.config.general.network,
+            ])
                 .set(tx_count as f64);
         }
 
@@ -447,8 +447,8 @@ impl Block {
                         txs_info.len()
                     );
                 }
-                let mut gas_wanted = Vec::new();
-                let mut gas_used = Vec::new();
+                    let mut gas_wanted = Vec::new();
+                    let mut gas_used = Vec::new();
 
                 for tx in txs_info.iter() {
                     if let Some(result) = tx.tx_result.as_ref() {
@@ -461,13 +461,13 @@ impl Block {
                             if let Ok(v) = gu.parse::<usize>() {
                                 gas_used.push(v);
                             }
+                            }
                         }
                     }
-                }
 
-                block_gas_wanted = gas_wanted.iter().sum::<usize>() as f64;
-                block_gas_used = gas_used.iter().sum::<usize>() as f64;
-                if !gas_wanted.is_empty() {
+                    block_gas_wanted = gas_wanted.iter().sum::<usize>() as f64;
+                    block_gas_used = gas_used.iter().sum::<usize>() as f64;
+                    if !gas_wanted.is_empty() {
                     block_avg_tx_gas_wanted =
                         gas_wanted.iter().sum::<usize>() as f64 / gas_wanted.len() as f64;
                     block_avg_tx_gas_used =
@@ -885,20 +885,20 @@ impl Block {
                 + 1;
             if h <= 1 {
                 let latest = last_block
-                    .header
-                    .height
-                    .parse::<usize>()
-                    .context("Could not parse last block height")?;
+            .header
+            .height
+            .parse::<usize>()
+            .context("Could not parse last block height")?;
                 h = latest.saturating_sub(1);
             }
             h
         } else {
             let mut h = self
-                .signature_storage
-                .get_last_processed_height()
-                .await?
-                .unwrap_or(0)
-                + 1;
+            .signature_storage
+            .get_last_processed_height()
+            .await?
+            .unwrap_or(0)
+            + 1;
             if h <= 1 {
                 let latest = last_block
                     .header
@@ -1385,7 +1385,7 @@ impl Block {
                 if buffered_height != height_to_process {
                     error!(
                         "(Sei Block) CRITICAL: Block height mismatch in buffer remove: expected {}, got {}",
-                        height_to_process,
+            height_to_process,
                         buffered_height
                     );
                     anyhow::bail!(
