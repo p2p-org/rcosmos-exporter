@@ -53,6 +53,8 @@ impl Slashing {
             }
         }
 
+        let alerts = self.app_context.config.general.alerting.validators.clone();
+
         for info in all_info {
             let (_, hash) = bech32::decode(&info.address)
                 .context("Could not decode validator address into bech32")?;
@@ -64,12 +66,13 @@ impl Slashing {
             let index_offset = info.index_offset.parse::<f64>().unwrap_or(0.0);
             let jailed_until = info.jailed_until.and_utc().timestamp() as f64;
             let tombstoned = if info.tombstoned { 1 } else { 0 };
+            let fires_alerts = alerts.contains(&address).to_string();
 
             TENDERMINT_SLASHING_MISSED_BLOCKS
-                .with_label_values(&[&address, &self.app_context.chain_id, network])
+                .with_label_values(&[&address, &self.app_context.chain_id, network, &fires_alerts])
                 .set(missed_blocks);
             TENDERMINT_SLASHING_TOMBSTONED
-                .with_label_values(&[&address, &self.app_context.chain_id, network])
+                .with_label_values(&[&address, &self.app_context.chain_id, network, &fires_alerts])
                 .set(tombstoned);
             TENDERMINT_SLASHING_JAILED_UNTIL
                 .with_label_values(&[&address, &self.app_context.chain_id, network])
