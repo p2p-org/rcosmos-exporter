@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/p2p-org/rcosmos-exporter/compare/v3.0.3...v3.1.0) (2026-07-09)
+
+
+### Features
+
+* add alerts label to slashing missed_blocks and tombstoned metrics ([#129](https://github.com/p2p-org/rcosmos-exporter/issues/129)) ([77fadf9](https://github.com/p2p-org/rcosmos-exporter/commit/77fadf938a1ff6b5ac9e2d25c4dd297c59bf9ca0))
+
 ## [3.0.3](https://github.com/p2p-org/rcosmos-exporter/compare/v3.0.2...v3.0.3) (2026-01-27)
 
 
