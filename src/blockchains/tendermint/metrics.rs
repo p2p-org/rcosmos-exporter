@@ -221,7 +221,7 @@ lazy_static! {
             "rcosmos_tendermint_slashing_missed_blocks",
             "Missed blocks counter for validator (slashing)"
         ),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_SLASHING_TOMBSTONED: IntGaugeVec = IntGaugeVec::new(
@@ -229,7 +229,7 @@ lazy_static! {
             "rcosmos_tendermint_slashing_tombstoned",
             "Tombstoned status for validator (slashing)"
         ),
-        &["address", "chain_id", "network"]
+        &["address", "chain_id", "network", "alerts"]
     )
     .unwrap();
     pub static ref TENDERMINT_SLASHING_JAILED_UNTIL: GaugeVec = GaugeVec::new(
