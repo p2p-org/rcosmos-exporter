@@ -53,7 +53,7 @@ impl Slashing {
             }
         }
 
-        let alerts = self.app_context.config.general.alerting.validators.clone();
+        let alerts = &self.app_context.config.general.alerting.validators;
 
         for info in all_info {
             let (_, hash) = bech32::decode(&info.address)
