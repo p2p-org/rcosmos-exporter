@@ -12,9 +12,14 @@ jobs:
   sca:
     uses: p2p-org/security-workflows/.github/workflows/sca.yaml@main
     secrets: inherit
+  docker-scan:
+    uses: p2p-org/security-workflows/.github/workflows/docker-scan.yaml@main
+    secrets: inherit
+    with:
+      image_name: ${{ github.repository }}
   security-quality-gate:
     uses: p2p-org/security-workflows/.github/workflows/security-quality-gate.yaml@main
     secrets: inherit
-    needs: [sast, sca]
+    needs: [sast, sca, docker-scan]
     with:
       block: false
