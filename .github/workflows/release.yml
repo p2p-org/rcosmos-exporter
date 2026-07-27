@@ -6,8 +6,8 @@ on:
       - '*'
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  REGISTRY: kcr.infra.p2p.org
+  IMAGE_NAME: cosmos/rcosmos-exporter
   BINARY_NAME: rcosmos-exporter
 
 jobs:
@@ -15,18 +15,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - uses: docker/login-action@v1
+    - uses: docker/login-action@v3
       with:
         registry: ${{env.REGISTRY}}
-        username: ${{github.actor}}
-        password: ${{secrets.GITHUB_TOKEN}}
+        username: robot@cosmos+cosmos-github-bot
+        password: ${{secrets.KCR_TOKEN}}
 
     - name: build container
       run: |
-        docker build --tag ${{ env.REGISTRY }}/${{ github.repository }}:${GITHUB_REF#refs/tags/} .
-        docker tag ${{ env.REGISTRY }}/${{ github.repository }}:${GITHUB_REF#refs/tags/} ${{ env.REGISTRY }}/${{ github.repository }}:latest
-        docker push ${{ env.REGISTRY }}/${{ github.repository }}:${GITHUB_REF#refs/tags/}
-        docker push ${{ env.REGISTRY }}/${{ github.repository }}:latest
+        docker build --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${GITHUB_REF#refs/tags/} .
+        docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${GITHUB_REF#refs/tags/} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${GITHUB_REF#refs/tags/}
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
