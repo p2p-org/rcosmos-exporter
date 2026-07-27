@@ -14,8 +14,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: docker/login-action@v3
+    - uses: actions/checkout@0717577d45739eb3c851188b29f50ed6c0b2194e # v2.8.0
+    - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
       with:
         registry: ${{env.REGISTRY}}
         username: robot@cosmos+cosmos-github-bot
@@ -27,7 +27,7 @@ jobs:
         docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${GITHUB_REF#refs/tags/} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
         docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${GITHUB_REF#refs/tags/}
         docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-    - uses: actions-rs/toolchain@v1
+    - uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # v1.0.7
       with:
         toolchain: stable
         override: true
@@ -40,7 +40,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev perl make musl-tools
 
     - name: Build Release
-      uses: actions-rs/cargo@v1
+      uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # v1.0.3
       with:
         command: build
         args: --release --target x86_64-unknown-linux-musl
