@@ -10,6 +10,9 @@ env:
   IMAGE_NAME: cosmos/rcosmos-exporter
   BINARY_NAME: rcosmos-exporter
 
+permissions:
+  contents: write # gh release
+
 jobs:
   build:
     runs-on: ubuntu-latest
